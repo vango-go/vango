@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vango Flood Benchmark - Client Patch Performance</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 { color: #6ee7b7; margin-bottom: 0.5rem; }
+    .subtitle { color: #888; margin-bottom: 2rem; }
+    .benchmark-section {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .benchmark-title { color: #6ee7b7; margin: 0 0 1rem 0; font-size: 1.25rem; }
+    button {
+      background: linear-gradient(135deg, #6ee7b7, #3b82f6);
+      border: none;
+      color: #000;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 0.5rem;
+      margin-bottom: 0.5rem;
+      transition: transform 0.1s;
+    }
+    button:hover { transform: scale(1.02); }
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .results {
+      background: #0f3460;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+    }
+    .result-value { color: #6ee7b7; font-weight: bold; }
+    .result-pass { color: #22c55e; }
+    .result-warn { color: #eab308; }
+    .result-fail { color: #ef4444; }
+    #target-container {
+      display: none;
+      border: 1px dashed #444;
+      padding: 1rem;
+      margin-top: 1rem;
+      max-height: 200px;
+      overflow: auto;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #333; }
+    th { color: #6ee7b7; }
+  </style>
+</head>
+<body>
+  <h1>🌊 Vango Flood Benchmark</h1>
+  <p class="subtitle">Client-Side Patch Application Performance</p>
+
+  <!-- INSERT_NODE benchmark -->
+  <div class="benchmark-section">
+    <h3 class="benchmark-title">1. INSERT_NODE Patches</h3>
+    <p>Measures time to insert DOM nodes via patches.</p>
+    <button onclick="runInsertBenchmark(100)">Insert 100</button>
+    <button onclick="runInsertBenchmark(500)">Insert 500</button>
+    <button onclick="runInsertBenchmark(1000)">Insert 1000</button>
+    <div id="insert-results" class="results">Click a button to run benchmark...</div>
+  </div>
+
+  <!-- SET_TEXT benchmark -->
+  <div class="benchmark-section">
+    <h3 class="benchmark-title">2. SET_TEXT Patches</h3>
+    <p>Measures time to update text content across many elements.</p>
+    <button onclick="runTextBenchmark(100)">Update 100</button>
+    <button onclick="runTextBenchmark(500)">Update 500</button>
+    <button onclick="runTextBenchmark(1000)">Update 1000</button>
+    <div id="text-results" class="results">Click a button to run benchmark...</div>
+  </div>
+
+  <!-- SET_ATTR benchmark -->
+  <div class="benchmark-section">
+    <h3 class="benchmark-title">3. SET_ATTR Patches</h3>
+    <p>Measures time to update attributes across many elements.</p>
+    <button onclick="runAttrBenchmark(100)">Update 100</button>
+    <button onclick="runAttrBenchmark(500)">Update 500</button>
+    <button onclick="runAttrBenchmark(1000)">Update 1000</button>
+    <div id="attr-results" class="results">Click a button to run benchmark...</div>
+  </div>
+
+  <!-- Mixed benchmark -->
+  <div class="benchmark-section">
+    <h3 class="benchmark-title">4. Mixed Patches (Realistic)</h3>
+    <p>Simulates realistic patch bursts with mixed operations.</p>
+    <button onclick="runMixedBenchmark(100)">Mixed 100</button>
+    <button onclick="runMixedBenchmark(500)">Mixed 500</button>
+    <button onclick="runMixedBenchmark(1000)">Mixed 1000</button>
+    <div id="mixed-results" class="results">Click a button to run benchmark...</div>
+  </div>
+
+  <!-- Summary -->
+  <div class="benchmark-section">
+    <h3 class="benchmark-title">📊 All Results</h3>
+    <button onclick="runAllBenchmarks()">Run All Benchmarks</button>
+    <button onclick="clearResults()">Clear</button>
+    <table id="summary-table">
+      <thead>
+        <tr>
+          <th>Test</th>
+          <th>Count</th>
+          <th>Time</th>
+          <th>Per Op</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="summary-body">
+        <!-- Results will be inserted here -->
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Hidden container for DOM operations -->
+  <div id="target-container"></div>
+
+  <script>
+    const FRAME_BUDGET = 16.67; // 60fps = 16.67ms per frame
+    const allResults = [];
+
+    // Patch operation types (from Vango protocol)
+    const PatchOp = {
+      SetText: 0x02,
+      SetAttr: 0x03,
+      RemoveAttr: 0x04,
+      InsertNode: 0x05,
+      RemoveNode: 0x06,
+      MoveNode: 0x07,
+      ReplaceNode: 0x08,
+      SetClass: 0x09,
+      SetStyle: 0x0A,
+    };
+
+    // Simulate patch from server
+    function createPatch(op, hid, key, value, node) {
+      return { op, hid, key, value, node };
+    }
+
+    // Apply a single patch to the DOM
+    function applyPatch(patch, container) {
+      switch (patch.op) {
+        case PatchOp.SetText: {
+          const el = container.querySelector(`[data-hid="${patch.hid}"]`);
+          if (el) el.textContent = patch.value;
+          break;
+        }
+        case PatchOp.SetAttr: {
+          const el = container.querySelector(`[data-hid="${patch.hid}"]`);
+          if (el) el.setAttribute(patch.key, patch.value);
+          break;
+        }
+        case PatchOp.InsertNode: {
+          const parent = container.querySelector(`[data-hid="${patch.hid}"]`) || container;
+          const newEl = document.createElement(patch.node.tag || 'div');
+          newEl.setAttribute('data-hid', patch.node.hid);
+          if (patch.node.text) newEl.textContent = patch.node.text;
+          if (patch.node.class) newEl.className = patch.node.class;
+          parent.appendChild(newEl);
+          break;
+        }
+        case PatchOp.RemoveNode: {
+          const el = container.querySelector(`[data-hid="${patch.hid}"]`);
+          if (el) el.remove();
+          break;
+        }
+        case PatchOp.ReplaceNode: {
+          const el = container.querySelector(`[data-hid="${patch.hid}"]`);
+          if (el) {
+            const newEl = document.createElement(patch.node.tag || 'div');
+            newEl.setAttribute('data-hid', patch.node.hid);
+            if (patch.node.text) newEl.textContent = patch.node.text;
+            el.replaceWith(newEl);
+          }
+          break;
+        }
+        case PatchOp.SetClass: {
+          const el = container.querySelector(`[data-hid="${patch.hid}"]`);
+          if (el) el.className = patch.value;
+          break;
+        }
+        case PatchOp.SetStyle: {
+          const el = container.querySelector(`[data-hid="${patch.hid}"]`);
+          if (el) el.style.cssText = patch.value;
+          break;
+        }
+      }
+    }
+
+    // Apply batch of patches
+    function applyPatches(patches, container) {
+      for (const patch of patches) {
+        applyPatch(patch, container);
+      }
+    }
+
+    // Benchmark runner
+    function runBenchmark(name, count, setupFn, patchFn) {
+      const container = document.getElementById('target-container');
+      
+      // Setup
+      setupFn(container, count);
+      
+      // Generate patches
+      const patches = [];
+      for (let i = 0; i < count; i++) {
+        patches.push(patchFn(i));
+      }
+
+      // Warm up
+      applyPatches(patches.slice(0, 10), container);
+      
+      // Measure
+      const start = performance.now();
+      applyPatches(patches, container);
+      const duration = performance.now() - start;
+
+      // Cleanup
+      container.innerHTML = '';
+
+      const perOp = duration / count;
+      const status = duration <= FRAME_BUDGET ? 'PASS' : duration <= FRAME_BUDGET * 2 ? 'WARN' : 'FAIL';
+
+      return { name, count, duration, perOp, status };
+    }
+
+    // Setup: create elements to update
+    function setupElements(container, count) {
+      container.innerHTML = '';
+      for (let i = 0; i < count; i++) {
+        const el = document.createElement('div');
+        el.setAttribute('data-hid', `h${i}`);
+        el.textContent = `Item ${i}`;
+        el.className = 'item';
+        container.appendChild(el);
+      }
+    }
+
+    // INSERT_NODE benchmark
+    function runInsertBenchmark(count) {
+      const result = runBenchmark(
+        'INSERT_NODE',
+        count,
+        (container) => { container.innerHTML = '<div data-hid="root"></div>'; },
+        (i) => createPatch(PatchOp.InsertNode, 'root', null, null, {
+          tag: 'div',
+          hid: `new-${i}`,
+          text: `New Item ${i}`,
+          class: 'new-item'
+        })
+      );
+      displayResult('insert-results', result);
+      addToSummary(result);
+    }
+
+    // SET_TEXT benchmark
+    function runTextBenchmark(count) {
+      const result = runBenchmark(
+        'SET_TEXT',
+        count,
+        setupElements,
+        (i) => createPatch(PatchOp.SetText, `h${i}`, null, `Updated ${i}`)
+      );
+      displayResult('text-results', result);
+      addToSummary(result);
+    }
+
+    // SET_ATTR benchmark
+    function runAttrBenchmark(count) {
+      const result = runBenchmark(
+        'SET_ATTR',
+        count,
+        setupElements,
+        (i) => createPatch(PatchOp.SetAttr, `h${i}`, 'data-value', `${i * 2}`)
+      );
+      displayResult('attr-results', result);
+      addToSummary(result);
+    }
+
+    // Mixed benchmark (realistic)
+    function runMixedBenchmark(count) {
+      const ops = [PatchOp.SetText, PatchOp.SetAttr, PatchOp.SetClass];
+      const result = runBenchmark(
+        'MIXED',
+        count,
+        setupElements,
+        (i) => {
+          const op = ops[i % ops.length];
+          switch (op) {
+            case PatchOp.SetText:
+              return createPatch(op, `h${i}`, null, `Mix ${i}`);
+            case PatchOp.SetAttr:
+              return createPatch(op, `h${i}`, 'title', `Title ${i}`);
+            case PatchOp.SetClass:
+              return createPatch(op, `h${i}`, null, `item updated-${i % 5}`);
+          }
+        }
+      );
+      displayResult('mixed-results', result);
+      addToSummary(result);
+    }
+
+    // Display result in element
+    function displayResult(elementId, result) {
+      const el = document.getElementById(elementId);
+      const statusClass = result.status === 'PASS' ? 'result-pass' : 
+                          result.status === 'WARN' ? 'result-warn' : 'result-fail';
+      el.innerHTML = `
+${result.name} × ${result.count}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+Total time:   <span class="result-value">${result.duration.toFixed(2)} ms</span>
+Per operation: <span class="result-value">${(result.perOp * 1000).toFixed(2)} µs</span>
+Ops/second:   <span class="result-value">${Math.round(1000 / result.perOp).toLocaleString()}</span>
+
+<span class="${statusClass}">Status: ${result.status}</span> (target: <16.67ms for 60fps)
+      `;
+    }
+
+    // Add to summary table
+    function addToSummary(result) {
+      allResults.push(result);
+      updateSummaryTable();
+    }
+
+    function updateSummaryTable() {
+      const tbody = document.getElementById('summary-body');
+      tbody.innerHTML = allResults.map(r => {
+        const statusClass = r.status === 'PASS' ? 'result-pass' : 
+                            r.status === 'WARN' ? 'result-warn' : 'result-fail';
+        return `
+          <tr>
+            <td>${r.name}</td>
+            <td>${r.count}</td>
+            <td>${r.duration.toFixed(2)} ms</td>
+            <td>${(r.perOp * 1000).toFixed(1)} µs</td>
+            <td class="${statusClass}">${r.status}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function clearResults() {
+      allResults.length = 0;
+      updateSummaryTable();
+      ['insert-results', 'text-results', 'attr-results', 'mixed-results'].forEach(id => {
+        document.getElementById(id).textContent = 'Click a button to run benchmark...';
+      });
+    }
+
+    async function runAllBenchmarks() {
+      clearResults();
+      const counts = [100, 500, 1000];
+      
+      for (const count of counts) {
+        await new Promise(r => setTimeout(r, 50));
+        runInsertBenchmark(count);
+      }
+      for (const count of counts) {
+        await new Promise(r => setTimeout(r, 50));
+        runTextBenchmark(count);
+      }
+      for (const count of counts) {
+        await new Promise(r => setTimeout(r, 50));
+        runAttrBenchmark(count);
+      }
+      for (const count of counts) {
+        await new Promise(r => setTimeout(r, 50));
+        runMixedBenchmark(count);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vango E2E Roundtrip Benchmark</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #1a1a2e;
+            color: #eee;
+        }
+
+        h1 {
+            color: #6ee7b7;
+        }
+
+        .subtitle {
+            color: #888;
+            margin-bottom: 2rem;
+        }
+
+        .benchmark-section {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        button {
+            background: linear-gradient(135deg, #6ee7b7, #3b82f6);
+            border: none;
+            color: #000;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 0.5rem;
+            transition: transform 0.1s;
+        }
+
+        button:hover {
+            transform: scale(1.02);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .results {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-family: 'Monaco', monospace;
+            font-size: 0.9rem;
+        }
+
+        .result-value {
+            color: #6ee7b7;
+            font-weight: bold;
+        }
+
+        .result-pass {
+            color: #22c55e;
+        }
+
+        .result-warn {
+            color: #eab308;
+        }
+
+        .result-fail {
+            color: #ef4444;
+        }
+
+        #counter-display {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #6ee7b7;
+            text-align: center;
+            padding: 2rem;
+            background: #0f3460;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+        }
+
+        .latency-log {
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 0.5rem;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }
+
+        th {
+            color: #6ee7b7;
+        }
+
+        .instructions {
+            background: #2d3748;
+            border-left: 4px solid #6ee7b7;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>⏱️ Vango E2E Roundtrip Benchmark</h1>
+    <p class="subtitle">Measuring Click → Server → DOM Update latency</p>
+
+    <div class="instructions">
+        <strong>How to use:</strong><br>
+        1. Start Vango dev server: <code>vango dev</code><br>
+        2. Open this page at <code>/benchmark/e2e</code><br>
+        3. Click the counter button to measure roundtrip latency<br>
+        4. Results show: Client→Server→Client time
+    </div>
+
+    <div class="benchmark-section">
+        <h3>Live Counter (E2E Test)</h3>
+        <div id="counter-display" data-hid="counter">0</div>
+        <button id="increment-btn" data-hid="btn">Increment (measures latency)</button>
+        <button onclick="runBurstTest()">Burst Test (10 clicks)</button>
+        <button onclick="clearLatencies()">Clear</button>
+    </div>
+
+    <div class="benchmark-section">
+        <h3>📊 Latency Results</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Target</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="metrics-body">
+                <tr>
+                    <td colspan="4">Click the button to measure...</td>
+                </tr>
+            </tbody>
+        </table>
+        <div id="latency-log" class="latency-log"></div>
+    </div>
+
+    <div class="benchmark-section">
+        <h3>⚠️ Simulated Mode</h3>
+        <p style="color: #888; font-size: 0.9rem;">
+            Without a running Vango server, this page simulates roundtrip latency.<br>
+            For real measurements, run with an actual Vango backend.
+        </p>
+        <button onclick="runSimulatedBenchmark(10)">Simulate 10 RTT</button>
+        <button onclick="runSimulatedBenchmark(100)">Simulate 100 RTT</button>
+        <div id="sim-results" class="results">Click to run simulation...</div>
+    </div>
+
+    <script>
+        const latencies = [];
+        const TARGET_LATENCY = 50; // ms
+
+        // Timestamps for E2E measurement
+        let pendingTimestamp = null;
+
+        // Simulate server processing (for demo without real server)
+        function simulateServerRoundtrip(callback) {
+            const serverProcessing = 0.5 + Math.random() * 2; // 0.5-2.5ms server time
+            const networkLatency = 1 + Math.random() * 5; // 1-6ms each way
+            const totalSim = serverProcessing + (networkLatency * 2);
+
+            setTimeout(() => {
+                callback(totalSim);
+            }, totalSim);
+        }
+
+        // Increment button handler
+        document.getElementById('increment-btn').addEventListener('click', function () {
+            // T0: Record click timestamp
+            const t0 = performance.now();
+
+            // Try real WebSocket if available, else simulate
+            if (window.VangoClient && window.VangoClient.connected) {
+                // Real Vango client - send event with timestamp
+                window.VangoClient.sendEvent({
+                    type: 'click',
+                    hid: 'btn',
+                    timestamp: t0
+                });
+            } else {
+                // Simulated roundtrip
+                simulateServerRoundtrip((simTime) => {
+                    // T2: Patch applied
+                    const t2 = performance.now();
+                    const rtt = t2 - t0;
+
+                    // Update display
+                    const counter = document.getElementById('counter-display');
+                    counter.textContent = parseInt(counter.textContent) + 1;
+
+                    recordLatency(rtt);
+                });
+            }
+        });
+
+        // When real Vango patch arrives, it would call this
+        window.onVangoPatch = function (patch, sentTimestamp) {
+            const t2 = performance.now();
+            const rtt = t2 - sentTimestamp;
+            recordLatency(rtt);
+        };
+
+        function recordLatency(rtt) {
+            latencies.push(rtt);
+            updateMetrics();
+            logLatency(rtt);
+        }
+
+        function updateMetrics() {
+            if (latencies.length === 0) return;
+
+            const sorted = [...latencies].sort((a, b) => a - b);
+            const min = sorted[0];
+            const max = sorted[sorted.length - 1];
+            const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+            const p50 = sorted[Math.floor(sorted.length * 0.5)];
+            const p95 = sorted[Math.floor(sorted.length * 0.95)];
+            const p99 = sorted[Math.floor(sorted.length * 0.99)];
+
+            const metrics = [
+                { name: 'Min', value: min, target: TARGET_LATENCY },
+                { name: 'Average', value: avg, target: TARGET_LATENCY },
+                { name: 'P50', value: p50, target: TARGET_LATENCY },
+                { name: 'P95', value: p95, target: TARGET_LATENCY },
+                { name: 'P99', value: p99, target: TARGET_LATENCY * 1.5 },
+                { name: 'Max', value: max, target: TARGET_LATENCY * 2 },
+                { name: 'Samples', value: latencies.length, target: null },
+            ];
+
+            const tbody = document.getElementById('metrics-body');
+            tbody.innerHTML = metrics.map(m => {
+                if (m.target === null) {
+                    return `<tr><td>${m.name}</td><td>${m.value}</td><td>-</td><td>-</td></tr>`;
+                }
+                const status = m.value <= m.target ? 'PASS' : m.value <= m.target * 1.5 ? 'WARN' : 'FAIL';
+                const statusClass = status === 'PASS' ? 'result-pass' :
+                    status === 'WARN' ? 'result-warn' : 'result-fail';
+                return `
+          <tr>
+            <td>${m.name}</td>
+            <td class="result-value">${m.value.toFixed(2)} ms</td>
+            <td>&lt; ${m.target} ms</td>
+            <td class="${statusClass}">${status}</td>
+          </tr>
+        `;
+            }).join('');
+        }
+
+        function logLatency(rtt) {
+            const log = document.getElementById('latency-log');
+            const statusClass = rtt <= TARGET_LATENCY ? 'result-pass' :
+                rtt <= TARGET_LATENCY * 1.5 ? 'result-warn' : 'result-fail';
+            log.innerHTML += `<span class="${statusClass}">[${latencies.length}] ${rtt.toFixed(2)} ms</span><br>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function clearLatencies() {
+            latencies.length = 0;
+            document.getElementById('metrics-body').innerHTML = '<tr><td colspan="4">Click the button to measure...</td></tr>';
+            document.getElementById('latency-log').innerHTML = '';
+            document.getElementById('counter-display').textContent = '0';
+        }
+
+        async function runBurstTest() {
+            const btn = document.getElementById('increment-btn');
+            for (let i = 0; i < 10; i++) {
+                btn.click();
+                await new Promise(r => setTimeout(r, 100));
+            }
+        }
+
+        function runSimulatedBenchmark(n) {
+            const results = [];
+            let completed = 0;
+
+            const start = performance.now();
+
+            for (let i = 0; i < n; i++) {
+                const t0 = performance.now();
+                simulateServerRoundtrip((simTime) => {
+                    const rtt = performance.now() - t0;
+                    results.push(rtt);
+                    completed++;
+
+                    if (completed === n) {
+                        const totalTime = performance.now() - start;
+                        const sorted = results.sort((a, b) => a - b);
+                        const avg = results.reduce((a, b) => a + b, 0) / n;
+                        const p95 = sorted[Math.floor(n * 0.95)];
+
+                        const el = document.getElementById('sim-results');
+                        el.innerHTML = `
+Simulated ${n} roundtrips
+━━━━━━━━━━━━━━━━━━━━━━━━
+Total time:   <span class="result-value">${totalTime.toFixed(0)} ms</span>
+Average RTT:  <span class="result-value">${avg.toFixed(2)} ms</span>
+P95 RTT:      <span class="result-value">${p95.toFixed(2)} ms</span>
+Throughput:   <span class="result-value">${Math.round(n / (totalTime / 1000))} req/s</span>
+
+<span class="${avg < 50 ? 'result-pass' : 'result-warn'}">Status: ${avg < 50 ? 'PASS' : 'WARN'}</span> (target: <50ms avg)
+            `;
+                    }
+                });
+            }
+        }
+    </script>
+</body>
+
+</html>
