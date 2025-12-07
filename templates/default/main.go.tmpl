@@ -1,0 +1,173 @@
+package main
+
+import (
+	"bytes"
+	"log"
+	"net/http"
+
+	"github.com/vango-dev/vango/v2/pkg/render"
+	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-dev/vango/v2/pkg/vango"
+	. "github.com/vango-dev/vango/v2/pkg/vdom"
+)
+
+func main() {
+	// Create the Vango server with WebSocket support
+	srv := server.New(&server.ServerConfig{
+		Address: ":3000",
+	})
+
+	// Set the root component factory - called for each WebSocket session
+	srv.SetRootComponent(func() server.Component {
+		return NewApp()
+	})
+
+	// Create HTTP mux for initial page load + static files
+	mux := http.NewServeMux()
+
+	// Serve static files
+	mux.Handle("/public/", http.StripPrefix("/public/", http.FileServer(http.Dir("public"))))
+
+	// Serve Vango client JS
+	mux.HandleFunc("/_vango/client.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		http.ServeFile(w, r, "public/_vango/client.js")
+	})
+
+	// Home page - renders initial HTML
+	// The thin client connects via WebSocket for live interactivity
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		app := NewApp()
+
+		renderer := render.NewRenderer(render.RendererConfig{})
+
+		var buf bytes.Buffer
+		err := renderer.RenderPage(&buf, render.PageData{
+			Title:       "{{.ProjectName}}",
+			Body:        app.Render(),
+			StyleSheets: []string{"/public/styles.css"},
+		})
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(buf.Bytes())
+	})
+
+	// Set HTTP handler (WebSocket handled at /_vango/ws automatically)
+	srv.SetHandler(mux)
+
+	log.Println("🚀 Vango server running at http://localhost:3000")
+	log.Println("📡 WebSocket endpoint: ws://localhost:3000/_vango/ws")
+	if err := srv.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// App is the root application component
+type App struct {
+	counter *CounterState
+}
+
+func NewApp() *App {
+	return &App{
+		counter: NewCounterState(0),
+	}
+}
+
+func (a *App) Render() *VNode {
+	return Div(Class("min-h-screen bg-gray-100"),
+		// Navbar
+		Nav(Class("bg-white shadow"),
+			Div(Class("container mx-auto px-4"),
+				Div(Class("flex justify-between items-center h-16"),
+					A(Href("/"), Class("text-xl font-bold text-blue-600"), "Vango"),
+					Span(Class("text-gray-500 text-sm"), "Server-Driven UI Framework"),
+				),
+			),
+		),
+
+		// Main content
+		Main(Class("container mx-auto px-4 py-8"),
+			H1(Class("text-4xl font-bold text-gray-900 mb-4"),
+				"Interactive Counter Demo",
+			),
+			P(Class("text-lg text-gray-600 mb-8"),
+				"This counter runs on the server. Clicks send events via WebSocket, ",
+				"the server updates state and sends DOM patches back.",
+			),
+
+			// The interactive counter
+			a.counter.Render(),
+
+			// How it works section
+			Div(Class("mt-8 p-4 bg-blue-50 rounded-lg"),
+				H3(Class("font-semibold text-blue-900 mb-2"), "How it works:"),
+				Ol(Class("list-decimal list-inside text-blue-800 space-y-1"),
+					Li("You click a button"),
+					Li("Browser sends event via WebSocket (~50 bytes)"),
+					Li("Server executes handler, updates Signal"),
+					Li("Component re-renders, diff generates patches"),
+					Li("Patches sent to browser (~20 bytes)"),
+					Li("DOM updated in place - no page reload!"),
+				),
+			),
+		),
+	)
+}
+
+// CounterState holds the reactive state for the counter
+type CounterState struct {
+	count *vango.IntSignal
+}
+
+func NewCounterState(initial int) *CounterState {
+	return &CounterState{
+		count: vango.NewIntSignal(initial),
+	}
+}
+
+func (c *CounterState) Render() *VNode {
+	return Div(Class("bg-white rounded-xl shadow-lg p-8 max-w-md"),
+		H2(Class("text-2xl font-semibold text-gray-800 mb-6 text-center"), "Counter"),
+
+		// Display count
+		Div(Class("text-center mb-8"),
+			Span(Class("text-7xl font-bold text-blue-600"),
+				Textf("%d", c.count.Get()),
+			),
+		),
+
+		// Buttons
+		Div(Class("flex gap-4 justify-center"),
+			Button(
+				Class("w-16 h-16 text-3xl bg-red-500 text-white rounded-full hover:bg-red-600 active:scale-95 transition-all shadow-lg"),
+				OnClick(func() {
+					c.count.Dec()
+				}),
+				"−",
+			),
+			Button(
+				Class("w-16 h-16 text-3xl bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300 active:scale-95 transition-all shadow"),
+				OnClick(func() {
+					c.count.Set(0)
+				}),
+				"↺",
+			),
+			Button(
+				Class("w-16 h-16 text-3xl bg-green-500 text-white rounded-full hover:bg-green-600 active:scale-95 transition-all shadow-lg"),
+				OnClick(func() {
+					c.count.Inc()
+				}),
+				"+",
+			),
+		),
+
+		// Info
+		P(Class("text-gray-400 text-xs mt-6 text-center"),
+			"State lives on the server • Updates via WebSocket",
+		),
+	)
+}

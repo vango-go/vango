@@ -861,15 +861,18 @@ type Patch struct {
 
 ### Diff Function
 
+The diff algorithm passes `parentHID` through the call chain so that text node patches can target the parent element (since text nodes don't have their own HIDs).
+
 ```go
 // Diff compares two trees and returns patches
 func Diff(prev, next *VNode) []Patch {
     var patches []Patch
-    diff(prev, next, &patches)
+    diff(prev, next, "", &patches)  // Start with empty parentHID
     return patches
 }
 
-func diff(prev, next *VNode, patches *[]Patch) {
+// parentHID is passed through so text patches can target parent elements
+func diff(prev, next *VNode, parentHID string, patches *[]Patch) {
     // Both nil - nothing to do
     if prev == nil && next == nil {
         return
@@ -903,28 +906,36 @@ func diff(prev, next *VNode, patches *[]Patch) {
     // Same type, diff by kind
     switch prev.Kind {
     case KindText:
-        diffText(prev, next, patches)
+        diffText(prev, next, parentHID, patches)
     case KindElement:
         diffElement(prev, next, patches)
     case KindFragment:
-        diffChildren(prev, next, patches)
+        diffFragment(prev, next, parentHID, patches)
     case KindComponent:
-        diffComponent(prev, next, patches)
+        diffComponent(prev, next, parentHID, patches)
     case KindRaw:
-        diffRaw(prev, next, patches)
+        diffRaw(prev, next, parentHID, patches)
     }
 }
 
-func diffText(prev, next *VNode, patches *[]Patch) {
-    if prev.Text != next.Text {
-        *patches = append(*patches, Patch{
-            Op:    PatchSetText,
-            HID:   prev.HID,
-            Value: next.Text,
-        })
-    }
-    // Copy HID
+// diffText uses parentHID since text nodes don't have their own HIDs
+func diffText(prev, next *VNode, parentHID string, patches *[]Patch) {
     next.HID = prev.HID
+
+    if prev.Text != next.Text {
+        // Text nodes don't have HIDs, so target the parent element
+        targetHID := prev.HID
+        if targetHID == "" {
+            targetHID = parentHID
+        }
+        if targetHID != "" {
+            *patches = append(*patches, Patch{
+                Op:    PatchSetText,
+                HID:   targetHID,
+                Value: next.Text,
+            })
+        }
+    }
 }
 
 func diffElement(prev, next *VNode, patches *[]Patch) {
@@ -1177,7 +1188,17 @@ func propToString(v any) string {
 
 ## Hydration ID Generation
 
-During SSR, interactive elements receive hydration IDs:
+During SSR, elements that need client-side targeting receive hydration IDs.
+
+### Which Elements Get HIDs
+
+Elements receive HIDs if they meet ANY of these criteria:
+1. **Interactive**: Has event handlers (onclick, oninput, etc.)
+2. **Has text children**: Contains text nodes that may change (for SetText patches)
+3. **Has hooks**: Contains client-side hooks (_hook prop)
+4. **Has refs**: Contains element references (_ref prop)
+
+**Why text children need HIDs**: Text nodes themselves cannot have HIDs (they're not elements). When text content changes, the diff generates a `SetText` patch that must target the *parent element*. Without an HID on the parent, the patch cannot be applied.
 
 ```go
 type HIDGenerator struct {
@@ -1202,14 +1223,14 @@ func (g *HIDGenerator) Reset() {
     g.counter = 0
 }
 
-// AssignHIDs walks the tree and assigns HIDs to interactive nodes
+// AssignHIDs walks the tree and assigns HIDs to elements that need them
 func AssignHIDs(node *VNode, gen *HIDGenerator) {
     if node == nil {
         return
     }
 
-    // Only elements can be interactive
-    if node.Kind == KindElement && node.IsInteractive() {
+    // Elements get HIDs if interactive OR have text children
+    if node.Kind == KindElement && (node.IsInteractive() || hasTextChild(node)) {
         node.HID = gen.Next()
     }
 
@@ -1218,7 +1239,20 @@ func AssignHIDs(node *VNode, gen *HIDGenerator) {
         AssignHIDs(child, gen)
     }
 }
+
+func hasTextChild(node *VNode) bool {
+    for _, child := range node.Children {
+        if child.Kind == KindText {
+            return true
+        }
+    }
+    return false
+}
 ```
+
+### SSR/WebSocket Consistency
+
+**Critical**: The SSR renderer (`render.Renderer.needsHID`) and the WebSocket session (`vdom.AssignHIDs`) MUST use identical logic for determining which elements get HIDs. If they differ, the client's DOM will have different HIDs than the server expects, causing "handler not found" errors.
 
 ---
 

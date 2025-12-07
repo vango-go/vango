@@ -1,0 +1,11 @@
+{
+  "name": "{{.ProjectName}}",
+  "private": true,
+  "scripts": {
+    "build:css": "npx tailwindcss -i ./app/styles/input.css -o ./public/styles.css --minify",
+    "watch:css": "npx tailwindcss -i ./app/styles/input.css -o ./public/styles.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}
