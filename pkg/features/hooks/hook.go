@@ -10,7 +10,7 @@ import (
 
 // Hook creates a hook attribute for element.
 // The config map is serialized to JSON and sent to the client.
-func Hook(name string, config map[string]any) vdom.Attr {
+func Hook(name string, config any) vdom.Attr {
 	// We serialize the config immediately to ensure it's valid JSON.
 	// In a real implementation, this might be handled by the renderer,
 	// but here we pack it into the attribute value.
