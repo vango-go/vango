@@ -1,0 +1,26 @@
+{
+    "name": "@vango/client",
+    "version": "2.0.0",
+    "description": "Vango thin client - minimal runtime for server-driven web applications",
+    "main": "dist/vango.min.js",
+    "type": "module",
+    "scripts": {
+        "build": "node build.js",
+        "build:dev": "node build.js --dev",
+        "watch": "node build.js --watch",
+        "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+    },
+    "devDependencies": {
+        "esbuild": "^0.19.0",
+        "jest": "^29.7.0",
+        "@jest/globals": "^29.7.0"
+    },
+    "keywords": [
+        "vango",
+        "server-driven",
+        "websocket",
+        "live-view"
+    ],
+    "author": "Vango Framework",
+    "license": "MIT"
+}

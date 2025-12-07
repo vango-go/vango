@@ -1,0 +1,332 @@
+package vango
+
+import "testing"
+
+func TestIntSignal(t *testing.T) {
+	count := NewIntSignal(0)
+
+	if count.Get() != 0 {
+		t.Errorf("expected 0, got %d", count.Get())
+	}
+
+	count.Inc()
+	if count.Get() != 1 {
+		t.Errorf("expected 1 after Inc, got %d", count.Get())
+	}
+
+	count.Inc()
+	count.Inc()
+	if count.Get() != 3 {
+		t.Errorf("expected 3 after multiple Inc, got %d", count.Get())
+	}
+
+	count.Dec()
+	if count.Get() != 2 {
+		t.Errorf("expected 2 after Dec, got %d", count.Get())
+	}
+
+	count.Add(10)
+	if count.Get() != 12 {
+		t.Errorf("expected 12 after Add(10), got %d", count.Get())
+	}
+
+	count.Add(-5)
+	if count.Get() != 7 {
+		t.Errorf("expected 7 after Add(-5), got %d", count.Get())
+	}
+}
+
+func TestIntSignalNotifications(t *testing.T) {
+	count := NewIntSignal(0)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = count.Get()
+	})
+
+	count.Inc()
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("expected 1 notification after Inc, got %d", listener.getDirtyCount())
+	}
+
+	count.Dec()
+	if listener.getDirtyCount() != 2 {
+		t.Errorf("expected 2 notifications, got %d", listener.getDirtyCount())
+	}
+}
+
+func TestInt64Signal(t *testing.T) {
+	count := NewInt64Signal(0)
+
+	count.Inc()
+	if count.Get() != 1 {
+		t.Errorf("expected 1, got %d", count.Get())
+	}
+
+	count.Add(1000000000000)
+	if count.Get() != 1000000000001 {
+		t.Errorf("expected 1000000000001, got %d", count.Get())
+	}
+}
+
+func TestFloat64Signal(t *testing.T) {
+	value := NewFloat64Signal(1.5)
+
+	value.Add(2.5)
+	if value.Get() != 4.0 {
+		t.Errorf("expected 4.0, got %f", value.Get())
+	}
+
+	value.Multiply(2.0)
+	if value.Get() != 8.0 {
+		t.Errorf("expected 8.0, got %f", value.Get())
+	}
+}
+
+func TestBoolSignal(t *testing.T) {
+	flag := NewBoolSignal(false)
+
+	if flag.Get() != false {
+		t.Error("expected false initially")
+	}
+
+	flag.Toggle()
+	if flag.Get() != true {
+		t.Error("expected true after Toggle")
+	}
+
+	flag.Toggle()
+	if flag.Get() != false {
+		t.Error("expected false after second Toggle")
+	}
+
+	flag.SetTrue()
+	if flag.Get() != true {
+		t.Error("expected true after SetTrue")
+	}
+
+	flag.SetFalse()
+	if flag.Get() != false {
+		t.Error("expected false after SetFalse")
+	}
+}
+
+func TestBoolSignalNotifications(t *testing.T) {
+	flag := NewBoolSignal(false)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = flag.Get()
+	})
+
+	flag.Toggle()
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("expected 1 notification after Toggle, got %d", listener.getDirtyCount())
+	}
+
+	// SetFalse on already false should not notify
+	flag.SetFalse()
+	if listener.getDirtyCount() != 2 {
+		t.Errorf("expected 2 notifications, got %d", listener.getDirtyCount())
+	}
+}
+
+func TestSliceSignal(t *testing.T) {
+	items := NewSliceSignal([]string{})
+
+	if items.Len() != 0 {
+		t.Errorf("expected empty slice, got len %d", items.Len())
+	}
+
+	items.Append("a")
+	if items.Len() != 1 {
+		t.Errorf("expected len 1 after Append, got %d", items.Len())
+	}
+
+	items.AppendAll("b", "c", "d")
+	if items.Len() != 4 {
+		t.Errorf("expected len 4 after AppendAll, got %d", items.Len())
+	}
+
+	items.RemoveAt(1) // Remove "b"
+	if items.Len() != 3 {
+		t.Errorf("expected len 3 after RemoveAt, got %d", items.Len())
+	}
+
+	// Verify order: should be [a, c, d]
+	slice := items.Get()
+	if slice[0] != "a" || slice[1] != "c" || slice[2] != "d" {
+		t.Errorf("unexpected slice contents: %v", slice)
+	}
+
+	items.SetAt(1, "changed")
+	slice = items.Get()
+	if slice[1] != "changed" {
+		t.Errorf("expected 'changed' at index 1, got %s", slice[1])
+	}
+
+	items.Clear()
+	if items.Len() != 0 {
+		t.Errorf("expected empty after Clear, got len %d", items.Len())
+	}
+}
+
+func TestSliceSignalFilter(t *testing.T) {
+	items := NewSliceSignal([]int{1, 2, 3, 4, 5, 6})
+
+	items.Filter(func(n int) bool { return n%2 == 0 })
+
+	slice := items.Get()
+	if len(slice) != 3 {
+		t.Errorf("expected 3 even numbers, got %d", len(slice))
+	}
+	if slice[0] != 2 || slice[1] != 4 || slice[2] != 6 {
+		t.Errorf("unexpected filtered result: %v", slice)
+	}
+}
+
+func TestSliceSignalBoundsCheck(t *testing.T) {
+	items := NewSliceSignal([]string{"a", "b", "c"})
+
+	// RemoveAt out of bounds should do nothing
+	items.RemoveAt(-1)
+	items.RemoveAt(100)
+	if items.Len() != 3 {
+		t.Errorf("out of bounds RemoveAt should not change length")
+	}
+
+	// SetAt out of bounds should do nothing
+	items.SetAt(-1, "x")
+	items.SetAt(100, "x")
+	slice := items.Get()
+	if slice[0] != "a" || slice[1] != "b" || slice[2] != "c" {
+		t.Errorf("out of bounds SetAt should not change values")
+	}
+}
+
+func TestSliceSignalNotifications(t *testing.T) {
+	items := NewSliceSignal([]int{})
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = items.Get()
+	})
+
+	items.Append(1)
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("expected 1 notification after Append, got %d", listener.getDirtyCount())
+	}
+
+	items.RemoveAt(0)
+	if listener.getDirtyCount() != 2 {
+		t.Errorf("expected 2 notifications, got %d", listener.getDirtyCount())
+	}
+}
+
+func TestMapSignal(t *testing.T) {
+	data := NewMapSignal[string, int](nil)
+
+	if data.Len() != 0 {
+		t.Errorf("expected empty map, got len %d", data.Len())
+	}
+
+	data.SetKey("a", 1)
+	if data.Len() != 1 {
+		t.Errorf("expected len 1 after SetKey, got %d", data.Len())
+	}
+
+	val, ok := data.GetKey("a")
+	if !ok || val != 1 {
+		t.Errorf("expected (1, true), got (%d, %v)", val, ok)
+	}
+
+	data.SetKey("b", 2)
+	data.SetKey("c", 3)
+	if data.Len() != 3 {
+		t.Errorf("expected len 3, got %d", data.Len())
+	}
+
+	if !data.HasKey("b") {
+		t.Error("expected HasKey('b') to be true")
+	}
+	if data.HasKey("x") {
+		t.Error("expected HasKey('x') to be false")
+	}
+
+	data.DeleteKey("b")
+	if data.HasKey("b") {
+		t.Error("expected 'b' to be deleted")
+	}
+	if data.Len() != 2 {
+		t.Errorf("expected len 2 after delete, got %d", data.Len())
+	}
+
+	data.Clear()
+	if data.Len() != 0 {
+		t.Errorf("expected empty after Clear, got len %d", data.Len())
+	}
+}
+
+func TestMapSignalKeysValues(t *testing.T) {
+	data := NewMapSignal(map[string]int{"a": 1, "b": 2})
+
+	keys := data.Keys()
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d", len(keys))
+	}
+
+	values := data.Values()
+	if len(values) != 2 {
+		t.Errorf("expected 2 values, got %d", len(values))
+	}
+
+	// Sum of values should be 3
+	sum := 0
+	for _, v := range values {
+		sum += v
+	}
+	if sum != 3 {
+		t.Errorf("expected sum 3, got %d", sum)
+	}
+}
+
+func TestMapSignalNotifications(t *testing.T) {
+	data := NewMapSignal[string, int](nil)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = data.Get()
+	})
+
+	data.SetKey("a", 1)
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("expected 1 notification after SetKey, got %d", listener.getDirtyCount())
+	}
+
+	data.DeleteKey("a")
+	if listener.getDirtyCount() != 2 {
+		t.Errorf("expected 2 notifications, got %d", listener.getDirtyCount())
+	}
+
+	// Delete non-existent key should not notify
+	data.DeleteKey("x")
+	if listener.getDirtyCount() != 2 {
+		t.Errorf("deleting non-existent key should not notify, got %d", listener.getDirtyCount())
+	}
+}
+
+func TestNilSliceSignal(t *testing.T) {
+	// Creating with nil should give empty slice
+	items := NewSliceSignal[int](nil)
+	if items.Len() != 0 {
+		t.Errorf("expected empty slice from nil, got len %d", items.Len())
+	}
+}
+
+func TestNilMapSignal(t *testing.T) {
+	// Creating with nil should give empty map
+	data := NewMapSignal[string, int](nil)
+	if data.Len() != 0 {
+		t.Errorf("expected empty map from nil, got len %d", data.Len())
+	}
+}
