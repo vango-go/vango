@@ -77,6 +77,10 @@ export class EventCapture {
      * Find closest element with data-hid
      */
     _findHidElement(target) {
+        // Handle non-element targets (document, text nodes, etc.)
+        if (!target || !target.closest) {
+            return null;
+        }
         return target.closest('[data-hid]');
     }
 

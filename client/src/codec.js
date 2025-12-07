@@ -705,4 +705,132 @@ export class BinaryCodec {
         new DataView(buffer).setFloat64(0, value, true);
         return new Uint8Array(buffer);
     }
+
+    /**
+     * Encode ClientHello for handshake
+     * Format: [major:1][minor:1][csrf:string][sessionID:string][lastSeq:4][viewportW:2][viewportH:2][tzOffset:2]
+     */
+    encodeClientHello(options = {}) {
+        const parts = [];
+
+        // Protocol version (2.0)
+        parts.push(new Uint8Array([0x02, 0x00]));
+
+        // CSRF token
+        parts.push(this.encodeString(options.csrf || ''));
+
+        // Session ID (empty for new session)
+        parts.push(this.encodeString(options.sessionId || ''));
+
+        // Last sequence number (uint32 little-endian)
+        parts.push(this.encodeUint32(options.lastSeq || 0));
+
+        // Viewport dimensions (uint16 little-endian)
+        parts.push(this.encodeUint16(options.viewportW || window.innerWidth));
+        parts.push(this.encodeUint16(options.viewportH || window.innerHeight));
+
+        // Timezone offset in minutes (int16 little-endian)
+        const tzOffset = new Date().getTimezoneOffset();
+        parts.push(this.encodeInt16(-tzOffset)); // Negate because JS gives opposite sign
+
+        return concat(parts);
+    }
+
+    /**
+     * Decode ServerHello from handshake response
+     * Response is wrapped in Frame: [type:1][payload...]
+     * ServerHello payload: [status:1][sessionID:string][nextSeq:4][serverTime:8][flags:2]
+     */
+    decodeServerHello(buffer) {
+        if (buffer.length < 2) {
+            return { error: 'Buffer too short' };
+        }
+
+        // Frame type should be 0x00 (Handshake)
+        const frameType = buffer[0];
+        if (frameType !== 0x00) {
+            return { error: `Unexpected frame type: ${frameType}` };
+        }
+
+        let offset = 1;
+
+        // Status byte
+        const status = buffer[offset++];
+
+        // Session ID
+        const { value: sessionId, bytesRead: sessionBytes } = this.decodeString(buffer, offset);
+        offset += sessionBytes;
+
+        // Next sequence (uint32 little-endian)
+        const nextSeq = this.decodeUint32(buffer, offset);
+        offset += 4;
+
+        // Server time (uint64 little-endian)
+        const serverTime = this.decodeUint64(buffer, offset);
+        offset += 8;
+
+        // Flags (uint16 little-endian)
+        const flags = this.decodeUint16(buffer, offset);
+
+        return {
+            status,
+            sessionId,
+            nextSeq,
+            serverTime,
+            flags,
+            ok: status === 0,
+        };
+    }
+
+    /**
+     * Encode uint16 little-endian
+     */
+    encodeUint16(value) {
+        return new Uint8Array([value & 0xFF, (value >> 8) & 0xFF]);
+    }
+
+    /**
+     * Decode uint16 little-endian
+     */
+    decodeUint16(buffer, offset) {
+        return buffer[offset] | (buffer[offset + 1] << 8);
+    }
+
+    /**
+     * Encode int16 little-endian
+     */
+    encodeInt16(value) {
+        return this.encodeUint16(value & 0xFFFF);
+    }
+
+    /**
+     * Encode uint32 little-endian
+     */
+    encodeUint32(value) {
+        return new Uint8Array([
+            value & 0xFF,
+            (value >> 8) & 0xFF,
+            (value >> 16) & 0xFF,
+            (value >> 24) & 0xFF,
+        ]);
+    }
+
+    /**
+     * Decode uint32 little-endian
+     */
+    decodeUint32(buffer, offset) {
+        return buffer[offset] |
+            (buffer[offset + 1] << 8) |
+            (buffer[offset + 2] << 16) |
+            (buffer[offset + 3] << 24);
+    }
+
+    /**
+     * Decode uint64 little-endian (returns as Number, may lose precision for large values)
+     */
+    decodeUint64(buffer, offset) {
+        const low = this.decodeUint32(buffer, offset);
+        const high = this.decodeUint32(buffer, offset + 4);
+        return low + high * 0x100000000;
+    }
 }

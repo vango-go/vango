@@ -40,13 +40,15 @@ func (g *HIDGenerator) Current() uint32 {
 
 // AssignHIDs walks the tree and assigns HIDs to interactive elements.
 // An element is interactive if it has event handlers (props starting with "on").
+// Elements containing text children also get HIDs so text updates can target them.
 func AssignHIDs(node *VNode, gen *HIDGenerator) {
 	if node == nil {
 		return
 	}
 
-	// Only elements can be interactive
-	if node.Kind == KindElement && node.IsInteractive() {
+	// Assign HIDs to elements that are interactive OR have text children
+	// Text children need HIDs on their parent so SetText patches can target them
+	if node.Kind == KindElement && (node.IsInteractive() || hasTextChild(node)) {
 		node.HID = gen.Next()
 	}
 
@@ -57,6 +59,16 @@ func AssignHIDs(node *VNode, gen *HIDGenerator) {
 
 	// For component nodes, we might need to assign HIDs to the rendered output
 	// However, components are typically rendered at runtime, so this is handled there
+}
+
+// hasTextChild returns true if the node has any direct text node children.
+func hasTextChild(node *VNode) bool {
+	for _, child := range node.Children {
+		if child.Kind == KindText {
+			return true
+		}
+	}
+	return false
 }
 
 // AssignAllHIDs assigns HIDs to ALL element nodes, not just interactive ones.

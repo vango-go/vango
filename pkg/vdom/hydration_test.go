@@ -58,24 +58,24 @@ func TestAssignHIDs(t *testing.T) {
 		gen := NewHIDGenerator()
 		AssignHIDs(tree, gen)
 
-		// Div has no event handlers
+		// Div has no event handlers and no text children (only element children)
 		if tree.HID != "" {
 			t.Errorf("Div should not have HID, got %v", tree.HID)
 		}
 
-		// H1 has no event handlers
-		if tree.Children[0].HID != "" {
-			t.Errorf("H1 should not have HID, got %v", tree.Children[0].HID)
+		// H1 has a text child (so it gets an HID for text update targeting)
+		if tree.Children[0].HID != "h1" {
+			t.Errorf("H1 HID = %v, want h1 (has text child)", tree.Children[0].HID)
 		}
 
-		// Button has onclick
-		if tree.Children[1].HID != "h1" {
-			t.Errorf("Button HID = %v, want h1", tree.Children[1].HID)
+		// Button has onclick and text child
+		if tree.Children[1].HID != "h2" {
+			t.Errorf("Button HID = %v, want h2", tree.Children[1].HID)
 		}
 
 		// Input has oninput
-		if tree.Children[2].HID != "h2" {
-			t.Errorf("Input HID = %v, want h2", tree.Children[2].HID)
+		if tree.Children[2].HID != "h3" {
+			t.Errorf("Input HID = %v, want h3", tree.Children[2].HID)
 		}
 	})
 
@@ -162,8 +162,9 @@ func TestFindByHID(t *testing.T) {
 	gen := NewHIDGenerator()
 	AssignHIDs(tree, gen)
 
+	// Note: H1 gets h1 (has text child), Button gets h2
 	t.Run("found", func(t *testing.T) {
-		found := FindByHID(tree, "h1")
+		found := FindByHID(tree, "h2")
 		if found != button {
 			t.Error("FindByHID did not return button")
 		}

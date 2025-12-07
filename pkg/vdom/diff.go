@@ -10,12 +10,13 @@ import (
 // Diff compares two VNode trees and returns the patches needed to transform prev into next.
 func Diff(prev, next *VNode) []Patch {
 	var patches []Patch
-	diff(prev, next, &patches)
+	diff(prev, next, "", &patches)
 	return patches
 }
 
 // diff recursively compares nodes and appends patches.
-func diff(prev, next *VNode, patches *[]Patch) {
+// parentHID is the HID of the parent element, used for text patches that don't have their own HID.
+func diff(prev, next *VNode, parentHID string, patches *[]Patch) {
 	// Both nil - nothing to do
 	if prev == nil && next == nil {
 		return
@@ -48,29 +49,38 @@ func diff(prev, next *VNode, patches *[]Patch) {
 	// Same type, diff by kind
 	switch prev.Kind {
 	case KindText:
-		diffText(prev, next, patches)
+		diffText(prev, next, parentHID, patches)
 	case KindElement:
 		diffElement(prev, next, patches)
 	case KindFragment:
-		diffFragment(prev, next, patches)
+		diffFragment(prev, next, parentHID, patches)
 	case KindComponent:
-		diffComponent(prev, next, patches)
+		diffComponent(prev, next, parentHID, patches)
 	case KindRaw:
-		diffRaw(prev, next, patches)
+		diffRaw(prev, next, parentHID, patches)
 	}
 }
 
 // diffText compares text nodes.
-func diffText(prev, next *VNode, patches *[]Patch) {
+// parentHID is used when the text node doesn't have its own HID.
+func diffText(prev, next *VNode, parentHID string, patches *[]Patch) {
 	// Copy HID from prev to next
 	next.HID = prev.HID
 
 	if prev.Text != next.Text {
-		*patches = append(*patches, Patch{
-			Op:    PatchSetText,
-			HID:   prev.HID,
-			Value: next.Text,
-		})
+		// Text nodes don't have HIDs, so use the parent element's HID
+		// The client will update the parent's textContent
+		targetHID := prev.HID
+		if targetHID == "" {
+			targetHID = parentHID
+		}
+		if targetHID != "" {
+			*patches = append(*patches, Patch{
+				Op:    PatchSetText,
+				HID:   targetHID,
+				Value: next.Text,
+			})
+		}
 	}
 }
 
@@ -92,21 +102,21 @@ func diffElement(prev, next *VNode, patches *[]Patch) {
 	// Diff props
 	diffProps(prev, next, patches)
 
-	// Diff children
-	diffChildren(prev, next, patches)
+	// Diff children - pass this element's HID as the parent for text nodes
+	diffChildren(prev, next, prev.HID, patches)
 }
 
 // diffFragment compares fragment nodes.
-func diffFragment(prev, next *VNode, patches *[]Patch) {
+func diffFragment(prev, next *VNode, parentHID string, patches *[]Patch) {
 	// Copy HID (fragments typically don't have HIDs, but just in case)
 	next.HID = prev.HID
 
-	// Diff children
-	diffChildren(prev, next, patches)
+	// Diff children - pass the parentHID since fragments don't have their own
+	diffChildren(prev, next, parentHID, patches)
 }
 
 // diffComponent compares component nodes.
-func diffComponent(prev, next *VNode, patches *[]Patch) {
+func diffComponent(prev, next *VNode, parentHID string, patches *[]Patch) {
 	// Copy HID
 	next.HID = prev.HID
 
@@ -120,22 +130,29 @@ func diffComponent(prev, next *VNode, patches *[]Patch) {
 		// Render both and diff
 		prevRendered := prev.Comp.Render()
 		nextRendered := next.Comp.Render()
-		diff(prevRendered, nextRendered, patches)
+		diff(prevRendered, nextRendered, parentHID, patches)
 	}
 }
 
 // diffRaw compares raw HTML nodes.
-func diffRaw(prev, next *VNode, patches *[]Patch) {
+func diffRaw(prev, next *VNode, parentHID string, patches *[]Patch) {
 	// Copy HID
 	next.HID = prev.HID
 
 	if prev.Text != next.Text {
 		// Raw HTML changed - need to replace
-		*patches = append(*patches, Patch{
-			Op:   PatchReplaceNode,
-			HID:  prev.HID,
-			Node: next,
-		})
+		// Use parentHID if the raw node doesn't have its own HID
+		targetHID := prev.HID
+		if targetHID == "" {
+			targetHID = parentHID
+		}
+		if targetHID != "" {
+			*patches = append(*patches, Patch{
+				Op:   PatchReplaceNode,
+				HID:  targetHID,
+				Node: next,
+			})
+		}
 	}
 }
 
@@ -191,20 +208,21 @@ func diffProps(prev, next *VNode, patches *[]Patch) {
 }
 
 // diffChildren compares and patches child nodes.
-func diffChildren(prev, next *VNode, patches *[]Patch) {
+// parentHID is passed through so text node patches can target the parent element.
+func diffChildren(prev, next *VNode, parentHID string, patches *[]Patch) {
 	prevChildren := prev.Children
 	nextChildren := next.Children
 
 	// Check if children are keyed
 	if hasKeys(prevChildren) || hasKeys(nextChildren) {
-		diffKeyedChildren(prev, prevChildren, nextChildren, patches)
+		diffKeyedChildren(prev, prevChildren, nextChildren, parentHID, patches)
 	} else {
-		diffUnkeyedChildren(prev, prevChildren, nextChildren, patches)
+		diffUnkeyedChildren(prev, prevChildren, nextChildren, parentHID, patches)
 	}
 }
 
 // diffUnkeyedChildren handles children without keys using positional matching.
-func diffUnkeyedChildren(parent *VNode, prev, next []*VNode, patches *[]Patch) {
+func diffUnkeyedChildren(parent *VNode, prev, next []*VNode, parentHID string, patches *[]Patch) {
 	maxLen := len(prev)
 	if len(next) > maxLen {
 		maxLen = len(next)
@@ -235,14 +253,14 @@ func diffUnkeyedChildren(parent *VNode, prev, next []*VNode, patches *[]Patch) {
 				HID: prevChild.HID,
 			})
 		} else {
-			// Diff existing
-			diff(prevChild, nextChild, patches)
+			// Diff existing - pass parent HID for text nodes
+			diff(prevChild, nextChild, parentHID, patches)
 		}
 	}
 }
 
 // diffKeyedChildren handles children with keys for efficient reordering.
-func diffKeyedChildren(parent *VNode, prev, next []*VNode, patches *[]Patch) {
+func diffKeyedChildren(parent *VNode, prev, next []*VNode, parentHID string, patches *[]Patch) {
 	// Build key maps: key -> index
 	prevKeyMap := make(map[string]int)
 	nextKeyMap := make(map[string]int)
@@ -281,8 +299,8 @@ func diffKeyedChildren(parent *VNode, prev, next []*VNode, patches *[]Patch) {
 					})
 				}
 
-				// Diff the node itself
-				diff(prevChild, nextChild, patches)
+				// Diff the node itself - pass parent HID for text nodes
+				diff(prevChild, nextChild, parentHID, patches)
 			} else {
 				// New node with key
 				*patches = append(*patches, Patch{

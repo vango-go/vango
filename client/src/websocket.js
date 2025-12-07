@@ -17,6 +17,7 @@ export class WebSocketManager {
 
         this.ws = null;
         this.connected = false;
+        this.handshakeComplete = false;
         this.sessionId = null;
         this.reconnectAttempts = 0;
         this.heartbeatTimer = null;
@@ -59,54 +60,82 @@ export class WebSocketManager {
     }
 
     /**
-     * Send handshake message (JSON, not binary)
+     * Send binary ClientHello handshake
      */
     _sendHandshake() {
-        const handshake = {
-            type: 'handshake',
-            version: '1.0',
+        const helloBuffer = this.client.codec.encodeClientHello({
             csrf: window.__VANGO_CSRF__ || '',
-            session: this.sessionId || '',
-            path: location.pathname,
-            viewport: {
-                width: window.innerWidth,
-                height: window.innerHeight,
-            },
-        };
+            sessionId: this.sessionId || '',
+            viewportW: window.innerWidth,
+            viewportH: window.innerHeight,
+        });
 
-        this.ws.send(JSON.stringify(handshake));
+        this.ws.send(helloBuffer);
+
+        if (this.client.options.debug) {
+            console.log('[Vango] Sent binary ClientHello');
+        }
     }
 
     /**
      * Handle incoming message
      */
     _onMessage(event) {
-        // First message after handshake is JSON acknowledgment
-        if (!this.connected) {
-            try {
-                const ack = JSON.parse(event.data);
-                if (ack.type === 'handshake_ack') {
-                    this.connected = true;
-                    this.sessionId = ack.session;
-                    this.client._onConnected();
-
-                    // Send queued messages
-                    this._flushQueue();
-
-                    if (this.client.options.debug) {
-                        console.log('[Vango] Handshake complete, session:', this.sessionId);
-                    }
-                    return;
-                }
-            } catch (e) {
-                // Not JSON, treat as binary
+        // All messages are binary
+        if (!(event.data instanceof ArrayBuffer)) {
+            if (this.client.options.debug) {
+                console.warn('[Vango] Received non-binary message:', event.data);
             }
+            return;
         }
 
-        // All other messages are binary
-        if (event.data instanceof ArrayBuffer) {
-            this.client._handleBinaryMessage(new Uint8Array(event.data));
+        const buffer = new Uint8Array(event.data);
+
+        // First message after connection is ServerHello
+        if (!this.handshakeComplete) {
+            const hello = this.client.codec.decodeServerHello(buffer);
+
+            if (hello.error) {
+                if (this.client.options.debug) {
+                    console.error('[Vango] Handshake error:', hello.error);
+                }
+                this.client._onError(new Error(hello.error));
+                return;
+            }
+
+            if (!hello.ok) {
+                const errorMessages = {
+                    0x01: 'Version mismatch',
+                    0x02: 'Invalid CSRF token',
+                    0x03: 'Session expired',
+                    0x04: 'Server busy',
+                    0x05: 'Upgrade required',
+                    0x06: 'Invalid format',
+                    0x07: 'Not authorized',
+                    0x08: 'Internal error',
+                };
+                const msg = errorMessages[hello.status] || `Handshake failed: ${hello.status}`;
+                this.client._onError(new Error(msg));
+                this.ws.close();
+                return;
+            }
+
+            this.handshakeComplete = true;
+            this.connected = true;
+            this.sessionId = hello.sessionId;
+            this.client._onConnected();
+
+            // Send queued messages
+            this._flushQueue();
+
+            if (this.client.options.debug) {
+                console.log('[Vango] Handshake complete, session:', this.sessionId);
+            }
+            return;
         }
+
+        // All other messages handled by client
+        this.client._handleBinaryMessage(buffer);
     }
 
     /**
@@ -115,6 +144,7 @@ export class WebSocketManager {
     _onClose(event) {
         const wasConnected = this.connected;
         this.connected = false;
+        this.handshakeComplete = false;
         this._stopHeartbeat();
 
         if (this.client.options.debug) {
@@ -185,10 +215,27 @@ export class WebSocketManager {
      */
     _sendPing() {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            // Frame format: [type:1][subtype:1]
-            // Control frame (0x02), Ping subtype (0x01)
-            const buffer = new Uint8Array([0x02, 0x01]);
-            this.ws.send(buffer);
+            // Control payload: [control_type:1][timestamp:8]
+            // Timestamp as uint64 little-endian
+            const timestamp = Date.now();
+            const payload = new Uint8Array(9);
+            payload[0] = 0x01; // ControlPing
+            // Write timestamp as uint64 little-endian
+            let ts = timestamp;
+            for (let i = 0; i < 8; i++) {
+                payload[1 + i] = ts & 0xFF;
+                ts = Math.floor(ts / 256);
+            }
+
+            // Wrap in frame: [type:1][flags:1][length:2 big-endian][payload]
+            const frame = new Uint8Array(4 + payload.length);
+            frame[0] = 0x03; // FrameControl
+            frame[1] = 0x00; // flags
+            frame[2] = (payload.length >> 8) & 0xFF;
+            frame[3] = payload.length & 0xFF;
+            frame.set(payload, 4);
+
+            this.ws.send(frame);
         }
     }
 

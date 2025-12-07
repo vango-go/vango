@@ -17,12 +17,15 @@ import { ensurePortalRoot } from './hooks/portal.js';
 
 /**
  * Frame type constants for wire protocol
+ * Must match pkg/protocol/frame.go
  */
 const FrameType = {
-    EVENT: 0x00,
-    PATCHES: 0x01,
-    CONTROL: 0x02,
-    ERROR: 0x03,
+    HANDSHAKE: 0x00,
+    EVENT: 0x01,
+    PATCHES: 0x02,
+    CONTROL: 0x03,
+    ACK: 0x04,
+    ERROR: 0x05,
 };
 
 /**
@@ -127,10 +130,12 @@ export class VangoClient {
      * Handle binary message from server
      */
     _handleBinaryMessage(buffer) {
-        if (buffer.length === 0) return;
+        if (buffer.length < 4) return; // Need at least frame header
 
+        // Frame header: [type:1][flags:1][length:2 big-endian]
         const frameType = buffer[0];
-        const payload = buffer.slice(1);
+        const length = (buffer[2] << 8) | buffer[3];
+        const payload = buffer.slice(4, 4 + length);
 
         switch (frameType) {
             case FrameType.PATCHES:
@@ -153,7 +158,14 @@ export class VangoClient {
      * Handle patches frame
      */
     _handlePatches(buffer) {
+        console.log('[Vango] Received patches buffer, length:', buffer.length, 'bytes:', Array.from(buffer.slice(0, 20)));
+
         const { seq, patches } = this.codec.decodePatches(buffer);
+
+        console.log('[Vango] Decoded', patches.length, 'patches, seq:', seq);
+        for (const p of patches) {
+            console.log('[Vango] Patch:', p);
+        }
 
         if (this.options.debug) {
             console.log('[Vango] Applying', patches.length, 'patches (seq:', seq, ')');
@@ -253,16 +265,29 @@ export class VangoClient {
         this.seq++;
         const eventBuffer = this.codec.encodeEvent(this.seq, type, hid, data);
 
-        // Wrap in event frame
-        const frame = new Uint8Array(1 + eventBuffer.length);
-        frame[0] = FrameType.EVENT;
-        frame.set(eventBuffer, 1);
+        // Wrap in frame with 4-byte header: [type][flags][length-hi][length-lo]
+        const frame = this._encodeFrame(FrameType.EVENT, eventBuffer);
 
         this.wsManager.send(frame);
 
         if (this.options.debug) {
             console.log('[Vango] Sent event:', { type, hid, data, seq: this.seq });
         }
+    }
+
+    /**
+     * Encode a frame with proper header
+     * Format: [type:1][flags:1][length:2 big-endian][payload]
+     */
+    _encodeFrame(frameType, payload) {
+        const length = payload.length;
+        const frame = new Uint8Array(4 + length);
+        frame[0] = frameType;
+        frame[1] = 0; // flags
+        frame[2] = (length >> 8) & 0xFF; // length high byte
+        frame[3] = length & 0xFF; // length low byte
+        frame.set(payload, 4);
+        return frame;
     }
 
     /**

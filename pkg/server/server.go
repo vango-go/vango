@@ -57,6 +57,27 @@ type Middleware func(http.Handler) http.Handler
 func New(config *ServerConfig) *Server {
 	if config == nil {
 		config = DefaultServerConfig()
+	} else {
+		// Fill in defaults for any unset fields
+		defaults := DefaultServerConfig()
+		if config.Address == "" {
+			config.Address = defaults.Address
+		}
+		if config.ReadBufferSize == 0 {
+			config.ReadBufferSize = defaults.ReadBufferSize
+		}
+		if config.WriteBufferSize == 0 {
+			config.WriteBufferSize = defaults.WriteBufferSize
+		}
+		if config.CheckOrigin == nil {
+			config.CheckOrigin = defaults.CheckOrigin
+		}
+		if config.SessionConfig == nil {
+			config.SessionConfig = defaults.SessionConfig
+		}
+		if config.ShutdownTimeout == 0 {
+			config.ShutdownTimeout = defaults.ShutdownTimeout
+		}
 	}
 
 	logger := slog.Default().With("component", "server")
@@ -99,7 +120,7 @@ func (s *Server) Use(mw Middleware) {
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check for WebSocket upgrade
-	if r.URL.Path == "/_vango/ws" {
+	if r.URL.Path == "/_vango/ws" || r.URL.Path == "/_vango/live" {
 		s.HandleWebSocket(w, r)
 		return
 	}

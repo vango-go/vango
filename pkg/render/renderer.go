@@ -290,6 +290,8 @@ func (r *Renderer) renderAttributes(w io.Writer, node *vdom.VNode) error {
 }
 
 // needsHID returns true if the element needs a hydration ID.
+// This must match the logic in vdom.AssignHIDs to ensure consistency
+// between SSR-rendered HTML and WebSocket session handlers.
 func (r *Renderer) needsHID(node *vdom.VNode) bool {
 	if node.Kind != vdom.KindElement {
 		return false
@@ -315,6 +317,14 @@ func (r *Renderer) needsHID(node *vdom.VNode) bool {
 	// Check for optimistic updates
 	if _, hasOptimistic := node.Props["_optimistic"]; hasOptimistic {
 		return true
+	}
+
+	// Check for text children - elements with text children need HIDs
+	// so that text updates can target the parent element
+	for _, child := range node.Children {
+		if child.Kind == vdom.KindText {
+			return true
+		}
 	}
 
 	return false
