@@ -35,6 +35,10 @@ type Owner struct {
 	pendingEffects   []*Effect
 	pendingEffectsMu sync.Mutex
 
+	// values stores context values for this scope.
+	values   map[any]any
+	valuesMu sync.RWMutex
+
 	// disposed indicates whether this Owner has been disposed.
 	disposed atomic.Bool
 }

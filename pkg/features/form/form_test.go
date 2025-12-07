@@ -380,3 +380,498 @@ func TestFormField(t *testing.T) {
 		t.Errorf("Expected wrapper div, got %s", field.Tag)
 	}
 }
+
+func TestFormFieldWithError(t *testing.T) {
+	form := UseForm(TestContact{})
+
+	// Trigger validation to set errors
+	form.Validate()
+
+	input := &vdom.VNode{
+		Kind:  vdom.KindElement,
+		Tag:   "input",
+		Props: vdom.Props{"class": "input"},
+	}
+
+	field := form.Field("name", input)
+
+	if field == nil {
+		t.Fatal("Field returned nil")
+	}
+
+	// Input should have error class added
+	if input.Props["class"] != "input field-error" {
+		t.Errorf("Expected class 'input field-error', got '%v'", input.Props["class"])
+	}
+
+	// Field wrapper should be a div with class "field"
+	if field.Tag != "div" {
+		t.Errorf("Expected wrapper div, got %s", field.Tag)
+	}
+	if field.Props["class"] != "field" {
+		t.Errorf("Expected class 'field', got '%v'", field.Props["class"])
+	}
+}
+
+func TestFormFieldWithCustomValidators(t *testing.T) {
+	form := UseForm(TestContact{Name: "ab"})
+
+	input := &vdom.VNode{
+		Kind: vdom.KindElement,
+		Tag:  "input",
+	}
+
+	// Add custom validator via Field
+	field := form.Field("name", input, MinLength(5, "Too short"))
+
+	if field == nil {
+		t.Fatal("Field returned nil")
+	}
+
+	// Validate the field
+	form.ValidateField("name")
+
+	if !form.HasError("name") {
+		t.Error("Expected name to have error from custom validator")
+	}
+}
+
+func TestFormArray(t *testing.T) {
+	form := UseForm(TestOrder{
+		CustomerName: "Alice",
+		Items: []OrderItem{
+			{ProductID: 1, Quantity: 2},
+			{ProductID: 2, Quantity: 1},
+		},
+	})
+
+	// Test ArrayLen
+	if form.ArrayLen("items") != 2 {
+		t.Errorf("Expected ArrayLen 2, got %d", form.ArrayLen("items"))
+	}
+
+	// Test Array rendering
+	count := 0
+	form.Array("items", func(item FormArrayItem, index int) *vdom.VNode {
+		count++
+		if item.Index() != index {
+			t.Errorf("Item index mismatch: %d vs %d", item.Index(), index)
+		}
+		if item.Path() == "" {
+			t.Error("Item path should not be empty")
+		}
+		return vdom.Div()
+	})
+
+	if count != 2 {
+		t.Errorf("Expected Array to call render func 2 times, got %d", count)
+	}
+}
+
+func TestFormArrayAppendTo(t *testing.T) {
+	form := UseForm(TestOrder{
+		CustomerName: "Bob",
+		Items:        []OrderItem{},
+	})
+
+	if form.ArrayLen("items") != 0 {
+		t.Error("Expected initial array length 0")
+	}
+
+	form.AppendTo("items", OrderItem{ProductID: 10, Quantity: 5})
+
+	if form.ArrayLen("items") != 1 {
+		t.Errorf("Expected array length 1 after append, got %d", form.ArrayLen("items"))
+	}
+
+	form.AppendTo("items", OrderItem{ProductID: 20, Quantity: 3})
+
+	if form.ArrayLen("items") != 2 {
+		t.Errorf("Expected array length 2 after second append, got %d", form.ArrayLen("items"))
+	}
+}
+
+func TestFormArrayRemoveAt(t *testing.T) {
+	form := UseForm(TestOrder{
+		CustomerName: "Carol",
+		Items: []OrderItem{
+			{ProductID: 1, Quantity: 1},
+			{ProductID: 2, Quantity: 2},
+			{ProductID: 3, Quantity: 3},
+		},
+	})
+
+	if form.ArrayLen("items") != 3 {
+		t.Error("Expected initial array length 3")
+	}
+
+	form.RemoveAt("items", 1) // Remove middle item
+
+	if form.ArrayLen("items") != 2 {
+		t.Errorf("Expected array length 2 after remove, got %d", form.ArrayLen("items"))
+	}
+
+	// Check remaining items
+	values := form.Values()
+	if values.Items[0].ProductID != 1 {
+		t.Error("First item should still be ProductID 1")
+	}
+	if values.Items[1].ProductID != 3 {
+		t.Error("Second item should now be ProductID 3")
+	}
+}
+
+func TestFormArrayInsertAt(t *testing.T) {
+	form := UseForm(TestOrder{
+		CustomerName: "Dave",
+		Items: []OrderItem{
+			{ProductID: 1, Quantity: 1},
+			{ProductID: 3, Quantity: 3},
+		},
+	})
+
+	form.InsertAt("items", 1, OrderItem{ProductID: 2, Quantity: 2})
+
+	if form.ArrayLen("items") != 3 {
+		t.Errorf("Expected array length 3 after insert, got %d", form.ArrayLen("items"))
+	}
+
+	values := form.Values()
+	if values.Items[1].ProductID != 2 {
+		t.Errorf("Inserted item should be at index 1, got ProductID %d", values.Items[1].ProductID)
+	}
+}
+
+func TestFormArrayEmpty(t *testing.T) {
+	form := UseForm(TestOrder{
+		CustomerName: "Eve",
+		Items:        nil,
+	})
+
+	// Array on nil should return empty fragment
+	node := form.Array("items", func(item FormArrayItem, index int) *vdom.VNode {
+		t.Error("Should not be called for empty array")
+		return nil
+	})
+
+	if node == nil {
+		t.Error("Array should return non-nil node even for empty array")
+	}
+}
+
+func TestFormArrayNonSliceField(t *testing.T) {
+	form := UseForm(TestContact{Name: "Test"})
+
+	// Array on non-slice field should return empty fragment
+	node := form.Array("name", func(item FormArrayItem, index int) *vdom.VNode {
+		t.Error("Should not be called for non-slice field")
+		return nil
+	})
+
+	if node == nil {
+		t.Error("Array should return non-nil node")
+	}
+}
+
+func TestFormGetIntVariousTypes(t *testing.T) {
+	type NumericForm struct {
+		Int8Val    int8    `form:"int8"`
+		Int16Val   int16   `form:"int16"`
+		Int32Val   int32   `form:"int32"`
+		Int64Val   int64   `form:"int64"`
+		UintVal    uint    `form:"uint"`
+		Uint8Val   uint8   `form:"uint8"`
+		Uint16Val  uint16  `form:"uint16"`
+		Uint32Val  uint32  `form:"uint32"`
+		Uint64Val  uint64  `form:"uint64"`
+		Float32Val float32 `form:"float32"`
+		Float64Val float64 `form:"float64"`
+	}
+
+	form := UseForm(NumericForm{
+		Int8Val:    8,
+		Int16Val:   16,
+		Int32Val:   32,
+		Int64Val:   64,
+		UintVal:    100,
+		Uint8Val:   200,
+		Uint16Val:  300,
+		Uint32Val:  400,
+		Uint64Val:  500,
+		Float32Val: 1.5,
+		Float64Val: 2.5,
+	})
+
+	tests := []struct {
+		field string
+		want  int
+	}{
+		{"int8", 8},
+		{"int16", 16},
+		{"int32", 32},
+		{"int64", 64},
+		{"uint", 100},
+		{"uint8", 200},
+		{"uint16", 300},
+		{"uint32", 400},
+		{"uint64", 500},
+		{"float32", 1},
+		{"float64", 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			got := form.GetInt(tt.field)
+			if got != tt.want {
+				t.Errorf("GetInt(%s) = %d, want %d", tt.field, got, tt.want)
+			}
+		})
+	}
+
+	// Test non-numeric field returns 0
+	strForm := UseForm(TestContact{Name: "Test"})
+	if strForm.GetInt("name") != 0 {
+		t.Error("GetInt on string field should return 0")
+	}
+}
+
+func TestFormGetBoolVariousValues(t *testing.T) {
+	type MixedForm struct {
+		BoolVal   bool   `form:"bool"`
+		StringVal string `form:"string"`
+		IntVal    int    `form:"int"`
+	}
+
+	form := UseForm(MixedForm{
+		BoolVal:   true,
+		StringVal: "test",
+		IntVal:    42,
+	})
+
+	if !form.GetBool("bool") {
+		t.Error("GetBool(bool) should return true")
+	}
+
+	// Non-bool fields should return false
+	if form.GetBool("string") {
+		t.Error("GetBool(string) should return false")
+	}
+
+	if form.GetBool("int") {
+		t.Error("GetBool(int) should return false")
+	}
+}
+
+func TestFormNestedFieldAccess(t *testing.T) {
+	form := UseForm(TestNested{
+		User: TestUser{
+			Name:  "Alice",
+			Email: "alice@test.com",
+		},
+		Address: TestAddress{
+			Street: "123 Main St",
+			City:   "Boston",
+			Zip:    "02101",
+		},
+	})
+
+	// Test nested field Get
+	name := form.Get("user.name")
+	if name != "Alice" {
+		t.Errorf("Get(user.name) = %v, want 'Alice'", name)
+	}
+
+	city := form.GetString("address.city")
+	if city != "Boston" {
+		t.Errorf("GetString(address.city) = %s, want 'Boston'", city)
+	}
+}
+
+func TestFormNestedFieldSet(t *testing.T) {
+	form := UseForm(TestNested{})
+
+	form.Set("user.name", "Bob")
+	form.Set("address.city", "Seattle")
+
+	values := form.Values()
+	if values.User.Name != "Bob" {
+		t.Errorf("User.Name = %s, want 'Bob'", values.User.Name)
+	}
+	if values.Address.City != "Seattle" {
+		t.Errorf("Address.City = %s, want 'Seattle'", values.Address.City)
+	}
+}
+
+func TestFormIsTouched(t *testing.T) {
+	form := UseForm(TestContact{})
+
+	if form.IsTouched("name") {
+		t.Error("Field should not be touched initially")
+	}
+
+	// Validate field marks it as touched
+	form.ValidateField("name")
+
+	if !form.IsTouched("name") {
+		t.Error("Field should be touched after validation")
+	}
+}
+
+func TestFormPointerStruct(t *testing.T) {
+	type PtrForm struct {
+		Name *string `form:"name"`
+	}
+
+	name := "Test"
+	form := UseForm(PtrForm{Name: &name})
+
+	values := form.Values()
+	if values.Name == nil || *values.Name != "Test" {
+		t.Error("Pointer field should be accessible")
+	}
+}
+
+func TestFormUnexportedFields(t *testing.T) {
+	type FormWithPrivate struct {
+		Public  string `form:"public"`
+		private string `form:"private"` //nolint:unused
+	}
+
+	form := UseForm(FormWithPrivate{Public: "visible"})
+
+	// Should only process exported fields
+	if form.Get("public") != "visible" {
+		t.Error("Should be able to get exported field")
+	}
+}
+
+func TestFormTagDash(t *testing.T) {
+	type FormWithDash struct {
+		Included string `form:"included"`
+		Excluded string `form:"-"`
+	}
+
+	form := UseForm(FormWithDash{
+		Included: "yes",
+		Excluded: "no",
+	})
+
+	// Field with form:"-" should be excluded
+	if form.Get("included") != "yes" {
+		t.Error("Included field should be accessible")
+	}
+}
+
+func TestFormArrayItemField(t *testing.T) {
+	form := UseForm(TestOrder{
+		Items: []OrderItem{{ProductID: 1, Quantity: 2}},
+	})
+
+	form.Array("items", func(item FormArrayItem, index int) *vdom.VNode {
+		input := &vdom.VNode{
+			Kind: vdom.KindElement,
+			Tag:  "input",
+		}
+		field := item.Field("product_id", input)
+
+		if field == nil {
+			t.Error("FormArrayItem.Field returned nil")
+		}
+
+		// Path should be like "items.0.product_id"
+		expectedName := "items.0.product_id"
+		if input.Props["name"] != expectedName {
+			t.Errorf("Input name = %v, want %s", input.Props["name"], expectedName)
+		}
+
+		return field
+	})
+}
+
+func TestFormArrayItemRemove(t *testing.T) {
+	form := UseForm(TestOrder{
+		Items: []OrderItem{{ProductID: 1}, {ProductID: 2}},
+	})
+
+	form.Array("items", func(item FormArrayItem, index int) *vdom.VNode {
+		// Get the remove function
+		removeFn := item.Remove()
+		if removeFn == nil {
+			t.Error("Remove() should return a function")
+		}
+		return nil
+	})
+}
+
+func TestFormArrayRemoveAtReindexesErrors(t *testing.T) {
+	form := UseForm(TestOrder{
+		Items: []OrderItem{
+			{ProductID: 0, Quantity: 0},
+			{ProductID: 0, Quantity: 0},
+			{ProductID: 0, Quantity: 0},
+		},
+	})
+
+	// Set some errors
+	form.SetError("items.0.product_id", "Error 0")
+	form.SetError("items.1.product_id", "Error 1")
+	form.SetError("items.2.product_id", "Error 2")
+
+	// Remove item 1
+	form.RemoveAt("items", 1)
+
+	// Error for items.2 should now be at items.1
+	if !form.HasError("items.1.product_id") {
+		t.Error("Error from items.2 should be reindexed to items.1")
+	}
+
+	// Original items.1 error should be gone
+	// items.0 error should remain
+	if !form.HasError("items.0.product_id") {
+		t.Error("Error for items.0 should remain")
+	}
+}
+
+func TestFormArrayInsertAtEdgeCases(t *testing.T) {
+	form := UseForm(TestOrder{
+		Items: []OrderItem{{ProductID: 1}},
+	})
+
+	// Insert at negative index (should clamp to 0)
+	form.InsertAt("items", -5, OrderItem{ProductID: 0})
+	values := form.Values()
+	if values.Items[0].ProductID != 0 {
+		t.Error("Insert at negative should insert at beginning")
+	}
+
+	// Insert at index beyond length (should append)
+	form.InsertAt("items", 100, OrderItem{ProductID: 99})
+	values = form.Values()
+	if values.Items[len(values.Items)-1].ProductID != 99 {
+		t.Error("Insert beyond length should append")
+	}
+}
+
+func TestFormGetNilField(t *testing.T) {
+	form := UseForm(TestContact{})
+
+	// Get non-existent field
+	val := form.Get("nonexistent")
+	if val != nil {
+		t.Errorf("Get(nonexistent) = %v, want nil", val)
+	}
+}
+
+func TestFormGetStringNonString(t *testing.T) {
+	type NumForm struct {
+		Count int `form:"count"`
+	}
+
+	form := UseForm(NumForm{Count: 42})
+
+	// GetString on int should return string representation
+	str := form.GetString("count")
+	if str != "42" {
+		t.Errorf("GetString(count) = %s, want '42'", str)
+	}
+}
