@@ -908,11 +908,33 @@ Vango V2 is complete when:
 vango_v2/
 ├── cmd/
 │   └── vango/              # CLI tool
-│       ├── main.go
-│       ├── create.go
-│       ├── dev.go
-│       ├── build.go
-│       └── gen.go
+│       ├── main.go         # CLI entry point
+│       ├── create.go       # Project scaffolding
+│       ├── dev.go          # Development server
+│       ├── build.go        # Production build
+│       ├── gen.go          # Code generation
+│       ├── add.go          # VangoUI components
+│       ├── test.go         # Test runner
+│       └── version.go      # Version info
+├── internal/               # CLI internals
+│   ├── errors/             # Structured error messages
+│   │   ├── error.go        # VangoError type
+│   │   ├── format.go       # Terminal formatting
+│   │   └── registry.go     # Error code registry
+│   ├── config/             # Configuration
+│   │   └── config.go       # vango.json parsing
+│   ├── dev/                # Development server
+│   │   ├── watcher.go      # File watching
+│   │   ├── compiler.go     # Go compilation
+│   │   ├── reload.go       # Browser reload
+│   │   ├── tailwind.go     # CSS processing
+│   │   └── server.go       # Dev server
+│   ├── build/              # Production build
+│   │   └── builder.go      # Build pipeline
+│   ├── templates/          # Project templates
+│   │   └── templates.go    # Scaffolding
+│   └── registry/           # Component registry
+│       └── registry.go     # VangoUI management
 ├── pkg/
 │   ├── vango/              # Core framework
 │   │   ├── signal.go       # Reactive primitives
@@ -981,4 +1003,4 @@ vango_v2/
 
 *Last Updated: 2024-12-07*
 *Version: 2.0-draft*
-*Phases 1-4 Complete (Foundation + First Integration Phase)*
+*Phases 1-9 Complete (Foundation through Developer Experience)*
