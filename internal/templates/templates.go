@@ -103,23 +103,52 @@ func minimalTemplate() *Template {
 			"main.go": `package main
 
 import (
+	"bytes"
 	"log"
+	"net/http"
 
-	"{{.ModulePath}}/app/routes"
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-dev/vango/v2/pkg/render"
+	. "github.com/vango-dev/vango/v2/pkg/vdom"
 )
 
 func main() {
-	srv := server.New(server.Config{
-		Addr: ":3000",
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		page := HomePage()
+
+		renderer := render.NewRenderer(render.RendererConfig{})
+		var buf bytes.Buffer
+		if err := renderer.RenderPage(&buf, render.PageData{
+			Title: "{{.ProjectName}}",
+			Body:  page.Render(),
+			Styles: []string{` + "`" + `
+				body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 2rem; }
+				h1 { color: #2563eb; }
+			` + "`" + `},
+		}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(buf.Bytes())
 	})
 
-	routes.Register(srv)
-
 	log.Println("Server running at http://localhost:3000")
-	if err := srv.ListenAndServe(); err != nil {
+	if err := http.ListenAndServe(":3000", mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// HomePage is the home page component.
+func HomePage() Component {
+	return Func(func() *VNode {
+		return Div(
+			H1("Welcome to {{.ProjectName}}"),
+			P("{{.Description}}"),
+		)
+	})
 }
 `,
 			"go.mod": `module {{.ModulePath}}
@@ -139,32 +168,6 @@ require github.com/vango-dev/vango/v2 v2.0.0
   }
 }
 `,
-			"app/routes/index.go": `package routes
-
-import (
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
-	"github.com/vango-dev/vango/v2/pkg/vango"
-)
-
-// Page is the home page component.
-func Page(ctx *vango.Ctx) vango.Component {
-	return vango.Func(func() *VNode {
-		return Div(Class("container"),
-			H1(Text("Welcome to {{.ProjectName}}")),
-			P(Text("{{.Description}}")),
-		)
-	})
-}
-`,
-			"app/routes/routes.go": `package routes
-
-import "github.com/vango-dev/vango/v2/pkg/server"
-
-// Register registers all routes.
-func Register(srv *server.Server) {
-	srv.Get("/", Page)
-}
-`,
 		},
 	}
 }
@@ -178,11 +181,13 @@ func fullTemplate() *Template {
 			"main.go": `package main
 
 import (
+	"bytes"
 	"log"
+	"net/http"
 	"os"
 
-	"{{.ModulePath}}/app/routes"
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-dev/vango/v2/pkg/render"
+	. "github.com/vango-dev/vango/v2/pkg/vdom"
 )
 
 func main() {
@@ -191,16 +196,115 @@ func main() {
 		port = "3000"
 	}
 
-	srv := server.New(server.Config{
-		Addr: ":" + port,
-	})
+	mux := http.NewServeMux()
 
-	routes.Register(srv)
+	// Serve static files
+	mux.Handle("/public/", http.StripPrefix("/public/", http.FileServer(http.Dir("public"))))
+
+	// Page routes
+	mux.HandleFunc("/", renderPage("{{.ProjectName}}", HomePage))
+	mux.HandleFunc("/about", renderPage("About - {{.ProjectName}}", AboutPage))
 
 	log.Printf("Server running at http://localhost:%s", port)
-	if err := srv.ListenAndServe(); err != nil {
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// renderPage returns an HTTP handler that renders a Vango component.
+func renderPage(title string, component func() Component) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		page := component()
+
+		renderer := render.NewRenderer(render.RendererConfig{})
+		var buf bytes.Buffer
+		if err := renderer.RenderPage(&buf, render.PageData{
+			Title: title,
+			Body:  page.Render(),
+			StyleSheets: []string{"/public/styles.css"},
+		}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(buf.Bytes())
+	}
+}
+
+// HomePage is the home page component.
+func HomePage() Component {
+	return Func(func() *VNode {
+		return Div(Class("min-h-screen bg-gray-100"),
+			Navbar(),
+			Main(Class("container mx-auto px-4 py-8"),
+				H1(Class("text-4xl font-bold text-gray-900 mb-4"),
+					"Welcome to {{.ProjectName}}",
+				),
+				P(Class("text-lg text-gray-600 mb-8"),
+					"{{.Description}}",
+				),
+				Counter(),
+			),
+		)
+	})
+}
+
+// AboutPage is the about page component.
+func AboutPage() Component {
+	return Func(func() *VNode {
+		return Div(Class("min-h-screen bg-gray-100"),
+			Navbar(),
+			Main(Class("container mx-auto px-4 py-8"),
+				H1(Class("text-4xl font-bold text-gray-900 mb-4"),
+					"About",
+				),
+				P(Class("text-lg text-gray-600"),
+					"This is a Vango application - a server-driven web framework for Go.",
+				),
+			),
+		)
+	})
+}
+
+// Navbar is the navigation bar component.
+func Navbar() *VNode {
+	return Nav(Class("bg-white shadow"),
+		Div(Class("container mx-auto px-4"),
+			Div(Class("flex justify-between items-center h-16"),
+				A(Href("/"), Class("text-xl font-bold text-gray-900"),
+					"{{.ProjectName}}",
+				),
+				Div(Class("flex gap-4"),
+					A(Href("/"), Class("text-gray-600 hover:text-gray-900"), "Home"),
+					A(Href("/about"), Class("text-gray-600 hover:text-gray-900"), "About"),
+				),
+			),
+		),
+	)
+}
+
+// Counter is a simple counter component demonstrating interactivity.
+// Note: Full interactivity requires WebSocket connection (vango dev).
+func Counter() *VNode {
+	return Div(Class("bg-white rounded-lg shadow p-6 max-w-sm"),
+		H2(Class("text-2xl font-semibold text-gray-800 mb-4"), "Counter"),
+		P(Class("text-gray-600 mb-4"),
+			"This demonstrates Vango components. Full interactivity with signals ",
+			"and event handlers works over WebSocket in development mode.",
+		),
+		Div(Class("flex gap-2"),
+			Button(
+				Class("px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"),
+				"-",
+			),
+			Span(Class("px-4 py-2 text-2xl font-bold"), "0"),
+			Button(
+				Class("px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"),
+				"+",
+			),
+		),
+	)
 }
 `,
 			"go.mod": `module {{.ModulePath}}
@@ -225,132 +329,8 @@ require github.com/vango-dev/vango/v2 v2.0.0
   }{{end}}
 }
 `,
-			"app/routes/index.go": `package routes
-
-import (
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
-	"github.com/vango-dev/vango/v2/pkg/vango"
-	"{{.ModulePath}}/app/components"
-)
-
-// Page is the home page component.
-func Page(ctx *vango.Ctx) vango.Component {
-	return vango.Func(func() *VNode {
-		return Div(Class("min-h-screen bg-gray-100"),
-			components.Navbar(),
-			Main(Class("container mx-auto px-4 py-8"),
-				H1(Class("text-4xl font-bold text-gray-900 mb-4"),
-					Text("Welcome to {{.ProjectName}}"),
-				),
-				P(Class("text-lg text-gray-600 mb-8"),
-					Text("{{.Description}}"),
-				),
-				components.Counter(0),
-			),
-		)
-	})
-}
-`,
-			"app/routes/about.go": `package routes
-
-import (
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
-	"github.com/vango-dev/vango/v2/pkg/vango"
-	"{{.ModulePath}}/app/components"
-)
-
-// AboutPage is the about page component.
-func AboutPage(ctx *vango.Ctx) vango.Component {
-	return vango.Func(func() *VNode {
-		return Div(Class("min-h-screen bg-gray-100"),
-			components.Navbar(),
-			Main(Class("container mx-auto px-4 py-8"),
-				H1(Class("text-4xl font-bold text-gray-900 mb-4"),
-					Text("About"),
-				),
-				P(Class("text-lg text-gray-600"),
-					Text("This is a Vango application."),
-				),
-			),
-		)
-	})
-}
-`,
-			"app/routes/routes.go": `package routes
-
-import "github.com/vango-dev/vango/v2/pkg/server"
-
-// Register registers all routes.
-func Register(srv *server.Server) {
-	srv.Get("/", Page)
-	srv.Get("/about", AboutPage)
-}
-`,
-			"app/components/counter.go": `package components
-
-import (
-	"fmt"
-
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
-	"github.com/vango-dev/vango/v2/pkg/vango"
-)
-
-// Counter is a simple counter component.
-func Counter(initial int) vango.Component {
-	return vango.Func(func() *VNode {
-		count := vango.NewIntSignal(initial)
-
-		return Div(Class("bg-white rounded-lg shadow p-6 max-w-sm"),
-			H2(Class("text-2xl font-semibold text-gray-800 mb-4"),
-				Text("Counter"),
-			),
-			P(Class("text-4xl font-bold text-blue-600 mb-4"),
-				Text(fmt.Sprintf("%d", count.Get())),
-			),
-			Div(Class("flex gap-2"),
-				Button(
-					Class("px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"),
-					OnClick(func() { count.Dec() }),
-					Text("-"),
-				),
-				Button(
-					Class("px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"),
-					OnClick(func() { count.Inc() }),
-					Text("+"),
-				),
-			),
-		)
-	})
-}
-`,
-			"app/components/navbar.go": `package components
-
-import (
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
-)
-
-// Navbar is the navigation bar component.
-func Navbar() *VNode {
-	return Nav(Class("bg-white shadow"),
-		Div(Class("container mx-auto px-4"),
-			Div(Class("flex justify-between items-center h-16"),
-				A(Href("/"), Class("text-xl font-bold text-gray-900"),
-					Text("{{.ProjectName}}"),
-				),
-				Div(Class("flex gap-4"),
-					A(Href("/"), Class("text-gray-600 hover:text-gray-900"),
-						Text("Home"),
-					),
-					A(Href("/about"), Class("text-gray-600 hover:text-gray-900"),
-						Text("About"),
-					),
-				),
-			),
-		),
-	)
-}
-`,
-			"public/favicon.ico":    "", // Empty placeholder
+			"public/favicon.ico":  "", // Empty placeholder
+			"public/styles.css":   "", // Generated by Tailwind or empty
 			"app/styles/input.css": `@tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -358,6 +338,7 @@ func Navbar() *VNode {
 			"tailwind.config.js": `/** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
+    './*.go',
     './app/**/*.go',
   ],
   theme: {
@@ -387,19 +368,22 @@ vango build
 
 ` + "```" + `
 {{.ProjectName}}/
+├── main.go              # Entry point with routes and components
 ├── app/
-│   ├── routes/          # Page components
-│   │   ├── index.go     # Home page (/)
-│   │   ├── about.go     # About page (/about)
-│   │   └── routes.go    # Route registration
-│   └── components/      # Reusable components
-│       ├── counter.go
-│       └── navbar.go
+│   └── styles/          # Source CSS (Tailwind input)
 ├── public/              # Static assets
-├── main.go              # Entry point
+│   └── styles.css       # Compiled CSS
 ├── vango.json           # Vango configuration
+├── tailwind.config.js   # Tailwind configuration
 └── README.md
 ` + "```" + `
+
+## Development
+
+The development server provides:
+- Hot reload on file changes
+- WebSocket connection for live updates
+- Tailwind CSS compilation (if enabled)
 
 ## Learn More
 
@@ -419,11 +403,10 @@ func apiTemplate() *Template {
 			"main.go": `package main
 
 import (
+	"encoding/json"
 	"log"
+	"net/http"
 	"os"
-
-	"{{.ModulePath}}/app/handlers"
-	"github.com/vango-dev/vango/v2/pkg/server"
 )
 
 func main() {
@@ -432,23 +415,28 @@ func main() {
 		port = "3000"
 	}
 
-	srv := server.New(server.Config{
-		Addr: ":" + port,
-	})
+	mux := http.NewServeMux()
 
-	handlers.Register(srv)
+	// API routes
+	mux.HandleFunc("/api/health", handleHealth)
 
 	log.Printf("API server running at http://localhost:%s", port)
-	if err := srv.ListenAndServe(); err != nil {
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// handleHealth handles GET /api/health
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "ok",
+	})
 }
 `,
 			"go.mod": `module {{.ModulePath}}
 
 go 1.22
-
-require github.com/vango-dev/vango/v2 v2.0.0
 `,
 			"vango.json": `{
   "dev": {
@@ -458,30 +446,6 @@ require github.com/vango-dev/vango/v2 v2.0.0
     "output": "dist",
     "minify": true
   }
-}
-`,
-			"app/handlers/health.go": `package handlers
-
-import (
-	"encoding/json"
-	"net/http"
-)
-
-// HealthCheck handles GET /api/health
-func HealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "ok",
-	})
-}
-`,
-			"app/handlers/handlers.go": `package handlers
-
-import "github.com/vango-dev/vango/v2/pkg/server"
-
-// Register registers all API handlers.
-func Register(srv *server.Server) {
-	srv.HandleFunc("/api/health", HealthCheck)
 }
 `,
 			"README.md": `# {{.ProjectName}}

@@ -85,8 +85,6 @@ func TestTemplate_Create_Minimal(t *testing.T) {
 		"main.go",
 		"go.mod",
 		"vango.json",
-		"app/routes/index.go",
-		"app/routes/routes.go",
 	}
 
 	for _, file := range expectedFiles {
@@ -96,15 +94,19 @@ func TestTemplate_Create_Minimal(t *testing.T) {
 		}
 	}
 
-	// Check content substitution
+	// Check content substitution in main.go
 	mainGo, _ := os.ReadFile(filepath.Join(tmpDir, "main.go"))
-	if !strings.Contains(string(mainGo), "github.com/test/test-app") {
-		t.Error("Module path not substituted in main.go")
+	if !strings.Contains(string(mainGo), "test-app") {
+		t.Error("Project name not substituted in main.go")
+	}
+	if !strings.Contains(string(mainGo), "A test application") {
+		t.Error("Description not substituted in main.go")
 	}
 
-	indexGo, _ := os.ReadFile(filepath.Join(tmpDir, "app/routes/index.go"))
-	if !strings.Contains(string(indexGo), "test-app") {
-		t.Error("Project name not substituted in index.go")
+	// Check go.mod has module path
+	goMod, _ := os.ReadFile(filepath.Join(tmpDir, "go.mod"))
+	if !strings.Contains(string(goMod), "github.com/test/test-app") {
+		t.Error("Module path not substituted in go.mod")
 	}
 }
 
@@ -123,10 +125,33 @@ func TestTemplate_Create_Full(t *testing.T) {
 		t.Fatalf("Create error: %v", err)
 	}
 
-	// Check component files
-	counterPath := filepath.Join(tmpDir, "app/components/counter.go")
-	if _, err := os.Stat(counterPath); os.IsNotExist(err) {
-		t.Error("Counter component not created")
+	// Check core files
+	expectedFiles := []string{
+		"main.go",
+		"go.mod",
+		"vango.json",
+		"README.md",
+		"tailwind.config.js",
+	}
+
+	for _, file := range expectedFiles {
+		path := filepath.Join(tmpDir, file)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("File %q not created", file)
+		}
+	}
+
+	// Check main.go contains components
+	mainGo, _ := os.ReadFile(filepath.Join(tmpDir, "main.go"))
+	mainGoStr := string(mainGo)
+	if !strings.Contains(mainGoStr, "Counter") {
+		t.Error("Counter component not in main.go")
+	}
+	if !strings.Contains(mainGoStr, "Navbar") {
+		t.Error("Navbar component not in main.go")
+	}
+	if !strings.Contains(mainGoStr, "HomePage") {
+		t.Error("HomePage component not in main.go")
 	}
 
 	// Check README
@@ -156,16 +181,28 @@ func TestTemplate_Create_API(t *testing.T) {
 		t.Fatalf("Create error: %v", err)
 	}
 
-	// Check handler files
-	healthPath := filepath.Join(tmpDir, "app/handlers/health.go")
-	if _, err := os.Stat(healthPath); os.IsNotExist(err) {
-		t.Error("Health handler not created")
+	// Check core files
+	expectedFiles := []string{
+		"main.go",
+		"go.mod",
+		"vango.json",
+		"README.md",
 	}
 
-	// Should not have routes directory
-	routesPath := filepath.Join(tmpDir, "app/routes")
-	if _, err := os.Stat(routesPath); !os.IsNotExist(err) {
-		t.Error("API template should not have routes directory")
+	for _, file := range expectedFiles {
+		path := filepath.Join(tmpDir, file)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("File %q not created", file)
+		}
+	}
+
+	// Check main.go has health handler
+	mainGo, _ := os.ReadFile(filepath.Join(tmpDir, "main.go"))
+	if !strings.Contains(string(mainGo), "handleHealth") {
+		t.Error("Health handler not in main.go")
+	}
+	if !strings.Contains(string(mainGo), "/api/health") {
+		t.Error("Health endpoint not registered")
 	}
 }
 
