@@ -16,8 +16,13 @@ count.Update(func(n int) int { return n + 1 })
 **Convenience methods:**
 ```go
 count.Inc()       // +1 for integers
-count.Dec()       // -1 for integers
+count.Dec()       // Convenience (booleans)
 enabled.Toggle()  // !current for booleans
+
+// Thread Safety
+// Signals are thread-safe and can be updated from any goroutine.
+// This triggers a thread-safe update to the component tree.
+enabled.Set(true)
 ```
 
 ## Memos
@@ -58,6 +63,20 @@ vango.Effect(func() vango.Cleanup {
 | After first render | Effect runs |
 | Signal dependency changes | Cleanup runs, then effect re-runs |
 | Component unmounts | Cleanup runs |
+
+## Background Updates
+
+Vango supports updates triggered by background activities (e.g., streaming responses, timers, external events).
+
+**Behavior:**
+- When a Signal is updated from a goroutine, it marks dependent components as "dirty".
+- The Runtime's event loop (listening to `renderCh`) picks up the signal and triggers a re-render.
+- Patches are pushed to the client immediately.
+
+**Best Practice:**
+- Use `vango.Signal` for all shared state.
+- Update signals freely from any goroutine (`go func() { ... }`).
+- Ensure your background loop checks for context cancellation or channel closure.
 
 ## Batching
 

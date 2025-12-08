@@ -13,6 +13,10 @@ Div(Class("container"),
 )
 ```
 
+> [!NOTE]
+> Vango provides concrete helper functions (`Div`, `Span`, etc.) for all standard HTML elements.
+> There is **no generic `El()` shorthand function**. Use the specific element helpers or `CustomElement()` for non-standard tags.
+
 ## Common Elements
 
 | Element | Description |

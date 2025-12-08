@@ -62,6 +62,22 @@ Vango supports three rendering modes:
 7. Client applies patches to DOM
 8. Total time: ~50-80ms
 
+## VDOM & Hydration IDs
+
+Vango uses a custom Virtual DOM that mirrors the browser's DOM on the server.
+
+### Node Types (VKind)
+The VKind enum aligns with the client's binary protocol:
+- **Element (1)**: HTML tags (`<div>`, `<button>`)
+- **Text (2)**: Text content
+- **Fragment (3)**: Layout wrappers
+
+### Universal HIDs
+To support dynamic updates (insertions, reordering), **all element nodes** are assigned a unique Hydration ID (`hid`) during SSR. This ensures that any element can be targeted as a parent for patches.
+
+- **Assignment**: `h1`, `h2`, `h3`... generated sequentially.
+- **Stability**: HIDs are preserved across re-renders for the same component instance, preventing handler mismatches.
+
 ## Same Components, Different Modes
 
 The same code works in all modes:

@@ -6,9 +6,9 @@ Complete API for Vango's reactive primitives.
 
 ```go
 // Create
-count := vango.Signal(0)
-user := vango.Signal[*User](nil)
-items := vango.Signal([]Item{})
+count := vango.NewSignal(0)
+user := vango.NewSignal[*User](nil)
+items := vango.NewSignal([]Item{})
 
 // Read (subscribes component)
 value := count()
@@ -23,6 +23,11 @@ count.Dec()
 
 // Convenience (booleans)
 enabled.Toggle()
+
+// Thread Safety
+// Signals are thread-safe atomic values. You can safely call Set(), Update(), 
+// and read values from multiple goroutines concurrently.
+// Any update automatically schedules a re-render for affected components.
 ```
 
 ## Memo

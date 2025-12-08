@@ -26,13 +26,18 @@ type Session struct {
 ## Event Loop
 
 ```go
-for event := range session.events {
-    handler := session.Handlers[event.HID]
-    handler()
+for {
+    select {
+    case event := <-session.events:
+        // Handle client event
+        handler := session.Handlers[event.HID]
+        handler()
+        session.renderDirtyComponents()
 
-    session.renderDirtyComponents()
-    patches := vdom.Diff(session.LastTree, session.CurrentTree)
-    session.sendPatches(patches)
+    case <-session.renderCh:
+        // Handle background update signal
+        session.renderDirtyComponents()
+    }
 }
 ```
 
