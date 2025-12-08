@@ -323,16 +323,18 @@ E2E latency = Network RTT + Server processing + Client DOM patching.
 | VDOM diff | Tree comparison algorithm |
 | SSR render | VNode → HTML string generation |
 | Router match | Radix tree traversal |
+| **Client patch application** | Browser DOM updates (Flood Test) |
+| **E2E roundtrip** | Full Click → Server → DOM cycle (Real E2E) |
+| **Memory at scale** | 1K-10K session density (Stadium Test) |
 
 ### What These Benchmarks Don't Measure ❌
 
 | Not Included | Why |
 |--------------|-----|
-| Network latency | Test runs in-memory |
+| Real network latency | Localhost only (add ~30ms for production) |
 | Database queries | Would vary by app |
-| Full HTTP request cycle | OS/TLS overhead not measured |
-| Client-side patch application | Would need browser benchmarks |
-| Concurrent session scaling | Synthetic single-thread tests |
+| Server under heavy load | Single-user benchmarks |
+| Complex component trees | Simple counter used for E2E |
 
 ### Fair Comparisons
 
@@ -365,6 +367,16 @@ cd vango_v2 && go test -bench=. -benchmem ./pkg/render/...
 
 # Router benchmarks
 cd vango_v2 && go test -bench=. -benchmem ./pkg/router/...
+
+# Stadium (memory at scale) benchmarks
+cd vango_v2 && go test -v -run=TestStadium ./pkg/server/...
+
+# E2E roundtrip benchmark (real server)
+cd vango_v2/benchmark/e2e_server && go run .
+# Then open http://localhost:8766 and click "Burst Test"
+
+# Flood test (client patch performance)
+# Open vango_v2/benchmark/flood_benchmark.html in browser
 ```
 
 ---
