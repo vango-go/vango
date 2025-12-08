@@ -297,37 +297,11 @@ func (r *Renderer) needsHID(node *vdom.VNode) bool {
 		return false
 	}
 
-	// Check for event handlers
-	for key := range node.Props {
-		if strings.HasPrefix(key, "on") && isEventHandler(node.Props[key]) {
-			return true
-		}
-	}
-
-	// Check for hooks
-	if _, hasHook := node.Props["_hook"]; hasHook {
-		return true
-	}
-
-	// Check for refs
-	if _, hasRef := node.Props["_ref"]; hasRef {
-		return true
-	}
-
-	// Check for optimistic updates
-	if _, hasOptimistic := node.Props["_optimistic"]; hasOptimistic {
-		return true
-	}
-
-	// Check for text children - elements with text children need HIDs
-	// so that text updates can target the parent element
-	for _, child := range node.Children {
-		if child.Kind == vdom.KindText {
-			return true
-		}
-	}
-
-	return false
+	// Check for event handlers - matches vdom.IsInteractive()
+	// Just check key prefix, not value type, for consistency with WebSocket
+	// Assign HIDs to all elements to match vdom.AssignHIDs behavior.
+	// This ensures consistency between SSR and WebSocket logic.
+	return true
 }
 
 // nextHID generates the next sequential hydration ID.
@@ -355,6 +329,8 @@ func isEventHandler(value any) bool {
 	case func():
 		return true
 	case func(any):
+		return true
+	case vdom.EventHandler:
 		return true
 	default:
 		// Use reflection to check for function types

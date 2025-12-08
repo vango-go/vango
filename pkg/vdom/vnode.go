@@ -6,11 +6,11 @@ import "strings"
 type VKind uint8
 
 const (
-	KindElement   VKind = iota // <div>, <button>, etc.
-	KindText                   // Plain text node
-	KindFragment               // Grouping without wrapper
-	KindComponent              // Nested component
-	KindRaw                    // Raw HTML (dangerous)
+	KindElement   VKind = iota + 1 // <div>, <button>, etc.
+	KindText                       // Plain text node
+	KindFragment                   // Grouping without wrapper
+	KindComponent                  // Nested component
+	KindRaw                        // Raw HTML (dangerous)
 )
 
 // String returns the string representation of the VKind.
@@ -33,14 +33,14 @@ func (k VKind) String() string {
 
 // VNode is the virtual DOM node.
 type VNode struct {
-	Kind     VKind      // Node type
-	Tag      string     // Element tag name (e.g., "div")
-	Props    Props      // Attributes and event handlers
-	Children []*VNode   // Child nodes
-	Key      string     // Reconciliation key
-	Text     string     // For KindText and KindRaw
-	Comp     Component  // For KindComponent
-	HID      string     // Hydration ID (assigned during render)
+	Kind     VKind     // Node type
+	Tag      string    // Element tag name (e.g., "div")
+	Props    Props     // Attributes and event handlers
+	Children []*VNode  // Child nodes
+	Key      string    // Reconciliation key
+	Text     string    // For KindText and KindRaw
+	Comp     Component // For KindComponent
+	HID      string    // Hydration ID (assigned during render)
 }
 
 // Props holds attributes and event handlers.

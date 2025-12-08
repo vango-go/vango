@@ -46,9 +46,9 @@ func AssignHIDs(node *VNode, gen *HIDGenerator) {
 		return
 	}
 
-	// Assign HIDs to elements that are interactive OR have text children
-	// Text children need HIDs on their parent so SetText patches can target them
-	if node.Kind == KindElement && (node.IsInteractive() || hasTextChild(node)) {
+	// Assign HIDs to all elements to ensure they are addressable in the client.
+	// This supports dynamic updates (InsertNode, RemoveNode, etc.) anywhere in the tree.
+	if node.Kind == KindElement && node.HID == "" {
 		node.HID = gen.Next()
 	}
 

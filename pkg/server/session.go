@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"runtime/debug"
 	"strings"
@@ -48,8 +49,9 @@ type Session struct {
 	hidGen      *vdom.HIDGenerator // Hydration ID generator
 
 	// Channels
-	events chan *Event   // Incoming events
-	done   chan struct{} // Shutdown signal
+	events   chan *Event   // Incoming events
+	renderCh chan struct{} // Signal for re-render
+	done     chan struct{} // Shutdown signal
 
 	// Configuration
 	config *SessionConfig
@@ -87,6 +89,7 @@ func newSession(conn *websocket.Conn, userID string, config *SessionConfig, logg
 		owner:      vango.NewOwner(nil),
 		hidGen:     vdom.NewHIDGenerator(),
 		events:     make(chan *Event, config.MaxEventQueue),
+		renderCh:   make(chan struct{}, 1),
 		done:       make(chan struct{}),
 		config:     config,
 		logger:     logger.With("session_id", id),
@@ -115,9 +118,10 @@ func (s *Session) MountRoot(component Component) {
 	s.root.HID = tree.HID
 	s.root.SetLastTree(tree)
 
-	s.logger.Debug("mounted root component",
+	s.logger.Info("mounted root component",
 		"handlers", len(s.handlers),
-		"components", len(s.components))
+		"components", len(s.components),
+		"hid_counter", s.hidGen.Current())
 }
 
 // collectHandlers walks the VNode tree and collects event handlers.
@@ -219,17 +223,22 @@ func (s *Session) renderDirty() {
 	}
 
 	if len(dirty) == 0 {
+		fmt.Println("[DEBUG] renderDirty: no dirty components")
 		return
 	}
+
+	fmt.Printf("[DEBUG] renderDirty: %d dirty components\n", len(dirty))
 
 	// Re-render each dirty component
 	var allPatches []vdom.Patch
 	for _, comp := range dirty {
 		patches := s.renderComponent(comp)
+		fmt.Printf("[DEBUG] renderComponent returned %d patches\n", len(patches))
 		allPatches = append(allPatches, patches...)
 	}
 
 	// Send all patches
+	fmt.Printf("[DEBUG] renderDirty: sending %d total patches\n", len(allPatches))
 	if len(allPatches) > 0 {
 		s.sendPatches(allPatches)
 	}
@@ -243,7 +252,15 @@ func (s *Session) renderComponent(comp *ComponentInstance) []vdom.Patch {
 	// Render new tree
 	newTree := comp.Render()
 
-	// Assign HIDs to new nodes
+	// Try to copy HIDs from old tree to preserve them
+	// If structure changed significantly, this will return false for some nodes
+	// and we'll assign new HIDs to those
+	if oldTree != nil {
+		vdom.CopyHIDs(oldTree, newTree)
+	}
+
+	// Assign HIDs to any new nodes that didn't get one from CopyHIDs
+	// This handles new elements added to the tree
 	vdom.AssignHIDs(newTree, s.hidGen)
 
 	// Diff old and new
@@ -275,8 +292,12 @@ func (s *Session) clearComponentHandlers(comp *ComponentInstance) {
 // to maintain a set of dirty components for more efficient re-rendering.
 func (s *Session) scheduleRender(comp *ComponentInstance) {
 	// The component has already marked itself dirty.
-	// renderDirty() will pick it up during the next render pass.
-	// Future optimization: maintain a dirty set for O(1) lookup.
+	// We notify the event loop to run a render pass.
+	select {
+	case s.renderCh <- struct{}{}:
+	default:
+		// Already scheduled
+	}
 }
 
 // sendPatches encodes and sends patches to the client.

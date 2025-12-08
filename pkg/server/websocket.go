@@ -172,13 +172,16 @@ func (s *Session) WriteLoop() {
 	}
 }
 
-// EventLoop processes queued events.
+// EventLoop processes queued events and render signals.
 // It runs handlers, schedules effects, and triggers re-renders.
 func (s *Session) EventLoop() {
 	for {
 		select {
 		case event := <-s.events:
 			s.handleEvent(event)
+
+		case <-s.renderCh:
+			s.renderDirty()
 
 		case <-s.done:
 			return

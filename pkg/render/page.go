@@ -369,7 +369,8 @@ func (r *Renderer) renderClientScript(w io.Writer, page PageData) error {
 		clientPath = "/_vango/client.js"
 	}
 
-	if _, err := fmt.Fprintf(w, `  <script src="%s" defer></script>`+"\n",
+	// Enable debug mode for development
+	if _, err := fmt.Fprintf(w, `  <script src="%s" data-debug="true" defer></script>`+"\n",
 		escapeAttr(clientPath)); err != nil {
 		return err
 	}
