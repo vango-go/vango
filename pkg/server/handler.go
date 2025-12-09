@@ -1,8 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/vango-dev/vango/v2/pkg/features/hooks"
 	"github.com/vango-dev/vango/v2/pkg/protocol"
 )
 
@@ -205,11 +207,22 @@ func wrapHandler(value any) Handler {
 			}
 		}
 
-	// Hook event handler
+	// Hook event handler (internal server type)
 	case func(HookEvent):
 		return func(e *Event) {
 			if data, ok := e.Payload.(*protocol.HookEventData); ok {
 				h(HookEvent{Name: data.Name, Data: data.Data})
+			} else {
+				// Debug log for type mismatch
+				// fmt.Printf("[DEBUG] Hook handler payload type mismatch: %T\n", e.Payload)
+			}
+		}
+
+	// Hook event handler (public hooks package type)
+	case func(hooks.HookEvent):
+		return func(e *Event) {
+			if data, ok := e.Payload.(*protocol.HookEventData); ok {
+				h(hooks.HookEvent{Name: data.Name, Data: data.Data})
 			}
 		}
 
@@ -264,6 +277,7 @@ func wrapHandler(value any) Handler {
 
 	default:
 		// Unknown handler type - return a no-op handler
+		fmt.Printf("[DEBUG] wrapHandler: Unknown handler type: %T\n", value)
 		return func(e *Event) {}
 	}
 }
