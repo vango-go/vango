@@ -175,8 +175,13 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for session resume
+	// NOTE: After a page refresh, SSR renders a new page with different HIDs/handlers.
+	// If we resume the old session, its handler map is stale and won't match.
+	// For now, we disable session resume to ensure fresh handlers on each page load.
+	// A production fix would remount the component on resume.
+	// TODO: Implement proper session resume with component remount
 	var session *Session
-	if hello.SessionID != "" {
+	if false && hello.SessionID != "" { // Disabled: stale handlers cause click failures
 		session = s.sessions.Get(hello.SessionID)
 		if session != nil {
 			// Resume existing session

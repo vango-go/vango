@@ -50,6 +50,8 @@ func AssignHIDs(node *VNode, gen *HIDGenerator) {
 	// This supports dynamic updates (InsertNode, RemoveNode, etc.) anywhere in the tree.
 	if node.Kind == KindElement && node.HID == "" {
 		node.HID = gen.Next()
+		// Debug: trace HID assignment
+		fmt.Printf("[WS HID] %s -> %s\n", node.HID, node.Tag)
 	}
 
 	// Recurse into children

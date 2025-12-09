@@ -85,14 +85,36 @@ export class EventCapture {
     }
 
     /**
+     * Find closest element with data-hid that has a specific handler attribute.
+     * This handles event bubbling through nested HID elements.
+     */
+    _findHidElementWithHandler(target, handlerAttr) {
+        // Handle non-element targets
+        if (!target || !target.closest) {
+            return null;
+        }
+
+        // Start from the target and traverse up
+        let el = target.closest('[data-hid]');
+        while (el) {
+            if (el.hasAttribute(handlerAttr)) {
+                return el;
+            }
+            // Move to parent and find next HID element
+            const parent = el.parentElement;
+            if (!parent) break;
+            el = parent.closest('[data-hid]');
+        }
+        return null;
+    }
+
+    /**
      * Handle click event
      */
     _handleClick(event) {
-        const el = this._findHidElement(event.target);
+        // Find the closest HID element with a click handler, bubbling up through ancestors
+        const el = this._findHidElementWithHandler(event.target, 'data-on-click');
         if (!el) return;
-
-        // Check if this element has click handler
-        if (!el.hasAttribute('data-on-click')) return;
 
         event.preventDefault();
 

@@ -137,6 +137,8 @@ func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance)
 				handler := wrapHandler(value)
 				s.handlers[node.HID] = handler
 				s.components[node.HID] = instance
+				// Debug: log handler registration
+				fmt.Printf("[HANDLER] Registered %s on %s (%s)\n", key, node.HID, node.Tag)
 			}
 		}
 	}
@@ -165,6 +167,9 @@ func (s *Session) handleEvent(event *Event) {
 	s.eventCount.Add(1)
 	s.LastActive = time.Now()
 
+	// Debug: log incoming event
+	fmt.Printf("[EVENT] Received: HID=%s Type=%v Seq=%d\n", event.HID, event.Type, event.Seq)
+
 	// Find handler for this HID
 	handler, exists := s.handlers[event.HID]
 	if !exists {
@@ -172,6 +177,9 @@ func (s *Session) handleEvent(event *Event) {
 		s.sendErrorMessage(protocol.ErrHandlerNotFound, "Handler not found for HID: "+event.HID)
 		return
 	}
+
+	// Debug: handler found
+	fmt.Printf("[EVENT] Handler found for %s, executing...\n", event.HID)
 
 	// Execute handler with panic recovery
 	s.safeExecute(handler, event)

@@ -32,12 +32,19 @@ func VNodeToWire(node *vdom.VNode) *VNodeWire {
 		Text: node.Text,
 	}
 
-	// Convert props to string attrs (skip event handlers)
+	// Convert props to string attrs (skip event handlers, but add markers)
 	if node.Props != nil {
 		w.Attrs = make(map[string]string)
 		for k, v := range node.Props {
-			// Skip event handlers (start with "on")
-			if strings.HasPrefix(k, "on") {
+			// Event handlers: add marker attribute instead of handler
+			if strings.HasPrefix(k, "on") && v != nil {
+				// Extract event name (onclick -> click)
+				eventName := strings.ToLower(strings.TrimPrefix(k, "on"))
+				if eventName == "click" {
+					eventName = "click" // Already lowercase from onclick
+				}
+				// Add marker attribute like SSR does
+				w.Attrs["data-on-"+eventName] = "true"
 				continue
 			}
 			// Convert value to string

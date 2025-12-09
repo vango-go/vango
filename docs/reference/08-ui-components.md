@@ -64,7 +64,7 @@ ui.DialogOpen(openSignal)
 | `Input` | Type, Placeholder | No |
 | `Label` | For | No |
 | `Dialog` | Open, OnClose, CloseOnEscape | Yes (Hook) |
-| `Kanban` | Columns, OnReorder | Yes (Hook) |
+| `Kanban` | Columns, OnReorder | Yes (Hook) | (WIP, an AI agent made this. Likely needs to be redone completely.)
 
 ## Interactive Components
 

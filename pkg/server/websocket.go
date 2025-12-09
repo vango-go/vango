@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -59,6 +60,8 @@ func (s *Session) ReadLoop() {
 
 // handleEventFrame decodes and queues an event from the client.
 func (s *Session) handleEventFrame(payload []byte) {
+	fmt.Printf("[WS] Received event frame, %d bytes\n", len(payload))
+
 	// Decode event
 	pe, err := protocol.DecodeEvent(payload)
 	if err != nil {
@@ -66,6 +69,8 @@ func (s *Session) handleEventFrame(payload []byte) {
 		s.sendErrorMessage(protocol.ErrInvalidEvent, "Invalid event format")
 		return
 	}
+
+	fmt.Printf("[WS] Decoded event: HID=%s Type=%v\n", pe.HID, pe.Type)
 
 	// Convert to server event
 	event := eventFromProtocol(pe, s)
