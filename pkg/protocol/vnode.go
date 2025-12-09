@@ -47,6 +47,24 @@ func VNodeToWire(node *vdom.VNode) *VNodeWire {
 				w.Attrs["data-on-"+eventName] = "true"
 				continue
 			}
+			// Handle hooks: v-hook="HookName:{config}" -> data-hook + data-hook-config
+			if k == "v-hook" {
+				if s, ok := v.(string); ok {
+					// Parse format: "HookName:{config}"
+					if idx := strings.Index(s, ":"); idx > 0 {
+						hookName := s[:idx]
+						hookConfig := s[idx+1:]
+						w.Attrs["data-hook"] = hookName
+						if hookConfig != "" && hookConfig != "{}" {
+							w.Attrs["data-hook-config"] = hookConfig
+						}
+					} else {
+						// No config, just hook name
+						w.Attrs["data-hook"] = s
+					}
+				}
+				continue
+			}
 			// Convert value to string
 			if s, ok := v.(string); ok {
 				w.Attrs[k] = s

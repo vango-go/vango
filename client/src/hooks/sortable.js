@@ -98,16 +98,22 @@ export class SortableHook {
         this.startY = y;
         this.itemHeight = item.offsetHeight;
 
+        // Store initial positions
+        const rect = item.getBoundingClientRect();
+        this.ghostStartTop = rect.top;
+        this.ghostStartLeft = rect.left;
+
         // Create ghost
         this.ghost = item.cloneNode(true);
         this.ghost.classList.add(this.ghostClass);
         this.ghost.style.position = 'fixed';
         this.ghost.style.zIndex = '9999';
         this.ghost.style.width = `${item.offsetWidth}px`;
-        this.ghost.style.left = `${item.getBoundingClientRect().left}px`;
-        this.ghost.style.top = `${item.getBoundingClientRect().top}px`;
+        this.ghost.style.left = `${this.ghostStartLeft}px`;
+        this.ghost.style.top = `${this.ghostStartTop}px`;
         this.ghost.style.pointerEvents = 'none';
         this.ghost.style.opacity = '0.8';
+        this.ghost.style.transition = 'none'; // Prevent CSS transitions from causing lag
         document.body.appendChild(this.ghost);
 
         // Style dragging item
@@ -129,11 +135,10 @@ export class SortableHook {
     }
 
     _updateDrag(y) {
-        // Move ghost
+        // Move ghost - directly track mouse position
         const deltaY = y - this.startY;
-        const startTop = this.el.children[this.startIndex]?.getBoundingClientRect().top;
-        if (startTop !== undefined && this.ghost) {
-            this.ghost.style.top = `${startTop + deltaY}px`;
+        if (this.ghost) {
+            this.ghost.style.top = `${this.ghostStartTop + deltaY}px`;
         }
 
         // Find insert position
