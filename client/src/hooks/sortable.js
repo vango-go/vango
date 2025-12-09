@@ -69,7 +69,7 @@ export class SortableHook {
         if (this.handle && !e.target.closest(this.handle)) return;
 
         e.preventDefault();
-        this._startDrag(item, e.clientY);
+        this._startDrag(item, e.clientX, e.clientY);
     }
 
     _handleTouchStart(e) {
@@ -80,7 +80,7 @@ export class SortableHook {
 
         e.preventDefault();
         const touch = e.touches[0];
-        this._startDrag(item, touch.clientY);
+        this._startDrag(item, touch.clientX, touch.clientY);
     }
 
     _findItem(target) {
@@ -92,10 +92,13 @@ export class SortableHook {
         return item;
     }
 
-    _startDrag(item, y) {
+    _startDrag(item, x, y) {
         this.dragging = item;
-        this.startIndex = Array.from(this.el.children).indexOf(item);
+        this.activeContainer = item.parentElement;
+        this.initialContainer = this.activeContainer;
+        this.startIndex = Array.from(this.activeContainer.children).indexOf(item);
         this.startY = y;
+        this.startX = x;
         this.itemHeight = item.offsetHeight;
 
         // Store initial positions
@@ -109,11 +112,12 @@ export class SortableHook {
         this.ghost.style.position = 'fixed';
         this.ghost.style.zIndex = '9999';
         this.ghost.style.width = `${item.offsetWidth}px`;
+        this.ghost.style.height = `${item.offsetHeight}px`;
         this.ghost.style.left = `${this.ghostStartLeft}px`;
         this.ghost.style.top = `${this.ghostStartTop}px`;
         this.ghost.style.pointerEvents = 'none';
         this.ghost.style.opacity = '0.8';
-        this.ghost.style.transition = 'none'; // Prevent CSS transitions from causing lag
+        this.ghost.style.transition = 'none';
         document.body.appendChild(this.ghost);
 
         // Style dragging item
@@ -124,25 +128,56 @@ export class SortableHook {
     _handleMouseMove(e) {
         if (!this.dragging) return;
         e.preventDefault();
-        this._updateDrag(e.clientY);
+        this._updateDrag(e.clientX, e.clientY);
     }
 
     _handleTouchMove(e) {
         if (!this.dragging) return;
         e.preventDefault();
         const touch = e.touches[0];
-        this._updateDrag(touch.clientY);
+        this._updateDrag(touch.clientX, touch.clientY);
     }
 
-    _updateDrag(y) {
-        // Move ghost - directly track mouse position
+    _updateDrag(x, y) {
+        // Move ghost
         const deltaY = y - this.startY;
+        const deltaX = x - this.startX;
         if (this.ghost) {
             this.ghost.style.top = `${this.ghostStartTop + deltaY}px`;
+            this.ghost.style.left = `${this.ghostStartLeft + deltaX}px`;
         }
 
-        // Find insert position
-        const children = Array.from(this.el.children);
+        // Check for cross-container drag
+        // We peek at the element under cursor to see if we moved to another sortable list
+        // Note: we must temporarily hide ghost to not hit it with elementFromPoint
+        this.ghost.style.display = 'none';
+        const elUnderCursor = document.elementFromPoint(x, y);
+        this.ghost.style.display = '';
+
+        if (elUnderCursor) {
+            const targetContainer = elUnderCursor.closest('[data-hook="Sortable"]');
+
+            // If we found a container, it's different from current, and shares the same group
+            if (targetContainer &&
+                targetContainer !== this.activeContainer &&
+                targetContainer.dataset.hookConfig) {
+
+                try {
+                    const targetConfig = JSON.parse(targetContainer.dataset.hookConfig);
+                    if (targetConfig.group === this.config.group) {
+                        // Move dragging item to new container
+                        this.activeContainer = targetContainer;
+                        this.activeContainer.appendChild(this.dragging);
+                        // Config update will happen on next render or we can assume same behavior
+                    }
+                } catch (e) {
+                    // Ignore invalid config
+                }
+            }
+        }
+
+        // Find insert position within current container (this.activeContainer)
+        const children = Array.from(this.activeContainer.children);
         const currentIndex = children.indexOf(this.dragging);
 
         for (let i = 0; i < children.length; i++) {
@@ -150,13 +185,16 @@ export class SortableHook {
 
             const child = children[i];
             const rect = child.getBoundingClientRect();
+
+            // Simple logic: if overlapping significantly or past midpoint
+            // Vertical list logic
             const midpoint = rect.top + rect.height / 2;
 
             if (y < midpoint && i < currentIndex) {
-                this.el.insertBefore(this.dragging, child);
+                this.activeContainer.insertBefore(this.dragging, child);
                 break;
             } else if (y > midpoint && i > currentIndex) {
-                this.el.insertBefore(this.dragging, child.nextSibling);
+                this.activeContainer.insertBefore(this.dragging, child.nextSibling);
                 break;
             }
         }
@@ -173,7 +211,9 @@ export class SortableHook {
     }
 
     _endDrag() {
-        const endIndex = Array.from(this.el.children).indexOf(this.dragging);
+        const endIndex = Array.from(this.activeContainer.children).indexOf(this.dragging);
+        const id = this.dragging.dataset.id || this.dragging.dataset.hid;
+        const targetContainerHid = this.activeContainer.dataset.hid;
 
         // Cleanup
         this.dragging.classList.remove(this.dragClass);
@@ -182,12 +222,12 @@ export class SortableHook {
             this.ghost.remove();
         }
 
-        // Only send event if position changed
-        if (endIndex !== this.startIndex) {
-            const id = this.dragging.dataset.id || this.dragging.dataset.hid;
-
+        // Send event if position changed OR container changed
+        if (this.activeContainer !== this.initialContainer || endIndex !== this.startIndex) {
             this.pushEvent('reorder', {
                 id: id,
+                fromContainer: this.initialContainer.dataset.id || this.initialContainer.dataset.hid,
+                toContainer: this.activeContainer.dataset.id || this.activeContainer.dataset.hid,
                 fromIndex: this.startIndex,
                 toIndex: endIndex,
             });
@@ -195,5 +235,7 @@ export class SortableHook {
 
         this.dragging = null;
         this.ghost = null;
+        this.activeContainer = null;
+        this.initialContainer = null;
     }
 }
