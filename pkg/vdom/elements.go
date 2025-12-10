@@ -102,13 +102,13 @@ func createElement(tag string, args []any) *VNode {
 
 // Document structure elements
 
-func Html(args ...any) *VNode { return createElement("html", args) }
-func Head(args ...any) *VNode { return createElement("head", args) }
-func Body(args ...any) *VNode { return createElement("body", args) }
+func Html(args ...any) *VNode  { return createElement("html", args) }
+func Head(args ...any) *VNode  { return createElement("head", args) }
+func Body(args ...any) *VNode  { return createElement("body", args) }
 func Title(args ...any) *VNode { return createElement("title", args) }
-func Meta(args ...any) *VNode { return createElement("meta", args) }
-func Link(args ...any) *VNode { return createElement("link", args) }
-func Base(args ...any) *VNode { return createElement("base", args) }
+func Meta(args ...any) *VNode  { return createElement("meta", args) }
+func Link(args ...any) *VNode  { return createElement("link", args) }
+func Base(args ...any) *VNode  { return createElement("base", args) }
 
 // Content sectioning elements
 
@@ -172,9 +172,12 @@ func Rt(args ...any) *VNode     { return createElement("rt", args) }
 func Rp(args ...any) *VNode     { return createElement("rp", args) }
 func Bdi(args ...any) *VNode    { return createElement("bdi", args) }
 func Bdo(args ...any) *VNode    { return createElement("bdo", args) }
-func Data(args ...any) *VNode   { return createElement("data", args) }
-func Br(args ...any) *VNode     { return createElement("br", args) }
-func Wbr(args ...any) *VNode    { return createElement("wbr", args) }
+
+// DataElement creates a <data> HTML element.
+// Note: For data-* attributes, use Data(key, value) from attributes.go instead.
+func DataElement(args ...any) *VNode { return createElement("data", args) }
+func Br(args ...any) *VNode          { return createElement("br", args) }
+func Wbr(args ...any) *VNode         { return createElement("wbr", args) }
 
 // Form elements
 

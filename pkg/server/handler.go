@@ -1,7 +1,7 @@
 package server
 
 import (
-	"fmt"
+	"log"
 	"time"
 
 	"github.com/vango-dev/vango/v2/pkg/features/hooks"
@@ -276,8 +276,10 @@ func wrapHandler(value any) Handler {
 		}
 
 	default:
-		// Unknown handler type - return a no-op handler
-		fmt.Printf("[DEBUG] wrapHandler: Unknown handler type: %T\n", value)
+		// Unknown handler type - warn developer and return no-op handler
+		log.Printf("[WARN] wrapHandler: Unrecognized handler type %T. "+
+			"Handler will NOT be called. Supported types: func(), func(*Event), "+
+			"func(string), func(hooks.HookEvent), func(FormData), etc.", value)
 		return func(e *Event) {}
 	}
 }

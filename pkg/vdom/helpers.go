@@ -75,12 +75,39 @@ func IfElse(condition bool, ifTrue, ifFalse *VNode) *VNode {
 }
 
 // When is like If but with lazy evaluation.
-// The function is only called if condition is true.
+// The function is only called if condition is true, preventing nil pointer panics.
+//
+// Use this instead of If when the node contains expressions that depend on
+// the condition being true (e.g., dereferencing a pointer that might be nil).
+//
+// Example - WRONG (panics when DueDate is nil):
+//
+//	If(card.DueDate != nil,
+//	    Span(Text(card.DueDate.Format("Jan 2"))),  // Evaluated even when nil!
+//	)
+//
+// Example - CORRECT (safe with lazy evaluation):
+//
+//	When(card.DueDate != nil, func() *VNode {
+//	    return Span(Text(card.DueDate.Format("Jan 2")))  // Only evaluated when not nil
+//	})
 func When(condition bool, fn func() *VNode) *VNode {
 	if condition {
 		return fn()
 	}
 	return nil
+}
+
+// IfLazy is an alias for When - use when you need lazy evaluation.
+// See When for details on why this is needed for nullable pointer access.
+func IfLazy(condition bool, fn func() *VNode) *VNode {
+	return When(condition, fn)
+}
+
+// ShowWhen is an alias for When with a UI-focused name.
+// Use when conditionally showing UI elements that depend on nullable data.
+func ShowWhen(condition bool, fn func() *VNode) *VNode {
+	return When(condition, fn)
 }
 
 // Unless is the inverse of If.
@@ -207,4 +234,18 @@ func Maybe(node *VNode) *VNode {
 // Group is an alias for Fragment.
 func Group(children ...any) *VNode {
 	return Fragment(children...)
+}
+
+// NavLink creates an anchor for client-side SPA navigation.
+// Unlike regular A(Href(...)), NavLink triggers the Vango router
+// without a full page reload, and the browser URL updates automatically.
+//
+// Example: NavLink("/settings", Text("Settings"))
+func NavLink(path string, children ...any) *VNode {
+	args := []any{
+		Href(path),
+		attr("data-vango-link", "true"),
+	}
+	args = append(args, children...)
+	return A(args...)
 }

@@ -287,7 +287,7 @@ func TestAllElementsComprehensive(t *testing.T) {
 		{Rp, "rp"},
 		{Bdi, "bdi"},
 		{Bdo, "bdo"},
-		{Data, "data"},
+		{DataElement, "data"},
 		{Br, "br"},
 		{Wbr, "wbr"},
 

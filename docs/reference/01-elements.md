@@ -38,14 +38,27 @@ Div(Class("container"),
 Div(Class("card primary"))
 Div(ClassIf(isActive, "active"))
 
-// IDs and data
-Div(Id("main"), Data("id", "123"))
+// IDs and data attributes
+Div(Id("main"), Data("id", "123"))  // → data-id="123"
+
+// The <data> HTML element (rare)
+DataElement(Value("machine-code"))  // → <data value="machine-code">
 
 // Styles
 Div(Style("color: red; font-size: 16px"))
 
 // Generic attributes
 Input(Attr("autocomplete", "off"))
+```
+
+## Navigation
+
+```go
+// SPA navigation (no full page reload)
+NavLink("/settings", Text("Settings"))
+
+// Regular link (full page reload)
+A(Href("/external"), Text("External"))
 ```
 
 ## Event Handlers

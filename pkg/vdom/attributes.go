@@ -20,8 +20,12 @@ func StyleAttr(style string) Attr { return attr("style", style) }
 
 // Data attributes
 
-// DataAttr creates a data-* attribute.
-func DataAttr(key, value string) Attr { return attr("data-"+key, value) }
+// Data creates a data-* attribute. This is the primary way to add data attributes.
+// Example: Data("id", "123") → data-id="123"
+func Data(key, value string) Attr { return attr("data-"+key, value) }
+
+// DataAttr is an alias for Data(). Provided for backwards compatibility.
+func DataAttr(key, value string) Attr { return Data(key, value) }
 
 // Accessibility attributes
 
