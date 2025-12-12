@@ -6,11 +6,28 @@ import (
 	"math"
 )
 
+// Allocation limits to prevent DoS attacks via malicious length prefixes.
+const (
+	// DefaultMaxAllocation is the default maximum allocation size (4MB).
+	// This is sufficient for normal binary patches and events.
+	DefaultMaxAllocation = 4 * 1024 * 1024
+
+	// HardMaxAllocation is the absolute ceiling for allocations (16MB).
+	// Even if configured higher, allocations are capped at this limit.
+	HardMaxAllocation = 16 * 1024 * 1024
+
+	// MaxCollectionCount is the maximum number of items in a collection (array/map).
+	// This prevents OOM from huge counts with small per-item overhead.
+	MaxCollectionCount = 100_000
+)
+
 // Common decoding errors.
 var (
-	ErrBufferTooShort = errors.New("protocol: buffer too short")
-	ErrVarintOverflow = errors.New("protocol: varint overflow")
-	ErrInvalidBool    = errors.New("protocol: invalid boolean value")
+	ErrBufferTooShort     = errors.New("protocol: buffer too short")
+	ErrVarintOverflow     = errors.New("protocol: varint overflow")
+	ErrInvalidBool        = errors.New("protocol: invalid boolean value")
+	ErrAllocationTooLarge = errors.New("protocol: allocation size exceeds limit")
+	ErrCollectionTooLarge = errors.New("protocol: collection count exceeds limit")
 )
 
 // Decoder is a binary decoder that reads from a byte buffer.
@@ -105,32 +122,46 @@ func (d *Decoder) ReadSvarint() (int64, error) {
 }
 
 // ReadString reads a length-prefixed UTF-8 string.
+// Returns ErrAllocationTooLarge if the string exceeds DefaultMaxAllocation.
 func (d *Decoder) ReadString() (string, error) {
 	length, err := d.ReadUvarint()
 	if err != nil {
 		return "", err
 	}
-	if d.pos+int(length) > len(d.buf) {
+	// Bounds check: length must fit in remaining buffer
+	if length > uint64(d.Remaining()) {
 		return "", io.ErrUnexpectedEOF
 	}
-	s := string(d.buf[d.pos : d.pos+int(length)])
-	d.pos += int(length)
+	// Allocation limit check: prevent DoS via huge length prefix
+	if length > DefaultMaxAllocation {
+		return "", ErrAllocationTooLarge
+	}
+	n := int(length)
+	s := string(d.buf[d.pos : d.pos+n])
+	d.pos += n
 	return s, nil
 }
 
 // ReadLenBytes reads length-prefixed bytes.
 // Returns a copy of the bytes (safe to retain).
+// Returns ErrAllocationTooLarge if the byte slice exceeds DefaultMaxAllocation.
 func (d *Decoder) ReadLenBytes() ([]byte, error) {
 	length, err := d.ReadUvarint()
 	if err != nil {
 		return nil, err
 	}
-	if d.pos+int(length) > len(d.buf) {
+	// Bounds check: length must fit in remaining buffer
+	if length > uint64(d.Remaining()) {
 		return nil, io.ErrUnexpectedEOF
 	}
-	b := make([]byte, length)
-	copy(b, d.buf[d.pos:d.pos+int(length)])
-	d.pos += int(length)
+	// Allocation limit check: prevent DoS via huge length prefix
+	if length > DefaultMaxAllocation {
+		return nil, ErrAllocationTooLarge
+	}
+	n := int(length)
+	b := make([]byte, n)
+	copy(b, d.buf[d.pos:d.pos+n])
+	d.pos += n
 	return b, nil
 }
 
@@ -219,4 +250,23 @@ func (d *Decoder) ReadFloat64() (float64, error) {
 		return 0, err
 	}
 	return math.Float64frombits(v), nil
+}
+
+// ReadCollectionCount reads a varint count and validates it against limits.
+// Returns ErrCollectionTooLarge if count exceeds MaxCollectionCount.
+// This should be used when reading the size of arrays, maps, or other collections.
+func (d *Decoder) ReadCollectionCount() (int, error) {
+	count, err := d.ReadUvarint()
+	if err != nil {
+		return 0, err
+	}
+	if count > MaxCollectionCount {
+		return 0, ErrCollectionTooLarge
+	}
+	// Also check that count is reasonable for remaining bytes
+	// (at minimum 1 byte per item for the smallest possible items)
+	if count > uint64(d.Remaining()) {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return int(count), nil
 }

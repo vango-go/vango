@@ -237,8 +237,15 @@ func (r *Renderer) renderAttributes(w io.Writer, node *vdom.VNode) error {
 			continue
 		}
 
-		// Skip event handlers (they're registered, not rendered as attributes)
-		if strings.HasPrefix(key, "on") && isEventHandler(value) {
+		// SECURITY: Skip ALL on* attributes (case-insensitive) unless valid internal handler.
+		// This prevents XSS via attribute injection like onclick="alert(1)".
+		if isEventHandlerKey(key) {
+			if isEventHandler(value) {
+				// Valid internal handler - will be registered, not rendered
+				continue
+			}
+			// Invalid/malicious on* attribute - skip entirely (do not render)
+			// Optionally: log a warning for debugging
 			continue
 		}
 
@@ -322,6 +329,13 @@ func (r *Renderer) registerHandlers(hid string, node *vdom.VNode) {
 			r.handlers[hid+"_"+key] = value
 		}
 	}
+}
+
+// isEventHandlerKey returns true if the key looks like an event handler attribute.
+// Uses case-insensitive matching to catch onclick, ONCLICK, onClick, etc.
+// SECURITY: This is used to filter potential XSS via attribute injection.
+func isEventHandlerKey(key string) bool {
+	return len(key) > 2 && strings.EqualFold(key[:2], "on")
 }
 
 // isEventHandler returns true if the value looks like an event handler.

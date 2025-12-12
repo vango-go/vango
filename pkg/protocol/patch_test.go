@@ -114,10 +114,7 @@ func TestPatchEncodeDecode(t *testing.T) {
 			name:  "dispatch",
 			patch: NewDispatchPatch("h22", "custom-event", `{"detail":"value"}`),
 		},
-		{
-			name:  "eval",
-			patch: NewEvalPatch("h23", "console.log('hello')"),
-		},
+		// NOTE: eval test case removed - PatchEval removed for security
 	}
 
 	for _, tc := range tests {
@@ -252,7 +249,7 @@ func TestPatchOpString(t *testing.T) {
 		{PatchRemoveStyle, "RemoveStyle"},
 		{PatchSetData, "SetData"},
 		{PatchDispatch, "Dispatch"},
-		{PatchEval, "Eval"},
+		// NOTE: PatchEval removed for security
 		{PatchOp(0xFF), "Unknown"},
 	}
 

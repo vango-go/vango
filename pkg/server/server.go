@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"log/slog"
 	"net/http"
@@ -81,6 +80,12 @@ func New(config *ServerConfig) *Server {
 	}
 
 	logger := slog.Default().With("component", "server")
+
+	// SECURITY WARNING: Log if CSRF protection is disabled
+	if config.CSRFSecret == nil {
+		logger.Warn("CSRF protection is DISABLED. Set CSRFSecret for production use. " +
+			"This will become a hard requirement in Vango v3.0.")
+	}
 
 	s := &Server{
 		sessions: NewSessionManager(config.SessionConfig, DefaultSessionLimits(), logger),
@@ -314,7 +319,11 @@ func (s *Server) sendServerHello(conn *websocket.Conn, session *Session) {
 	conn.WriteMessage(websocket.BinaryMessage, frame.Encode())
 }
 
-// validateCSRF validates a CSRF token from the request.
+// CSRFCookieName is the name of the CSRF cookie.
+const CSRFCookieName = "__vango_csrf"
+
+// validateCSRF validates a CSRF token using Double Submit Cookie pattern.
+// The client must send the cookie value as the handshake token.
 func (s *Server) validateCSRF(r *http.Request, token string) bool {
 	if s.csrfSecret == nil {
 		return true // CSRF validation disabled
@@ -324,25 +333,45 @@ func (s *Server) validateCSRF(r *http.Request, token string) bool {
 		return false
 	}
 
-	// For now, simple validation - in production use proper CSRF handling
-	// The token should be HMAC of session info with the secret
-	expected := s.generateCSRF(r)
-	return hmac.Equal([]byte(token), []byte(expected))
+	// Double Submit Cookie: compare token from handshake with cookie value
+	cookie, err := r.Cookie(CSRFCookieName)
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+
+	// Constant-time comparison to prevent timing attacks
+	return hmac.Equal([]byte(token), []byte(cookie.Value))
 }
 
-// generateCSRF generates a CSRF token for the request.
-func (s *Server) generateCSRF(r *http.Request) string {
-	h := hmac.New(sha256.New, s.csrfSecret)
-	h.Write([]byte(r.RemoteAddr))
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
-}
-
-// GenerateCSRFToken generates a new CSRF token.
-// This should be embedded in the initial HTML page.
+// GenerateCSRFToken generates a new cryptographically secure CSRF token.
+// This should be:
+// 1. Set as a cookie with path=/, SameSite=Strict, Secure (in prod)
+// 2. Embedded in the initial HTML page for the client to send in handshake
 func (s *Server) GenerateCSRFToken() string {
 	b := make([]byte, 32)
 	rand.Read(b)
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.URLEncoding.EncodeToString(b)
+}
+
+// SetCSRFCookie sets the CSRF cookie on the response.
+// Call this when rendering the initial page.
+func (s *Server) SetCSRFCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     CSRFCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: false, // Must be readable by JS for Double Submit
+		SameSite: http.SameSiteStrictMode,
+		Secure:   s.isSecure(),
+	})
+}
+
+// isSecure returns true if the server should use secure cookies.
+func (s *Server) isSecure() bool {
+	// Check if address starts with https or if TLS is configured
+	// For now, check if not localhost for simple heuristic
+	addr := s.config.Address
+	return addr != ":8080" && addr != "localhost:8080" && addr != "127.0.0.1:8080"
 }
 
 // Run starts the server and blocks until shutdown.

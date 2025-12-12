@@ -64,7 +64,7 @@ export class WebSocketManager {
      */
     _sendHandshake() {
         const helloBuffer = this.client.codec.encodeClientHello({
-            csrf: window.__VANGO_CSRF__ || '',
+            csrf: this._getCSRFToken(),
             sessionId: this.sessionId || '',
             viewportW: window.innerWidth,
             viewportH: window.innerHeight,
@@ -75,6 +75,19 @@ export class WebSocketManager {
         if (this.client.options.debug) {
             console.log('[Vango] Sent binary ClientHello');
         }
+    }
+
+    /**
+     * Get CSRF token from window global or cookie (Double Submit Cookie pattern)
+     */
+    _getCSRFToken() {
+        // First try the embedded global (set by SSR)
+        if (window.__VANGO_CSRF__) {
+            return window.__VANGO_CSRF__;
+        }
+        // Fallback: read from cookie (Double Submit Cookie)
+        const match = document.cookie.match(/(?:^|;\s*)__vango_csrf=([^;]*)/);
+        return match ? decodeURIComponent(match[1]) : '';
     }
 
     /**

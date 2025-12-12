@@ -165,19 +165,46 @@ type ServerConfig struct {
 }
 
 // DefaultServerConfig returns a ServerConfig with sensible defaults.
+// SECURITY: CheckOrigin enforces same-origin by default to prevent CSWSH.
+// SECURITY: CSRFSecret is nil by default but a warning is logged on startup.
 func DefaultServerConfig() *ServerConfig {
 	return &ServerConfig{
 		Address:             ":8080",
 		ReadBufferSize:      4096,
 		WriteBufferSize:     4096,
-		CheckOrigin:         func(r *http.Request) bool { return true }, // Allow all in dev
+		CheckOrigin:         SameOriginCheck, // SECURE DEFAULT: reject cross-origin
 		SessionConfig:       DefaultSessionConfig(),
 		ShutdownTimeout:     30 * time.Second,
 		MaxSessions:         0,          // No limit
 		MaxMemoryPerSession: 200 * 1024, // 200KB
-		CSRFSecret:          nil,        // Disabled by default
+		CSRFSecret:          nil,        // Warning logged on startup if nil
 		CleanupInterval:     30 * time.Second,
 	}
+}
+
+// SameOriginCheck validates that the WebSocket request origin matches the host.
+// This is the secure default for CheckOrigin.
+func SameOriginCheck(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// No Origin header (e.g., same-origin request or curl)
+		return true
+	}
+	// Parse origin and compare to host
+	// Origin format: scheme://host[:port]
+	// Host format: host[:port]
+	host := r.Host
+	if host == "" {
+		return false
+	}
+	// Extract host from origin (skip scheme://)
+	originHost := origin
+	if idx := len("https://"); len(origin) > idx && origin[4] == 's' {
+		originHost = origin[idx:]
+	} else if idx := len("http://"); len(origin) > idx {
+		originHost = origin[idx:]
+	}
+	return originHost == host
 }
 
 // Clone returns a copy of the ServerConfig.

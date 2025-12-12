@@ -30,7 +30,8 @@ const (
 	PatchRemoveStyle PatchOp = 0x14 // Remove style property
 	PatchSetData     PatchOp = 0x15 // Set data attribute
 	PatchDispatch    PatchOp = 0x20 // Dispatch client event
-	PatchEval        PatchOp = 0x21 // Eval JS (use sparingly!)
+	// NOTE: PatchEval (0x21) has been REMOVED for security.
+	// Sending arbitrary JS from server to client is an XSS/RCE risk.
 )
 
 // String returns the string representation of the patch operation.
@@ -76,8 +77,6 @@ func (op PatchOp) String() string {
 		return "SetData"
 	case PatchDispatch:
 		return "Dispatch"
-	case PatchEval:
-		return "Eval"
 	default:
 		return "Unknown"
 	}
@@ -94,15 +93,15 @@ const (
 // Patch represents a single DOM operation.
 type Patch struct {
 	Op       PatchOp
-	HID      string     // Target element's hydration ID
-	Key      string     // Attribute/style/class key
-	Value    string     // Value for text/attr/style/class
-	ParentID string     // Parent HID for InsertNode/MoveNode
-	Index    int        // Insert/Move position
-	Node     *VNodeWire // For InsertNode/ReplaceNode
-	Bool     bool       // For SetChecked/SetSelected
-	X        int        // For ScrollTo
-	Y        int        // For ScrollTo
+	HID      string         // Target element's hydration ID
+	Key      string         // Attribute/style/class key
+	Value    string         // Value for text/attr/style/class
+	ParentID string         // Parent HID for InsertNode/MoveNode
+	Index    int            // Insert/Move position
+	Node     *VNodeWire     // For InsertNode/ReplaceNode
+	Bool     bool           // For SetChecked/SetSelected
+	X        int            // For ScrollTo
+	Y        int            // For ScrollTo
 	Behavior ScrollBehavior // For ScrollTo
 }
 
@@ -191,9 +190,7 @@ func encodePatch(e *Encoder, p *Patch) {
 	case PatchDispatch:
 		e.WriteString(p.Key)   // Event name
 		e.WriteString(p.Value) // Event detail (JSON)
-
-	case PatchEval:
-		e.WriteString(p.Value) // JavaScript code
+		// NOTE: PatchEval case removed for security
 	}
 }
 
@@ -334,9 +331,7 @@ func decodePatch(d *Decoder, p *Patch) error {
 			return err
 		}
 		p.Value, err = d.ReadString()
-
-	case PatchEval:
-		p.Value, err = d.ReadString()
+		// NOTE: PatchEval case removed for security
 
 	default:
 		// Unknown patch op - skip for forward compatibility
@@ -445,7 +440,6 @@ func NewDispatchPatch(hid, eventName, detail string) Patch {
 	return Patch{Op: PatchDispatch, HID: hid, Key: eventName, Value: detail}
 }
 
-// NewEvalPatch creates an Eval patch.
-func NewEvalPatch(hid, code string) Patch {
-	return Patch{Op: PatchEval, HID: hid, Value: code}
-}
+// NOTE: NewEvalPatch has been REMOVED for security.
+// Sending arbitrary JS from server to client is an XSS/RCE risk.
+// Use client-side hooks or PatchDispatch for safe interop.

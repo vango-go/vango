@@ -175,13 +175,13 @@ type TouchEventData struct {
 type HookValueType uint8
 
 const (
-	HookValueNull    HookValueType = 0x00
-	HookValueBool    HookValueType = 0x01
-	HookValueInt     HookValueType = 0x02
-	HookValueFloat   HookValueType = 0x03
-	HookValueString  HookValueType = 0x04
-	HookValueArray   HookValueType = 0x05
-	HookValueObject  HookValueType = 0x06
+	HookValueNull   HookValueType = 0x00
+	HookValueBool   HookValueType = 0x01
+	HookValueInt    HookValueType = 0x02
+	HookValueFloat  HookValueType = 0x03
+	HookValueString HookValueType = 0x04
+	HookValueArray  HookValueType = 0x05
+	HookValueObject HookValueType = 0x06
 )
 
 // HookEventData contains client hook event data.
@@ -448,12 +448,12 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 		e.Payload = s
 
 	case EventSubmit:
-		count, err := d.ReadUvarint()
+		count, err := d.ReadCollectionCount()
 		if err != nil {
 			return nil, err
 		}
 		fields := make(map[string]string, count)
-		for i := uint64(0); i < count; i++ {
+		for i := 0; i < count; i++ {
 			k, err := d.ReadString()
 			if err != nil {
 				return nil, err
@@ -533,12 +533,12 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 		}
 
 	case EventTouchStart, EventTouchMove, EventTouchEnd:
-		count, err := d.ReadUvarint()
+		count, err := d.ReadCollectionCount()
 		if err != nil {
 			return nil, err
 		}
 		touches := make([]TouchPoint, count)
-		for i := uint64(0); i < count; i++ {
+		for i := 0; i < count; i++ {
 			id, err := d.ReadSvarint()
 			if err != nil {
 				return nil, err
@@ -621,13 +621,13 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 
 // decodeHookData decodes hook event data map.
 func decodeHookData(d *Decoder) (map[string]any, error) {
-	count, err := d.ReadUvarint()
+	count, err := d.ReadCollectionCount()
 	if err != nil {
 		return nil, err
 	}
 
 	data := make(map[string]any, count)
-	for i := uint64(0); i < count; i++ {
+	for i := 0; i < count; i++ {
 		key, err := d.ReadString()
 		if err != nil {
 			return nil, err
@@ -665,12 +665,12 @@ func decodeHookValue(d *Decoder) (any, error) {
 		return d.ReadString()
 
 	case HookValueArray:
-		count, err := d.ReadUvarint()
+		count, err := d.ReadCollectionCount()
 		if err != nil {
 			return nil, err
 		}
 		arr := make([]any, count)
-		for i := uint64(0); i < count; i++ {
+		for i := 0; i < count; i++ {
 			val, err := decodeHookValue(d)
 			if err != nil {
 				return nil, err
@@ -680,12 +680,12 @@ func decodeHookValue(d *Decoder) (any, error) {
 		return arr, nil
 
 	case HookValueObject:
-		count, err := d.ReadUvarint()
+		count, err := d.ReadCollectionCount()
 		if err != nil {
 			return nil, err
 		}
 		obj := make(map[string]any, count)
-		for i := uint64(0); i < count; i++ {
+		for i := 0; i < count; i++ {
 			key, err := d.ReadString()
 			if err != nil {
 				return nil, err

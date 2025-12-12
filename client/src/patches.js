@@ -119,9 +119,8 @@ export class PatchApplier {
                 this._dispatchEvent(el, patch.eventName, patch.detail);
                 break;
 
-            case PatchType.EVAL:
-                this._evalCode(patch.code);
-                break;
+            // NOTE: PatchType.EVAL has been REMOVED for security.
+            // Executing arbitrary JS from server is an XSS/RCE risk.
 
             default:
                 if (this.client.options.debug) {
@@ -379,15 +378,7 @@ export class PatchApplier {
         el.dispatchEvent(event);
     }
 
-    /**
-     * Evaluate JavaScript code (use sparingly!)
-     */
-    _evalCode(code) {
-        try {
-            // eslint-disable-next-line no-new-func
-            new Function(code)();
-        } catch (e) {
-            console.error('[Vango] Eval error:', e);
-        }
-    }
+    // NOTE: _evalCode method has been REMOVED for security.
+    // Executing arbitrary JS from server is an XSS/RCE risk.
+    // Use client-side hooks or custom events for safe JS interop.
 }
