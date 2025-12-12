@@ -67,18 +67,35 @@ type Ctx interface {
 
 	// Done returns a channel that's closed when the request is canceled.
 	Done() <-chan struct{}
+
+	// Request-scoped values (Phase 10)
+
+	// SetValue stores a request-scoped value.
+	// These values are only available for the duration of the current event/request.
+	SetValue(key, value any)
+
+	// Value retrieves a request-scoped value.
+	Value(key any) any
+
+	// Custom events (Phase 10)
+
+	// Emit dispatches a custom event to the client.
+	// The event will be dispatched as a CustomEvent with the given name and detail.
+	// Use this for notifications, toast messages, analytics, etc.
+	Emit(name string, data any)
 }
 
 // ctx is the concrete implementation of Ctx.
 type ctx struct {
-	request  *http.Request
-	writer   http.ResponseWriter
-	session  *Session
-	params   map[string]string
-	user     any
-	logger   *slog.Logger
-	status   int
-	written  bool
+	request *http.Request
+	writer  http.ResponseWriter
+	session *Session
+	params  map[string]string
+	user    any
+	logger  *slog.Logger
+	status  int
+	written bool
+	values  map[any]any // Request-scoped values (Phase 10)
 }
 
 // newCtx creates a new context for a request.
@@ -211,4 +228,60 @@ func (c *ctx) WithLogger(logger *slog.Logger) *ctx {
 	clone := *c
 	clone.logger = logger
 	return &clone
+}
+
+// =============================================================================
+// Request-scoped values (Phase 10)
+// =============================================================================
+
+// SetValue stores a request-scoped value.
+func (c *ctx) SetValue(key, value any) {
+	if c.values == nil {
+		c.values = make(map[any]any)
+	}
+	c.values[key] = value
+}
+
+// Value retrieves a request-scoped value.
+func (c *ctx) Value(key any) any {
+	if c.values == nil {
+		return nil
+	}
+	return c.values[key]
+}
+
+// =============================================================================
+// Custom events (Phase 10)
+// =============================================================================
+
+// Emit dispatches a custom event to the client.
+// The event will be dispatched as a CustomEvent with the given name and detail.
+// Use this for notifications, toast messages, analytics, etc.
+//
+// Note: This is a placeholder implementation. The actual emission happens
+// via the protocol layer which sends a custom event patch to the client.
+func (c *ctx) Emit(name string, data any) {
+	// TODO: Implement via protocol layer
+	// For now, log that we would emit
+	if c.logger != nil {
+		c.logger.Debug("emit custom event", "name", name, "data", data)
+	}
+}
+
+// =============================================================================
+// Test Helpers (Phase 10F)
+// =============================================================================
+
+// NewTestContext creates a context for testing with the given session.
+// This allows testing components that require a valid context.
+func NewTestContext(s *Session) Ctx {
+	return &ctx{
+		request: nil,
+		writer:  nil,
+		session: s,
+		params:  make(map[string]string),
+		logger:  slog.Default(),
+		status:  http.StatusOK,
+		values:  make(map[any]any),
+	}
 }

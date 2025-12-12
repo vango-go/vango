@@ -51,6 +51,24 @@ func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
 }
 ```
 
+## Route Middleware
+
+Add a `Middleware()` function to apply middleware to routes:
+
+```go
+// app/routes/admin/_layout.go
+func Middleware() []router.Middleware {
+    return []router.Middleware{
+        auth.RequireAuth,
+        auth.RequireRole(func(u *models.User) bool {
+            return u.Role == "admin"
+        }),
+    }
+}
+```
+
+Middleware runs on every event for matching routes. See [Middleware Reference](12-middleware.md).
+
 ## Navigation
 
 ```go
@@ -81,3 +99,20 @@ func POST(ctx vango.Ctx, input CreateUserInput) (*User, error) {
     return db.Users.Create(input)
 }
 ```
+
+## External Router Integration
+
+Mount Vango in Chi, Gorilla, or stdlib mux:
+
+```go
+r := chi.NewRouter()
+r.Use(middleware.Logger)
+r.Use(myauth.JWTMiddleware)
+
+// API routes
+r.Post("/api/webhook", webhookHandler)
+
+// Mount Vango for all other routes
+r.Handle("/*", app.Handler())
+```
+

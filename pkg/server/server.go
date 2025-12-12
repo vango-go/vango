@@ -117,6 +117,56 @@ func (s *Server) Use(mw Middleware) {
 	s.middleware = append(s.middleware, mw)
 }
 
+// =============================================================================
+// HTTP Handler Interface (Phase 10)
+// =============================================================================
+
+// Handler returns an http.Handler for mounting in external routers.
+// This is the primary integration point for ecosystem compatibility with
+// Chi, Gorilla, Echo, stdlib mux, etc.
+//
+// The handler dispatches based on path:
+//   - /_vango/ws, /_vango/live → WebSocket upgrade
+//   - /_vango/* → Internal routes (future: CSRF, assets)
+//   - /* → Page routes via SSR/handler
+//
+// Example:
+//
+//	r := chi.NewRouter()
+//	r.Use(middleware.Logger)
+//	r.Use(authMiddleware)
+//	r.Handle("/*", app.Handler())
+//	http.ListenAndServe(":3000", r)
+func (s *Server) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.ServeHTTP(w, r)
+	})
+}
+
+// PageHandler returns an http.Handler for page routes only.
+// Use when you want to handle /_vango/* routes separately.
+func (s *Server) PageHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Apply middleware and serve
+		handler := s.handler
+		if handler == nil {
+			handler = http.NotFoundHandler()
+		}
+
+		for i := len(s.middleware) - 1; i >= 0; i-- {
+			handler = s.middleware[i](handler)
+		}
+
+		handler.ServeHTTP(w, r)
+	})
+}
+
+// WebSocketHandler returns an http.Handler for WebSocket upgrade only.
+// Use when you want fine-grained control over routing.
+func (s *Server) WebSocketHandler() http.Handler {
+	return http.HandlerFunc(s.HandleWebSocket)
+}
+
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check for WebSocket upgrade
@@ -216,6 +266,16 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		conn.Close()
 		return
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// THE CONTEXT BRIDGE (Phase 10)
+	// Copy data from dying HTTP context to living session.
+	// This runs SYNCHRONOUSLY before the WebSocket upgrade completes.
+	// After this callback returns, r.Context() is dead.
+	// ═══════════════════════════════════════════════════════════════════════════
+	if s.config.OnSessionStart != nil {
+		s.config.OnSessionStart(r.Context(), session)
 	}
 
 	// Send server hello

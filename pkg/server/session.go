@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -16,6 +17,28 @@ import (
 	"github.com/vango-dev/vango/v2/pkg/vango"
 	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
+
+// DebugMode enables extra validation and logging for development.
+// When true:
+// - Session.Set() panics on unserializable types (func, chan)
+// - auth.Get() logs warnings on type mismatches
+// Set via ServerConfig.DebugMode or directly for testing.
+var DebugMode bool
+
+// checkSerializable panics if value is an obviously unserializable type.
+// Only called when DebugMode is true.
+func checkSerializable(key string, value any) {
+	t := reflect.TypeOf(value)
+	if t == nil {
+		return
+	}
+	switch t.Kind() {
+	case reflect.Func:
+		panic(fmt.Sprintf("Session.Set(%q): cannot store func (unserializable for distributed sessions)", key))
+	case reflect.Chan:
+		panic(fmt.Sprintf("Session.Set(%q): cannot store chan (unserializable for distributed sessions)", key))
+	}
+}
 
 // Session represents a single WebSocket connection and its state.
 // Each session has its own component tree, reactive ownership, and handler registry.
@@ -64,6 +87,11 @@ type Session struct {
 	patchCount atomic.Uint64
 	bytesSent  atomic.Uint64
 	bytesRecv  atomic.Uint64
+
+	// General-purpose session data storage (Phase 10)
+	// Use Get/Set/Delete to access. Protected by dataMu.
+	data   map[string]any
+	dataMu sync.RWMutex
 }
 
 // generateSessionID generates a cryptographically random session ID.
@@ -581,4 +609,121 @@ func (s *Session) Owner() *vango.Owner {
 // BytesReceived adds to the bytes received counter.
 func (s *Session) BytesReceived(n int) {
 	s.bytesRecv.Add(uint64(n))
+}
+
+// =============================================================================
+// Session State API (Phase 10)
+// =============================================================================
+
+// Get retrieves a value from session data.
+// Returns nil if key doesn't exist.
+// This is thread-safe and can be called from any goroutine.
+func (s *Session) Get(key string) any {
+	s.dataMu.RLock()
+	defer s.dataMu.RUnlock()
+	return s.data[key]
+}
+
+// Set stores a value in session data.
+// Value must be safe to access concurrently (immutable or properly synchronized).
+//
+// WARNING: For future Redis/distributed session support, stored values should
+// be JSON-serializable. Avoid storing functions, channels, or complex structs.
+// In debug mode (ServerConfig.DebugMode = true), this will panic on obviously
+// unserializable types like func and chan.
+func (s *Session) Set(key string, value any) {
+	s.dataMu.Lock()
+	defer s.dataMu.Unlock()
+	if s.data == nil {
+		s.data = make(map[string]any)
+	}
+
+	// Debug mode: check for obviously unserializable types
+	if DebugMode && value != nil {
+		checkSerializable(key, value)
+	}
+
+	s.data[key] = value
+}
+
+// SetString stores a string value (always serializable).
+func (s *Session) SetString(key string, value string) {
+	s.Set(key, value)
+}
+
+// SetInt stores an int value (always serializable).
+func (s *Session) SetInt(key string, value int) {
+	s.Set(key, value)
+}
+
+// SetJSON stores a JSON-serializable struct.
+// This is equivalent to Set() but documents the intent that the value
+// should be JSON-serializable for future distributed session support.
+func (s *Session) SetJSON(key string, value any) {
+	s.Set(key, value)
+}
+
+// Delete removes a key from session data.
+func (s *Session) Delete(key string) {
+	s.dataMu.Lock()
+	defer s.dataMu.Unlock()
+	delete(s.data, key)
+}
+
+// GetString is a convenience method that returns value as string.
+// Returns empty string if key doesn't exist or value is not a string.
+func (s *Session) GetString(key string) string {
+	if v, ok := s.Get(key).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// GetInt is a convenience method that returns value as int.
+// Returns 0 if key doesn't exist or value is not numeric.
+// Handles int, int64, and float64 conversions.
+func (s *Session) GetInt(key string) int {
+	switch v := s.Get(key).(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+// Has returns whether a key exists in session data.
+func (s *Session) Has(key string) bool {
+	s.dataMu.RLock()
+	defer s.dataMu.RUnlock()
+	_, ok := s.data[key]
+	return ok
+}
+
+// =============================================================================
+// Test Helpers (Phase 10F)
+// =============================================================================
+
+// NewMockSession creates a session without a WebSocket connection for testing.
+// The session has all fields initialized except conn.
+func NewMockSession() *Session {
+	return &Session{
+		ID:         "test-session-id",
+		UserID:     "",
+		CreatedAt:  time.Now(),
+		LastActive: time.Now(),
+		handlers:   make(map[string]Handler),
+		components: make(map[string]*ComponentInstance),
+		owner:      vango.NewOwner(nil),
+		hidGen:     vdom.NewHIDGenerator(),
+		events:     make(chan *Event, 256),
+		renderCh:   make(chan struct{}, 1),
+		done:       make(chan struct{}),
+		config:     DefaultSessionConfig(),
+		logger:     slog.Default().With("session_id", "test-session-id"),
+		data:       make(map[string]any),
+	}
 }

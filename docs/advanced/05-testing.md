@@ -1,58 +1,155 @@
 # Testing
 
-## Unit Testing Components
+Vango provides testing helpers for fast, reliable component tests.
+
+## Using vtest
 
 ```go
-func TestCounter(t *testing.T) {
-    ctx := vango.TestContext()
-    c := Counter(5)
-    tree := ctx.Mount(c)
+import "github.com/vango-dev/vango/v2/pkg/vtest"
 
-    assert.Contains(t, tree.Text(), "Count: 5")
+func TestDashboard_Authenticated(t *testing.T) {
+    // Create context with authenticated user
+    ctx := vtest.NewCtx().
+        WithUser(&User{ID: "123", Role: "admin"}).
+        Build()
 
-    ctx.Click("[data-testid=increment]")
-    assert.Contains(t, tree.Text(), "Count: 6")
+    // Render component
+    comp, err := Dashboard(ctx)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+
+    // Assert content
+    vtest.ExpectContains(t, comp, "Welcome")
+    vtest.ExpectNotContains(t, comp, "Login")
+}
+```
+
+## Context Builder
+
+```go
+// Empty context (unauthenticated)
+ctx := vtest.NewCtx().Build()
+
+// With authenticated user
+ctx := vtest.NewCtx().
+    WithUser(&models.User{ID: "123", Email: "test@example.com"}).
+    Build()
+
+// With session data
+ctx := vtest.NewCtx().
+    WithUser(user).
+    WithData("theme", "dark").
+    WithData("locale", "en").
+    Build()
+
+// With URL parameters
+ctx := vtest.NewCtx().
+    WithParam("id", "123").
+    Build()
+
+// Shorthand for WithUser
+ctx := vtest.CtxWithUser(&models.User{Role: "admin"})
+```
+
+## Render Assertions
+
+```go
+// Contains text
+vtest.ExpectContains(t, comp, "Welcome")
+
+// Does not contain text
+vtest.ExpectNotContains(t, comp, "Error")
+
+// Get HTML string for custom assertions
+html := vtest.RenderToString(comp)
+assert.Regexp(t, `class="active"`, html)
+```
+
+## Testing Auth Guards
+
+```go
+func TestDashboard_Unauthenticated(t *testing.T) {
+    ctx := vtest.NewCtx().Build()  // No user
+
+    _, err := Dashboard(ctx)
+    
+    if err != auth.ErrUnauthorized {
+        t.Errorf("expected ErrUnauthorized, got %v", err)
+    }
+}
+
+func TestAdminPage_WrongRole(t *testing.T) {
+    ctx := vtest.NewCtx().
+        WithUser(&User{Role: "member"}).
+        Build()
+
+    _, err := AdminPage(ctx)
+    
+    if err != auth.ErrForbidden {
+        t.Errorf("expected ErrForbidden, got %v", err)
+    }
 }
 ```
 
 ## Testing Signals
 
 ```go
-func TestSignal(t *testing.T) {
-    ctx := vango.TestContext()
-    count := ctx.Signal(0)
-
-    count.Set(10)
-    ctx.Flush()
-
-    assert.Equal(t, 10, count())
+func TestCounter(t *testing.T) {
+    ctx := vtest.NewCtx().Build()
+    
+    comp := Counter(5)
+    html := vtest.RenderToString(comp)
+    
+    if !strings.Contains(html, "Count: 5") {
+        t.Error("expected initial count")
+    }
 }
 ```
 
-## Integration Testing
+## Testing Toast Emissions
 
 ```go
-func TestLoginFlow(t *testing.T) {
-    app := vango.TestApp()
-    page := app.Navigate("/login")
+type mockEmitter struct {
+    events []any
+}
 
-    page.Fill("[name=email]", "user@example.com")
-    page.Fill("[name=password]", "secret")
-    page.Click("[type=submit]")
+func (m *mockEmitter) Emit(name string, data any) {
+    m.events = append(m.events, data)
+}
 
-    assert.Equal(t, "/dashboard", page.URL())
+func TestSaveEmitsToast(t *testing.T) {
+    emitter := &mockEmitter{}
+    ctx := vtest.NewCtx().WithEmitter(emitter).Build()
+    
+    SaveProject(ctx, input)
+    
+    if len(emitter.events) != 1 {
+        t.Error("expected toast to be emitted")
+    }
 }
 ```
 
 ## E2E Testing
 
-Use Playwright or Cypress — Vango renders standard HTML:
+For end-to-end tests, use Playwright or Cypress—Vango renders standard HTML:
 
 ```typescript
-test('user can log in', async ({ page }) => {
-    await page.goto('/login');
-    await page.fill('[name=email]', 'test@example.com');
+import { test, expect } from '@playwright/test';
+
+test('user can create project', async ({ page }) => {
+    await page.goto('/projects/new');
+    await page.fill('[name=name]', 'My Project');
     await page.click('[type=submit]');
-    await expect(page).toHaveURL('/dashboard');
+    
+    await expect(page).toHaveURL(/\/projects\/\d+/);
+    await expect(page.locator('h1')).toContainText('My Project');
 });
 ```
+
+## Best Practices
+
+1. **Test behavior, not implementation** - Focus on what user sees
+2. **Use vtest.NewCtx()** - Don't create mock sessions manually
+3. **Test error cases** - Verify auth guards work
+4. **Keep tests fast** - No database in unit tests

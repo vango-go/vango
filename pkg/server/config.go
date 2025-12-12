@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"time"
 )
@@ -134,6 +135,33 @@ type ServerConfig struct {
 	// CleanupInterval is the interval for the session cleanup loop.
 	// Default: 30 seconds.
 	CleanupInterval time.Duration
+
+	// Context Bridge
+
+	// OnSessionStart is called during WebSocket upgrade, BEFORE the handshake completes.
+	// Use this to copy data from the HTTP context (e.g., authenticated user) to the Vango session.
+	// This runs SYNCHRONOUSLY before the WebSocket upgrade completes, while r.Context() is still alive.
+	// After this callback returns, the HTTP context is dead and cannot be accessed.
+	//
+	// Example:
+	//     OnSessionStart: func(httpCtx context.Context, session *Session) {
+	//         if user := auth.UserFromContext(httpCtx); user != nil {
+	//             session.Set("vango_auth_user", user)
+	//         }
+	//     }
+	OnSessionStart func(httpCtx context.Context, session *Session)
+
+	// TrustedProxies lists trusted reverse proxy IPs for X-Forwarded-* headers.
+	// If set, the server will trust X-Forwarded-For, X-Real-IP, etc. from these IPs.
+	// Default: nil (don't trust proxy headers).
+	TrustedProxies []string
+
+	// DebugMode enables extra validation and logging for development.
+	// When true:
+	// - Session.Set() panics on unserializable types (func, chan)
+	// - auth.Get() logs warnings on type mismatches
+	// Default: false.
+	DebugMode bool
 }
 
 // DefaultServerConfig returns a ServerConfig with sensible defaults.
@@ -145,9 +173,9 @@ func DefaultServerConfig() *ServerConfig {
 		CheckOrigin:         func(r *http.Request) bool { return true }, // Allow all in dev
 		SessionConfig:       DefaultSessionConfig(),
 		ShutdownTimeout:     30 * time.Second,
-		MaxSessions:         0,             // No limit
-		MaxMemoryPerSession: 200 * 1024,    // 200KB
-		CSRFSecret:          nil,           // Disabled by default
+		MaxSessions:         0,          // No limit
+		MaxMemoryPerSession: 200 * 1024, // 200KB
+		CSRFSecret:          nil,        // Disabled by default
 		CleanupInterval:     30 * time.Second,
 	}
 }
@@ -209,7 +237,7 @@ type SessionLimits struct {
 func DefaultSessionLimits() *SessionLimits {
 	return &SessionLimits{
 		MaxSessions:         10000,
-		MaxMemoryPerSession: 200 * 1024,         // 200KB
+		MaxMemoryPerSession: 200 * 1024,             // 200KB
 		MaxTotalMemory:      1 * 1024 * 1024 * 1024, // 1GB
 	}
 }
