@@ -97,7 +97,10 @@ type Session struct {
 // generateSessionID generates a cryptographically random session ID.
 func generateSessionID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// SECURITY: Fatal on entropy failure - weak IDs are dangerous
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
 	return hex.EncodeToString(b)
 }
 

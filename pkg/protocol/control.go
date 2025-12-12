@@ -176,12 +176,13 @@ func DecodeControlFrom(d *Decoder) (ControlType, any, error) {
 		if err != nil {
 			return ct, nil, err
 		}
-		count, err := d.ReadUvarint()
+		// SECURITY: Use ReadCollectionCount to prevent DoS via huge allocation
+		count, err := d.ReadCollectionCount()
 		if err != nil {
 			return ct, nil, err
 		}
 		patches := make([]Patch, count)
-		for i := uint64(0); i < count; i++ {
+		for i := 0; i < count; i++ {
 			if err := decodePatch(d, &patches[i]); err != nil {
 				return ct, nil, err
 			}

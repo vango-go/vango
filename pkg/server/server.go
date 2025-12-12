@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -323,7 +325,7 @@ func (s *Server) sendServerHello(conn *websocket.Conn, session *Session) {
 const CSRFCookieName = "__vango_csrf"
 
 // validateCSRF validates a CSRF token using Double Submit Cookie pattern.
-// The client must send the cookie value as the handshake token.
+// If CSRFSecret is set, also validates the HMAC signature.
 func (s *Server) validateCSRF(r *http.Request, token string) bool {
 	if s.csrfSecret == nil {
 		return true // CSRF validation disabled
@@ -339,18 +341,69 @@ func (s *Server) validateCSRF(r *http.Request, token string) bool {
 		return false
 	}
 
-	// Constant-time comparison to prevent timing attacks
-	return hmac.Equal([]byte(token), []byte(cookie.Value))
+	// First check: handshake token must match cookie (Double Submit)
+	if !hmac.Equal([]byte(token), []byte(cookie.Value)) {
+		return false
+	}
+
+	// Second check: if we have a secret, validate the HMAC signature
+	if s.config.CSRFSecret != nil {
+		decoded, err := base64.URLEncoding.DecodeString(token)
+		if err != nil {
+			return false
+		}
+
+		// Token format: 16-byte nonce + 32-byte HMAC-SHA256 signature
+		if len(decoded) != 48 {
+			return false
+		}
+
+		nonce := decoded[:16]
+		providedSig := decoded[16:]
+
+		// Recompute expected signature
+		h := hmac.New(sha256.New, s.config.CSRFSecret)
+		h.Write(nonce)
+		expectedSig := h.Sum(nil)
+
+		// Constant-time comparison
+		if !hmac.Equal(providedSig, expectedSig) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // GenerateCSRFToken generates a new cryptographically secure CSRF token.
+// If CSRFSecret is set, the token is HMAC-signed for additional security.
 // This should be:
 // 1. Set as a cookie with path=/, SameSite=Strict, Secure (in prod)
 // 2. Embedded in the initial HTML page for the client to send in handshake
 func (s *Server) GenerateCSRFToken() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
+	// Generate random nonce
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		// SECURITY: Fatal on entropy failure - weak tokens are dangerous
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
+
+	// If no secret, just return the nonce (backward compatible)
+	if s.config.CSRFSecret == nil {
+		return base64.URLEncoding.EncodeToString(nonce)
+	}
+
+	// HMAC-sign the nonce with the secret
+	h := hmac.New(sha256.New, s.config.CSRFSecret)
+	h.Write(nonce)
+	sig := h.Sum(nil)
+
+	// Token = nonce + signature (both base64 encoded together)
+	token := make([]byte, len(nonce)+len(sig))
+	copy(token[:len(nonce)], nonce)
+	copy(token[len(nonce):], sig)
+
+	return base64.URLEncoding.EncodeToString(token)
 }
 
 // SetCSRFCookie sets the CSRF cookie on the response.

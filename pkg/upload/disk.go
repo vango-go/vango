@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -101,6 +104,11 @@ func (s *DiskStore) Save(filename, contentType string, size int64, r io.Reader) 
 
 // Claim retrieves and removes a temp file.
 func (s *DiskStore) Claim(tempID string) (*File, error) {
+	// SECURITY: Validate tempID format (hex only) to prevent path traversal
+	if !isValidTempID(tempID) {
+		return nil, ErrNotFound
+	}
+
 	s.mu.Lock()
 	meta, ok := s.files[tempID]
 	if ok {
@@ -118,6 +126,20 @@ func (s *DiskStore) Claim(tempID string) (*File, error) {
 	}
 
 	path := filepath.Join(s.dir, tempID)
+
+	// SECURITY: Verify resolved path is within store directory
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	absDir, err := filepath.Abs(s.dir)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if !strings.HasPrefix(absPath, absDir+string(os.PathSeparator)) {
+		return nil, ErrNotFound
+	}
+
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, ErrNotFound
 	}
@@ -208,8 +230,19 @@ func (s *DiskStore) loadMeta(tempID string) (*diskMeta, error) {
 // generateTempID generates a cryptographically random temp ID.
 func generateTempID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// SECURITY: Fatal on entropy failure - weak IDs are dangerous
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
 	return hex.EncodeToString(b)
+}
+
+// isValidTempID validates tempID format (32 hex chars only).
+// SECURITY: Prevents path traversal via malicious tempID.
+var validTempIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+func isValidTempID(id string) bool {
+	return validTempIDPattern.MatchString(id)
 }
 
 // deleteOnCloseReader wraps a file and deletes it when closed.

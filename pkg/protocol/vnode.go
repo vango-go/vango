@@ -36,13 +36,10 @@ func VNodeToWire(node *vdom.VNode) *VNodeWire {
 	if node.Props != nil {
 		w.Attrs = make(map[string]string)
 		for k, v := range node.Props {
-			// Event handlers: add marker attribute instead of handler
-			if strings.HasPrefix(k, "on") && v != nil {
-				// Extract event name (onclick -> click)
-				eventName := strings.ToLower(strings.TrimPrefix(k, "on"))
-				if eventName == "click" {
-					eventName = "click" // Already lowercase from onclick
-				}
+			// SECURITY: Event handlers (case-insensitive on*) add marker attribute instead
+			if len(k) > 2 && strings.EqualFold(k[:2], "on") && v != nil {
+				// Extract event name (onclick -> click, ONCLICK -> click)
+				eventName := strings.ToLower(k[2:])
 				// Add marker attribute like SSR does
 				w.Attrs["data-on-"+eventName] = "true"
 				continue

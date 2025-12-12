@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -184,27 +185,27 @@ func DefaultServerConfig() *ServerConfig {
 
 // SameOriginCheck validates that the WebSocket request origin matches the host.
 // This is the secure default for CheckOrigin.
+// SECURITY: Uses proper URL parsing to avoid edge cases with string manipulation.
 func SameOriginCheck(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		// No Origin header (e.g., same-origin request or curl)
 		return true
 	}
-	// Parse origin and compare to host
-	// Origin format: scheme://host[:port]
-	// Host format: host[:port]
+
+	// Parse origin as URL for robust comparison
+	originURL, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
 	host := r.Host
 	if host == "" {
 		return false
 	}
-	// Extract host from origin (skip scheme://)
-	originHost := origin
-	if idx := len("https://"); len(origin) > idx && origin[4] == 's' {
-		originHost = origin[idx:]
-	} else if idx := len("http://"); len(origin) > idx {
-		originHost = origin[idx:]
-	}
-	return originHost == host
+
+	// Compare the host portion (includes port if present)
+	return originURL.Host == host
 }
 
 // Clone returns a copy of the ServerConfig.

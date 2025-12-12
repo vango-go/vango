@@ -263,3 +263,33 @@ _getCSRFToken() {
 - Integration tests for CSRF flow
 - Per-session random HID prefix (reduces HID guessability)
 - Render panic recovery
+
+---
+
+## Follow-Up Fixes (Audit Round 2)
+
+After an additional security review, the following gaps were addressed:
+
+### Critical: ControlResyncPatches DoS
+- `pkg/protocol/control.go` - Changed `ReadUvarint()` to `ReadCollectionCount()` for patch count
+
+### High: Complete Case-Insensitive on* Filtering
+- `pkg/vdom/diff.go` - Updated `isEventHandler()` to use `strings.EqualFold`
+- `pkg/protocol/vnode.go` - Updated wire encoding to use case-insensitive check
+- `client/src/patches.js` - Added defensive `_setAttr()` on* blocking
+
+### Medium: Path Traversal Prevention
+- `pkg/upload/disk.go` - Added `isValidTempID()` validation (hex-only)
+- `pkg/upload/disk.go` - Added path prefix check after `filepath.Abs()`
+
+### Low: URL Parsing and Error Handling
+- `pkg/server/config.go` - Replaced string-based origin parsing with `net/url.Parse()`
+- `pkg/server/server.go` - Added `rand.Read()` error handling (panic on failure)
+- `pkg/server/session.go` - Added `rand.Read()` error handling (panic on failure)
+- `pkg/upload/disk.go` - Added `rand.Read()` error handling (panic on failure)
+
+### Medium: CSRFSecret HMAC Signing
+- `pkg/server/server.go` - `GenerateCSRFToken()` now HMAC-signs tokens with `CSRFSecret`
+- `pkg/server/server.go` - `validateCSRF()` now verifies HMAC signatures
+- Token format: `base64(16-byte nonce + 32-byte HMAC-SHA256 signature)`
+- Backward compatible: if `CSRFSecret` is nil, falls back to unsigned tokens

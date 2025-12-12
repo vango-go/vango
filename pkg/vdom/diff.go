@@ -362,8 +362,9 @@ func hasKeys(children []*VNode) bool {
 }
 
 // isEventHandler returns true if the key is an event handler (starts with "on").
+// SECURITY: Case-insensitive to catch onclick, ONCLICK, onClick, OnLoad, etc.
 func isEventHandler(key string) bool {
-	return strings.HasPrefix(key, "on")
+	return len(key) > 2 && strings.EqualFold(key[:2], "on")
 }
 
 // propsEqual compares two prop values for equality.

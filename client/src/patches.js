@@ -140,6 +140,13 @@ export class PatchApplier {
      * Set attribute with special cases
      */
     _setAttr(el, key, value) {
+        // SECURITY: Block ALL on* attributes (case-insensitive) to prevent XSS
+        // This is defense-in-depth; the server should never send these.
+        if (key.length > 2 && key.substring(0, 2).toLowerCase() === 'on') {
+            console.warn('[Vango] Blocked dangerous attribute:', key);
+            return;
+        }
+
         switch (key) {
             case 'class':
                 el.className = value;
