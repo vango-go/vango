@@ -113,9 +113,13 @@ func (c *ComponentInstance) Render() *vdom.VNode {
 
 // MarkDirty marks the component as needing re-render.
 func (c *ComponentInstance) MarkDirty() {
-	fmt.Printf("[DEBUG] MarkDirty called for component %s\n", c.InstanceID)
+	if DebugMode {
+		fmt.Printf("[DEBUG] MarkDirty called for component %s\n", c.InstanceID)
+	}
 	if c.dirty.CompareAndSwap(false, true) {
-		fmt.Printf("[DEBUG] Component %s marked dirty\n", c.InstanceID)
+		if DebugMode {
+			fmt.Printf("[DEBUG] Component %s marked dirty\n", c.InstanceID)
+		}
 		if c.session != nil {
 			c.session.scheduleRender(c)
 		}

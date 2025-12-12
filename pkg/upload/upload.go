@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,9 @@ var ErrExpired = errors.New("upload: file expired")
 
 // ErrTooLarge is returned when a file exceeds the size limit.
 var ErrTooLarge = errors.New("upload: file too large")
+
+// ErrTypeNotAllowed is returned when a file's MIME type is not in AllowedTypes.
+var ErrTypeNotAllowed = errors.New("upload: file type not allowed")
 
 // Store is the interface for upload storage backends.
 // Implement this interface to use S3, GCS, or other storage.
@@ -111,10 +115,17 @@ func HandlerWithConfig(store Store, config *Config) http.Handler {
 		}
 		defer file.Close()
 
+		// Check MIME type if AllowedTypes is configured
+		contentType := header.Header.Get("Content-Type")
+		if len(config.AllowedTypes) > 0 && !isTypeAllowed(contentType, config.AllowedTypes) {
+			http.Error(w, "File type not allowed", http.StatusUnsupportedMediaType)
+			return
+		}
+
 		// Store the file
 		tempID, err := store.Save(
 			header.Filename,
-			header.Header.Get("Content-Type"),
+			contentType,
 			header.Size,
 			file,
 		)
@@ -171,4 +182,20 @@ func DefaultConfig() *Config {
 		MaxFileSize: 10 * 1024 * 1024, // 10MB
 		TempExpiry:  time.Hour,
 	}
+}
+
+// isTypeAllowed checks if contentType is in the allowed list (case-insensitive).
+func isTypeAllowed(contentType string, allowed []string) bool {
+	// Normalize: take only the base MIME type (before ;)
+	if idx := strings.Index(contentType, ";"); idx != -1 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+	contentType = strings.ToLower(contentType)
+
+	for _, a := range allowed {
+		if strings.ToLower(a) == contentType {
+			return true
+		}
+	}
+	return false
 }

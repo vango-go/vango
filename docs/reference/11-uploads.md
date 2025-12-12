@@ -91,6 +91,37 @@ store, _ := upload.NewDiskStore("./uploads", 10<<20)  // 10MB
 // Oversized uploads return upload.ErrTooLarge
 ```
 
+## Allowed File Types
+
+Restrict uploads to specific MIME types:
+
+```go
+config := &upload.Config{
+    MaxFileSize:  10 << 20,  // 10MB
+    AllowedTypes: []string{
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "application/pdf",
+    },
+}
+
+http.Handle("/upload", upload.HandlerWithConfig(store, config))
+```
+
+Uploads with disallowed types return `415 Unsupported Media Type`.
+
+> **Note**: MIME type matching is case-insensitive.
+
+## Security
+
+Vango upload handler includes several protections:
+
+- **DoS prevention**: `http.MaxBytesReader` limits request body *before* parsing
+- **Path traversal**: Temp IDs are hex-validated, paths are sanitized
+- **Type validation**: Optional MIME type whitelist
+- **Cryptographic IDs**: Temp IDs use `crypto/rand`
+
 ## S3 Storage
 
 For production, implement the `upload.Store` interface for S3:

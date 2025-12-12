@@ -35,7 +35,8 @@ func TestStreamingRendererRenderPage(t *testing.T) {
 	if !strings.Contains(html, "<title>Streaming Test</title>") {
 		t.Errorf("should contain title")
 	}
-	if !strings.Contains(html, "<div>Streamed Content</div>") {
+	// All elements now get data-hid
+	if !strings.Contains(html, ">Streamed Content</div>") {
 		t.Errorf("should contain body content")
 	}
 }
@@ -119,7 +120,8 @@ func TestStreamingRendererNilFlusher(t *testing.T) {
 	}
 
 	html := buf.String()
-	if !strings.Contains(html, "<div>No Flush</div>") {
+	// All elements now get data-hid
+	if !strings.Contains(html, ">No Flush</div>") {
 		t.Errorf("should render content, got %q", html)
 	}
 }
@@ -147,11 +149,11 @@ func TestStreamingRendererLargeContent(t *testing.T) {
 
 	html := w.Body.String()
 
-	// Verify first and last items
-	if !strings.Contains(html, "<li>Item 0</li>") {
+	// Verify first and last items (with data-hid)
+	if !strings.Contains(html, ">Item 0</li>") {
 		t.Errorf("should contain first item")
 	}
-	if !strings.Contains(html, "<li>Item 99</li>") {
+	if !strings.Contains(html, ">Item 99</li>") {
 		t.Errorf("should contain last item")
 	}
 }

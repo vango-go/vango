@@ -117,19 +117,35 @@ The binary protocol includes allocation limits to prevent DoS:
 |-------|-------|---------|
 | Max string/bytes | 4MB | Prevent OOM |
 | Max collection | 100K items | Prevent CPU exhaustion |
+| Max hook depth | 64 levels | Prevent stack overflow |
 | Hard cap | 16MB | Absolute ceiling |
 
-## Debug Mode Validation
+### Upload DoS Prevention
 
-Enable debug mode to catch security issues early:
+Uploads are protected at the HTTP layer:
+
+```go
+// Request body limited BEFORE parsing
+config := &upload.Config{
+    MaxFileSize: 10 << 20, // 10MB limit
+}
+http.Handle("/upload", upload.HandlerWithConfig(store, config))
+```
+
+## Debug Mode
+
+Enable debug mode to catch security issues early and get verbose logging:
 
 ```go
 server.DebugMode = true
 ```
 
 This will:
+- Log handler registrations, event processing, and render cycles
 - Warn on type mismatches in `auth.Get`
 - Panic if storing unserializable types (func, chan)
+
+> **Note**: Debug logs are completely silent when `DebugMode = false` (default).
 
 ## Input Validation
 

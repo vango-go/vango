@@ -168,8 +168,9 @@ func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance)
 				handler := wrapHandler(value)
 				s.handlers[node.HID] = handler
 				s.components[node.HID] = instance
-				// Debug: log handler registration
-				fmt.Printf("[HANDLER] Registered %s on %s (%s)\n", key, node.HID, node.Tag)
+				if DebugMode {
+					fmt.Printf("[HANDLER] Registered %s on %s (%s)\n", key, node.HID, node.Tag)
+				}
 			}
 		}
 	}
@@ -198,8 +199,9 @@ func (s *Session) handleEvent(event *Event) {
 	s.eventCount.Add(1)
 	s.LastActive = time.Now()
 
-	// Debug: log incoming event
-	fmt.Printf("[EVENT] Received: HID=%s Type=%v Seq=%d\n", event.HID, event.Type, event.Seq)
+	if DebugMode {
+		fmt.Printf("[EVENT] Received: HID=%s Type=%v Seq=%d\n", event.HID, event.Type, event.Seq)
+	}
 
 	// Find handler for this HID
 	handler, exists := s.handlers[event.HID]
@@ -209,8 +211,9 @@ func (s *Session) handleEvent(event *Event) {
 		return
 	}
 
-	// Debug: handler found
-	fmt.Printf("[EVENT] Handler found for %s, executing...\n", event.HID)
+	if DebugMode {
+		fmt.Printf("[EVENT] Handler found for %s, executing...\n", event.HID)
+	}
 
 	// Execute handler with panic recovery
 	s.safeExecute(handler, event)
@@ -262,22 +265,30 @@ func (s *Session) renderDirty() {
 	}
 
 	if len(dirty) == 0 {
-		fmt.Println("[DEBUG] renderDirty: no dirty components")
+		if DebugMode {
+			fmt.Println("[DEBUG] renderDirty: no dirty components")
+		}
 		return
 	}
 
-	fmt.Printf("[DEBUG] renderDirty: %d dirty components\n", len(dirty))
+	if DebugMode {
+		fmt.Printf("[DEBUG] renderDirty: %d dirty components\n", len(dirty))
+	}
 
 	// Re-render each dirty component
 	var allPatches []vdom.Patch
 	for _, comp := range dirty {
 		patches := s.renderComponent(comp)
-		fmt.Printf("[DEBUG] renderComponent returned %d patches\n", len(patches))
+		if DebugMode {
+			fmt.Printf("[DEBUG] renderComponent returned %d patches\n", len(patches))
+		}
 		allPatches = append(allPatches, patches...)
 	}
 
 	// Send all patches
-	fmt.Printf("[DEBUG] renderDirty: sending %d total patches\n", len(allPatches))
+	if DebugMode {
+		fmt.Printf("[DEBUG] renderDirty: sending %d total patches\n", len(allPatches))
+	}
 	if len(allPatches) > 0 {
 		s.sendPatches(allPatches)
 	}

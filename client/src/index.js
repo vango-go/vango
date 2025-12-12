@@ -158,16 +158,17 @@ export class VangoClient {
      * Handle patches frame
      */
     _handlePatches(buffer) {
-        console.log('[Vango] Received patches buffer, length:', buffer.length, 'bytes:', Array.from(buffer.slice(0, 20)));
+        if (this.options.debug) {
+            console.log('[Vango] Received patches buffer, length:', buffer.length);
+        }
 
         const { seq, patches } = this.codec.decodePatches(buffer);
 
-        console.log('[Vango] Decoded', patches.length, 'patches, seq:', seq);
-        for (const p of patches) {
-            console.log('[Vango] Patch:', p);
-        }
-
         if (this.options.debug) {
+            console.log('[Vango] Decoded', patches.length, 'patches, seq:', seq);
+            for (const p of patches) {
+                console.log('[Vango] Patch:', p);
+            }
             console.log('[Vango] Applying', patches.length, 'patches (seq:', seq, ')');
         }
 

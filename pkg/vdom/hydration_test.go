@@ -48,7 +48,7 @@ func TestHIDGenerator(t *testing.T) {
 }
 
 func TestAssignHIDs(t *testing.T) {
-	t.Run("interactive elements get HIDs", func(t *testing.T) {
+	t.Run("all elements get HIDs", func(t *testing.T) {
 		tree := Div(
 			H1(Text("Title")),
 			Button(OnClick(func() {}), Text("Click")),
@@ -58,24 +58,18 @@ func TestAssignHIDs(t *testing.T) {
 		gen := NewHIDGenerator()
 		AssignHIDs(tree, gen)
 
-		// Div has no event handlers and no text children (only element children)
-		if tree.HID != "" {
-			t.Errorf("Div should not have HID, got %v", tree.HID)
+		// All elements get HIDs for full VDOM patching support
+		if tree.HID != "h1" {
+			t.Errorf("Div HID = %v, want h1", tree.HID)
 		}
-
-		// H1 has a text child (so it gets an HID for text update targeting)
-		if tree.Children[0].HID != "h1" {
-			t.Errorf("H1 HID = %v, want h1 (has text child)", tree.Children[0].HID)
+		if tree.Children[0].HID != "h2" {
+			t.Errorf("H1 HID = %v, want h2", tree.Children[0].HID)
 		}
-
-		// Button has onclick and text child
-		if tree.Children[1].HID != "h2" {
-			t.Errorf("Button HID = %v, want h2", tree.Children[1].HID)
+		if tree.Children[1].HID != "h3" {
+			t.Errorf("Button HID = %v, want h3", tree.Children[1].HID)
 		}
-
-		// Input has oninput
-		if tree.Children[2].HID != "h3" {
-			t.Errorf("Input HID = %v, want h3", tree.Children[2].HID)
+		if tree.Children[2].HID != "h4" {
+			t.Errorf("Input HID = %v, want h4", tree.Children[2].HID)
 		}
 	})
 
@@ -84,7 +78,7 @@ func TestAssignHIDs(t *testing.T) {
 		AssignHIDs(nil, gen) // Should not panic
 	})
 
-	t.Run("nested interactive elements", func(t *testing.T) {
+	t.Run("nested elements", func(t *testing.T) {
 		tree := Div(
 			Form(
 				OnSubmit(func() {}),
@@ -96,15 +90,19 @@ func TestAssignHIDs(t *testing.T) {
 		gen := NewHIDGenerator()
 		AssignHIDs(tree, gen)
 
+		// Div gets h1
+		if tree.HID != "h1" {
+			t.Errorf("Div HID = %v, want h1", tree.HID)
+		}
 		form := tree.Children[0]
-		if form.HID != "h1" {
-			t.Errorf("Form HID = %v, want h1", form.HID)
+		if form.HID != "h2" {
+			t.Errorf("Form HID = %v, want h2", form.HID)
 		}
-		if form.Children[0].HID != "h2" {
-			t.Errorf("Input HID = %v, want h2", form.Children[0].HID)
+		if form.Children[0].HID != "h3" {
+			t.Errorf("Input HID = %v, want h3", form.Children[0].HID)
 		}
-		if form.Children[1].HID != "h3" {
-			t.Errorf("Button HID = %v, want h3", form.Children[1].HID)
+		if form.Children[1].HID != "h4" {
+			t.Errorf("Button HID = %v, want h4", form.Children[1].HID)
 		}
 	})
 }
@@ -140,8 +138,9 @@ func TestCollectHIDs(t *testing.T) {
 
 	hidMap := CollectHIDs(tree)
 
-	if len(hidMap) != 2 {
-		t.Errorf("Expected 2 HIDs, got %d", len(hidMap))
+	// All 3 elements get HIDs: Div, Button, Input
+	if len(hidMap) != 3 {
+		t.Errorf("Expected 3 HIDs, got %d", len(hidMap))
 	}
 
 	if hidMap["h1"] == nil {
@@ -149,6 +148,9 @@ func TestCollectHIDs(t *testing.T) {
 	}
 	if hidMap["h2"] == nil {
 		t.Error("h2 not found in map")
+	}
+	if hidMap["h3"] == nil {
+		t.Error("h3 not found in map")
 	}
 }
 
@@ -162,9 +164,9 @@ func TestFindByHID(t *testing.T) {
 	gen := NewHIDGenerator()
 	AssignHIDs(tree, gen)
 
-	// Note: H1 gets h1 (has text child), Button gets h2
+	// Div=h1, H1=h2, Button=h3
 	t.Run("found", func(t *testing.T) {
-		found := FindByHID(tree, "h2")
+		found := FindByHID(tree, "h3")
 		if found != button {
 			t.Error("FindByHID did not return button")
 		}

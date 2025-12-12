@@ -538,8 +538,10 @@ func TestIsEventHandler(t *testing.T) {
 		{"onmouseover", true},
 		{"class", false},
 		{"id", false},
-		{"on", true}, // edge case
+		{"on", false}, // "on" alone is NOT a valid event handler
 		{"", false},
+		{"ONCLICK", true}, // case-insensitive
+		{"OnClick", true}, // mixed case
 	}
 
 	for _, tt := range tests {

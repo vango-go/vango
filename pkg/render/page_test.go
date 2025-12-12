@@ -53,12 +53,13 @@ func TestRenderPage(t *testing.T) {
 	if !strings.Contains(html, "<body>") {
 		t.Errorf("should contain body tag, got %q", html)
 	}
-	if !strings.Contains(html, "<div>Hello, World!</div>") {
+	// All elements now get data-hid
+	if !strings.Contains(html, ">Hello, World!</div>") {
 		t.Errorf("should contain body content, got %q", html)
 	}
 
-	// Check client script
-	if !strings.Contains(html, `<script src="/_vango/client.js" defer></script>`) {
+	// Check client script (may have data-debug attribute)
+	if !strings.Contains(html, `<script src="/_vango/client.js"`) {
 		t.Errorf("should contain client script, got %q", html)
 	}
 }
@@ -257,7 +258,8 @@ func TestRenderPageWithCustomClientScript(t *testing.T) {
 
 	html := buf.String()
 
-	if !strings.Contains(html, `<script src="/assets/vango-client.min.js" defer></script>`) {
+	// Custom client script path (may have data-debug attribute)
+	if !strings.Contains(html, `<script src="/assets/vango-client.min.js"`) {
 		t.Errorf("should contain custom client script path, got %q", html)
 	}
 }

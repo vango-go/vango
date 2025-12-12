@@ -123,8 +123,6 @@ func (r *Renderer) renderElement(w io.Writer, node *vdom.VNode, depth int) error
 	if r.needsHID(node) {
 		hid := r.nextHID()
 		node.HID = hid
-		// Debug: trace HID assignment with tag
-		fmt.Printf("[SSR HID] %s -> %s\n", hid, tag)
 		if _, err := fmt.Fprintf(w, ` data-hid="%s"`, hid); err != nil {
 			return err
 		}
@@ -316,10 +314,7 @@ func (r *Renderer) needsHID(node *vdom.VNode) bool {
 // nextHID generates the next sequential hydration ID.
 func (r *Renderer) nextHID() string {
 	r.hidCounter++
-	hid := fmt.Sprintf("h%d", r.hidCounter)
-	// Debug: trace HID assignment
-	fmt.Printf("[SSR HID] %s\n", hid)
-	return hid
+	return fmt.Sprintf("h%d", r.hidCounter)
 }
 
 // registerHandlers stores handler references for the given HID.

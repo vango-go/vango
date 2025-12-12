@@ -60,7 +60,9 @@ func (s *Session) ReadLoop() {
 
 // handleEventFrame decodes and queues an event from the client.
 func (s *Session) handleEventFrame(payload []byte) {
-	fmt.Printf("[WS] Received event frame, %d bytes\n", len(payload))
+	if DebugMode {
+		fmt.Printf("[WS] Received event frame, %d bytes\n", len(payload))
+	}
 
 	// Decode event
 	pe, err := protocol.DecodeEvent(payload)
@@ -70,7 +72,9 @@ func (s *Session) handleEventFrame(payload []byte) {
 		return
 	}
 
-	fmt.Printf("[WS] Decoded event: HID=%s Type=%v\n", pe.HID, pe.Type)
+	if DebugMode {
+		fmt.Printf("[WS] Decoded event: HID=%s Type=%v\n", pe.HID, pe.Type)
+	}
 
 	// Convert to server event
 	event := eventFromProtocol(pe, s)

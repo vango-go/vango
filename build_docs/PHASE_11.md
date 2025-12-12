@@ -321,3 +321,33 @@ Additional hardening from third-party security review:
 ### Medium: Client Defense-in-Depth
 - `client/src/optimistic.js` - Added on* blocking to `_applyAttrOptimistic()`
 - `client/src/codec.js` - Removed `PatchType.EVAL` constant and decode case entirely
+
+---
+
+## Follow-Up Fixes (Audit Round 4)
+
+Final cleanup and documentation improvements:
+
+### Medium: Debug Log Gating
+- `pkg/server/session.go` - All `fmt.Printf` gated behind `DebugMode`
+- `pkg/server/websocket.go` - Event frame logging gated behind `DebugMode`
+- `pkg/server/component.go` - MarkDirty logging gated behind `DebugMode`
+- `pkg/render/renderer.go` - Removed unconditional HID debug prints
+- `pkg/vdom/hydration.go` - Removed unconditional HID debug prints
+- `client/src/index.js` - Patch logging gated behind `options.debug`
+
+### Medium: AllowedTypes Enforcement
+- `pkg/upload/upload.go` - Added `isTypeAllowed()` check in handler
+- `pkg/upload/upload.go` - Added `ErrTypeNotAllowed` error
+- MIME type matching is case-insensitive
+- Returns `415 Unsupported Media Type` for blocked types
+
+### Low: Raw HTML Documentation
+- `pkg/vdom/helpers.go` - Enhanced `Raw()` doc comment with security warning
+- Clear guidance: never pass user-provided strings directly
+
+### Low: Test Updates
+- Updated render tests to expect `data-hid` on all elements (correct VDOM behavior)
+- Updated hydration tests for universal HID assignment
+- Fixed `isEventHandler` test: `"on"` alone is not a valid event handler
+
