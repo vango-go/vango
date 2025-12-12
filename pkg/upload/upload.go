@@ -74,14 +74,32 @@ func (f *File) Close() error {
 //
 //	{"temp_id": "abc123"}
 func Handler(store Store) http.Handler {
+	return HandlerWithConfig(store, DefaultConfig())
+}
+
+// HandlerWithConfig returns an upload handler with custom configuration.
+func HandlerWithConfig(store Store, config *Config) http.Handler {
+	maxSize := config.MaxFileSize
+	if maxSize <= 0 {
+		maxSize = 10 * 1024 * 1024 // 10MB default
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Parse multipart form (32MB max in memory)
+		// SECURITY: Limit request body size BEFORE parsing to prevent DoS
+		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+
+		// Parse multipart form (32MB max in memory, but body already limited)
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			// Check if it was a size limit error
+			if err.Error() == "http: request body too large" {
+				http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "Failed to parse form", http.StatusBadRequest)
 			return
 		}

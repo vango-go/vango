@@ -293,3 +293,31 @@ After an additional security review, the following gaps were addressed:
 - `pkg/server/server.go` - `validateCSRF()` now verifies HMAC signatures
 - Token format: `base64(16-byte nonce + 32-byte HMAC-SHA256 signature)`
 - Backward compatible: if `CSRFSecret` is nil, falls back to unsigned tokens
+
+---
+
+## Follow-Up Fixes (Audit Round 3)
+
+Additional hardening from third-party security review:
+
+### Critical: Hook Payload Depth Limit
+- `pkg/protocol/event.go` - Added `MaxHookDepth = 64` constant
+- `decodeHookValue()` now tracks nesting depth and returns `ErrMaxDepthExceeded`
+- Prevents stack overflow from deeply nested JSON in hook events
+
+### Critical: Upload DoS Prevention
+- `pkg/upload/upload.go` - Added `http.MaxBytesReader()` wrapper
+- Request body is limited BEFORE `ParseMultipartForm()` parses
+- New `HandlerWithConfig()` for custom max file size
+
+### Critical: Remaining Collection Count Fixes
+- `pkg/protocol/patch.go` - `DecodePatchesFrom()` now uses `ReadCollectionCount()`
+- `pkg/protocol/vnode.go` - All `attrCount`/`childCount` now use `ReadCollectionCount()`
+
+### High: Session Limits Wiring
+- `pkg/server/server.go` - Config `MaxSessions` and `MaxMemoryPerSession` now applied
+- Previously, these config values were ignored and defaults were always used
+
+### Medium: Client Defense-in-Depth
+- `client/src/optimistic.js` - Added on* blocking to `_applyAttrOptimistic()`
+- `client/src/codec.js` - Removed `PatchType.EVAL` constant and decode case entirely

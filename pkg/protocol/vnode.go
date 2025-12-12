@@ -161,14 +161,15 @@ func DecodeVNodeWire(d *Decoder) (*VNodeWire, error) {
 		}
 
 		// Decode attributes
-		attrCount, err := d.ReadUvarint()
+		// SECURITY: Use ReadCollectionCount to prevent DoS
+		attrCount, err := d.ReadCollectionCount()
 		if err != nil {
 			return nil, err
 		}
 
 		if attrCount > 0 {
 			node.Attrs = make(map[string]string, attrCount)
-			for i := uint64(0); i < attrCount; i++ {
+			for i := 0; i < attrCount; i++ {
 				key, err := d.ReadString()
 				if err != nil {
 					return nil, err
@@ -182,14 +183,15 @@ func DecodeVNodeWire(d *Decoder) (*VNodeWire, error) {
 		}
 
 		// Decode children
-		childCount, err := d.ReadUvarint()
+		// SECURITY: Use ReadCollectionCount to prevent DoS
+		childCount, err := d.ReadCollectionCount()
 		if err != nil {
 			return nil, err
 		}
 
 		if childCount > 0 {
 			node.Children = make([]*VNodeWire, childCount)
-			for i := uint64(0); i < childCount; i++ {
+			for i := 0; i < childCount; i++ {
 				child, err := DecodeVNodeWire(d)
 				if err != nil {
 					return nil, err
@@ -205,14 +207,15 @@ func DecodeVNodeWire(d *Decoder) (*VNodeWire, error) {
 		}
 
 	case vdom.KindFragment:
-		childCount, err := d.ReadUvarint()
+		// SECURITY: Use ReadCollectionCount to prevent DoS
+		childCount, err := d.ReadCollectionCount()
 		if err != nil {
 			return nil, err
 		}
 
 		if childCount > 0 {
 			node.Children = make([]*VNodeWire, childCount)
-			for i := uint64(0); i < childCount; i++ {
+			for i := 0; i < childCount; i++ {
 				child, err := DecodeVNodeWire(d)
 				if err != nil {
 					return nil, err

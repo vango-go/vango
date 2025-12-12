@@ -89,8 +89,17 @@ func New(config *ServerConfig) *Server {
 			"This will become a hard requirement in Vango v3.0.")
 	}
 
+	// Build session limits from config (use defaults for unset values)
+	limits := DefaultSessionLimits()
+	if config.MaxSessions > 0 {
+		limits.MaxSessions = config.MaxSessions
+	}
+	if config.MaxMemoryPerSession > 0 {
+		limits.MaxMemoryPerSession = config.MaxMemoryPerSession
+	}
+
 	s := &Server{
-		sessions: NewSessionManager(config.SessionConfig, DefaultSessionLimits(), logger),
+		sessions: NewSessionManager(config.SessionConfig, limits, logger),
 		config:   config,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  config.ReadBufferSize,

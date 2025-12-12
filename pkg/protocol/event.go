@@ -214,6 +214,7 @@ type Event struct {
 var (
 	ErrInvalidEventType = errors.New("protocol: invalid event type")
 	ErrInvalidPayload   = errors.New("protocol: invalid event payload")
+	ErrMaxDepthExceeded = errors.New("protocol: maximum nesting depth exceeded")
 )
 
 // EncodeEvent encodes an event to bytes.
@@ -641,8 +642,21 @@ func decodeHookData(d *Decoder) (map[string]any, error) {
 	return data, nil
 }
 
+// MaxHookDepth is the maximum nesting depth for hook values.
+// Prevents stack overflow from maliciously deeply nested payloads.
+const MaxHookDepth = 64
+
 // decodeHookValue decodes a single hook data value.
 func decodeHookValue(d *Decoder) (any, error) {
+	return decodeHookValueWithDepth(d, 0)
+}
+
+// decodeHookValueWithDepth decodes a hook value with depth tracking.
+func decodeHookValueWithDepth(d *Decoder, depth int) (any, error) {
+	if depth > MaxHookDepth {
+		return nil, ErrMaxDepthExceeded
+	}
+
 	typeByte, err := d.ReadByte()
 	if err != nil {
 		return nil, err
@@ -671,7 +685,7 @@ func decodeHookValue(d *Decoder) (any, error) {
 		}
 		arr := make([]any, count)
 		for i := 0; i < count; i++ {
-			val, err := decodeHookValue(d)
+			val, err := decodeHookValueWithDepth(d, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -690,7 +704,7 @@ func decodeHookValue(d *Decoder) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			val, err := decodeHookValue(d)
+			val, err := decodeHookValueWithDepth(d, depth+1)
 			if err != nil {
 				return nil, err
 			}

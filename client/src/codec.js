@@ -76,7 +76,7 @@ export const PatchType = {
     REMOVE_STYLE: 0x14,
     SET_DATA: 0x15,
     DISPATCH: 0x20,
-    EVAL: 0x21,
+    // NOTE: EVAL (0x21) has been REMOVED for security. Server never sends it.
 };
 
 /**
@@ -355,12 +355,8 @@ export class BinaryCodec {
                 break;
             }
 
-            case PatchType.EVAL: {
-                const { value, bytesRead } = this.decodeString(buffer, offset);
-                patch.code = value;
-                offset += bytesRead;
-                break;
-            }
+            // NOTE: PatchType.EVAL (0x21) is intentionally not handled.
+            // The server never sends it and we should not execute arbitrary code.
 
             default:
                 // Unknown patch type - skip for forward compatibility

@@ -89,6 +89,12 @@ export class OptimisticUpdates {
      * Apply optimistic attribute change
      */
     _applyAttrOptimistic(el, hid, attr, value) {
+        // SECURITY: Block on* attributes to prevent XSS
+        if (attr.length > 2 && attr.substring(0, 2).toLowerCase() === 'on') {
+            console.warn('[Vango] Blocked dangerous optimistic attribute:', attr);
+            return;
+        }
+
         // Store original
         const original = el.getAttribute(attr);
 

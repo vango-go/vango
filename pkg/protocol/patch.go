@@ -207,13 +207,14 @@ func DecodePatchesFrom(d *Decoder) (*PatchesFrame, error) {
 		return nil, err
 	}
 
-	count, err := d.ReadUvarint()
+	// SECURITY: Use ReadCollectionCount to prevent DoS via huge allocation
+	count, err := d.ReadCollectionCount()
 	if err != nil {
 		return nil, err
 	}
 
 	patches := make([]Patch, count)
-	for i := uint64(0); i < count; i++ {
+	for i := 0; i < count; i++ {
 		if err := decodePatch(d, &patches[i]); err != nil {
 			return nil, err
 		}
