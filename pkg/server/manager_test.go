@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/vango-dev/vango/v2/pkg/session"
 )
 
 func testLogger() *slog.Logger {
@@ -230,4 +232,54 @@ func TestSessionManagerShutdownMultiple(t *testing.T) {
 
 	// Second shutdown should not panic (though may have undefined behavior)
 	// Just verify it doesn't crash
+}
+
+// =============================================================================
+// Phase 12: Persistence Integration Tests
+// =============================================================================
+
+func TestSessionManagerWithPersistenceOptions(t *testing.T) {
+	store := session.NewMemoryStore()
+	opts := &SessionManagerOptions{
+		SessionStore:        store,
+		ResumeWindow:        10 * time.Minute,
+		MaxDetachedSessions: 5000,
+		MaxSessionsPerIP:    50,
+		PersistInterval:     15 * time.Second,
+	}
+
+	sm := NewSessionManagerWithOptions(nil, nil, testLogger(), opts)
+	defer sm.Shutdown()
+
+	if !sm.HasPersistence() {
+		t.Error("Expected HasPersistence to return true")
+	}
+
+	if sm.PersistenceManager() == nil {
+		t.Error("Expected PersistenceManager to be non-nil")
+	}
+}
+
+func TestSessionManagerWithoutPersistence(t *testing.T) {
+	sm := NewSessionManager(nil, nil, testLogger())
+	defer sm.Shutdown()
+
+	if sm.HasPersistence() {
+		t.Error("Expected HasPersistence to return false")
+	}
+
+	if sm.PersistenceManager() != nil {
+		t.Error("Expected PersistenceManager to be nil")
+	}
+}
+
+func TestSessionManagerCheckIPLimitWithoutPersistence(t *testing.T) {
+	sm := NewSessionManager(nil, nil, testLogger())
+	defer sm.Shutdown()
+
+	// Without persistence, CheckIPLimit should return nil (no limit)
+	err := sm.CheckIPLimit("192.168.1.1")
+	if err != nil {
+		t.Errorf("Expected nil error without persistence, got %v", err)
+	}
 }

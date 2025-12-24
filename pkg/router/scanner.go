@@ -190,6 +190,12 @@ func (s *Scanner) convertParams(path string) string {
 }
 
 // extractParams extracts parameter definitions from a file path.
+// Uses intelligent type inference based on naming conventions:
+//   - [id], [userID], [postId] → int (common ID pattern)
+//   - [uuid] → string (UUID stored as string)
+//   - [slug], [name], [title] → string
+//   - [...path], [...rest] → []string (catch-all)
+//   - [param:int], [id:int64] → explicit type annotation
 func (s *Scanner) extractParams(relPath string) []ParamDef {
 	var params []ParamDef
 
@@ -209,9 +215,11 @@ func (s *Scanner) extractParams(relPath string) []ParamDef {
 		} else {
 			param.Name = name
 			if match[2] != "" {
+				// Explicit type annotation [param:type]
 				param.Type = match[2]
 			} else {
-				param.Type = "string" // Default to string
+				// Infer type from naming conventions
+				param.Type = inferParamTypeFromName(name)
 			}
 		}
 
@@ -219,6 +227,43 @@ func (s *Scanner) extractParams(relPath string) []ParamDef {
 	}
 
 	return params
+}
+
+// inferParamTypeFromName infers the Go type from a parameter name.
+// This follows common naming conventions to reduce boilerplate.
+func inferParamTypeFromName(name string) string {
+	lower := strings.ToLower(name)
+
+	// UUID patterns → string (check BEFORE ID patterns since "uuid" ends with "id")
+	if lower == "uuid" || strings.HasSuffix(lower, "uuid") || strings.HasSuffix(lower, "_uuid") {
+		return "string"
+	}
+
+	// Common ID patterns → int
+	// Matches: id, userId, user_id, postId, post_id, etc.
+	if lower == "id" {
+		return "int"
+	}
+	if strings.HasSuffix(lower, "id") || strings.HasSuffix(lower, "_id") {
+		return "int"
+	}
+
+	// Common string patterns
+	switch lower {
+	case "slug", "name", "title", "path", "key", "token", "code":
+		return "string"
+	}
+
+	// Numeric patterns
+	switch lower {
+	case "page", "limit", "offset", "count", "index", "num", "number":
+		return "int"
+	case "year", "month", "day":
+		return "int"
+	}
+
+	// Default to string for unknown parameters
+	return "string"
 }
 
 // isAPIRoute checks if a relative path is an API route.

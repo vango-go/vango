@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"sort"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/vango-dev/vango/v2/pkg/session"
 )
 
 // SessionManager manages all active sessions.
@@ -41,10 +43,39 @@ type SessionManager struct {
 
 	// Logger
 	logger *slog.Logger
+
+	// Phase 12: Session Persistence
+	// persistenceManager handles session persistence, LRU eviction, and IP limits
+	persistenceManager *session.Manager
+	sessionStore       session.SessionStore
+	resumeWindow       time.Duration
+}
+
+// SessionManagerOptions contains optional Phase 12 configuration.
+type SessionManagerOptions struct {
+	// SessionStore is the persistence backend for sessions.
+	SessionStore session.SessionStore
+
+	// ResumeWindow is how long detached sessions remain resumable.
+	ResumeWindow time.Duration
+
+	// MaxDetachedSessions is the maximum detached sessions before LRU eviction.
+	MaxDetachedSessions int
+
+	// MaxSessionsPerIP is the maximum sessions per IP address.
+	MaxSessionsPerIP int
+
+	// PersistInterval is how often to persist dirty sessions.
+	PersistInterval time.Duration
 }
 
 // NewSessionManager creates a new SessionManager with the given configuration.
 func NewSessionManager(config *SessionConfig, limits *SessionLimits, logger *slog.Logger) *SessionManager {
+	return NewSessionManagerWithOptions(config, limits, logger, nil)
+}
+
+// NewSessionManagerWithOptions creates a SessionManager with Phase 12 persistence options.
+func NewSessionManagerWithOptions(config *SessionConfig, limits *SessionLimits, logger *slog.Logger, opts *SessionManagerOptions) *SessionManager {
 	if config == nil {
 		config = DefaultSessionConfig()
 	}
@@ -63,6 +94,34 @@ func NewSessionManager(config *SessionConfig, limits *SessionLimits, logger *slo
 		cleanupDone:     make(chan struct{}),
 		limits:          limits,
 		logger:          logger.With("component", "session_manager"),
+		resumeWindow:    5 * time.Minute, // Default
+	}
+
+	// Phase 12: Configure persistence if options provided
+	if opts != nil {
+		sm.sessionStore = opts.SessionStore
+		if opts.ResumeWindow > 0 {
+			sm.resumeWindow = opts.ResumeWindow
+		}
+
+		// Create persistence manager if store is provided
+		if opts.SessionStore != nil {
+			managerConfig := session.DefaultManagerConfig()
+			if opts.MaxDetachedSessions > 0 {
+				managerConfig.MaxDetachedSessions = opts.MaxDetachedSessions
+			}
+			if opts.MaxSessionsPerIP > 0 {
+				managerConfig.MaxSessionsPerIP = opts.MaxSessionsPerIP
+			}
+			if opts.ResumeWindow > 0 {
+				managerConfig.ResumeWindow = opts.ResumeWindow
+			}
+			if opts.PersistInterval > 0 {
+				managerConfig.PersistInterval = opts.PersistInterval
+			}
+
+			sm.persistenceManager = session.NewManager(opts.SessionStore, managerConfig, logger)
+		}
 	}
 
 	// Start cleanup goroutine
@@ -259,6 +318,11 @@ func (sm *SessionManager) EvictLRU(count int) int {
 
 // Shutdown gracefully shuts down all sessions.
 func (sm *SessionManager) Shutdown() {
+	sm.ShutdownWithContext(context.Background())
+}
+
+// ShutdownWithContext gracefully shuts down all sessions with context for timeout.
+func (sm *SessionManager) ShutdownWithContext(ctx context.Context) error {
 	// Stop cleanup loop and wait for it to exit
 	close(sm.done)
 	<-sm.cleanupDone
@@ -271,6 +335,22 @@ func (sm *SessionManager) Shutdown() {
 	}
 	sm.sessions = make(map[string]*Session)
 	sm.mu.Unlock()
+
+	// Phase 12: Persist all sessions before closing
+	if sm.persistenceManager != nil {
+		// Serialize and notify persistence manager for each session
+		for _, sess := range sessions {
+			data := sm.serializeSessionForPersistence(sess)
+			if len(data) > 0 {
+				sm.persistenceManager.OnDisconnect(sess.ID, data)
+			}
+		}
+
+		// Shutdown persistence manager (persists all to store)
+		if err := sm.persistenceManager.Shutdown(ctx); err != nil {
+			sm.logger.Warn("persistence manager shutdown error", "error", err)
+		}
+	}
 
 	// Close all sessions concurrently
 	var wg sync.WaitGroup
@@ -288,6 +368,8 @@ func (sm *SessionManager) Shutdown() {
 
 	sm.logger.Info("session manager shutdown",
 		"closed_sessions", len(sessions))
+
+	return nil
 }
 
 // Stats returns aggregated session statistics.
@@ -383,4 +465,129 @@ func (sm *SessionManager) CheckMemoryPressure() {
 
 		sm.EvictLRU(evictCount)
 	}
+}
+
+// =============================================================================
+// Phase 12: Session Persistence Integration
+// =============================================================================
+
+// CheckIPLimit checks if the IP has exceeded the session limit.
+// Returns ErrTooManySessionsFromIP if the limit is exceeded.
+// This should be called before creating a new session.
+func (sm *SessionManager) CheckIPLimit(ip string) error {
+	if sm.persistenceManager == nil {
+		return nil // No limit checking without persistence manager
+	}
+	return sm.persistenceManager.CheckIPLimit(ip)
+}
+
+// OnSessionDisconnect is called when a WebSocket connection closes.
+// It persists the session state for potential reconnection.
+func (sm *SessionManager) OnSessionDisconnect(sess *Session) {
+	if sm.persistenceManager == nil {
+		return
+	}
+
+	// Serialize session for persistence
+	data := sm.serializeSessionForPersistence(sess)
+
+	// Register with persistence manager for LRU tracking
+	managedSess := &session.ManagedSession{
+		ID:         sess.ID,
+		IP:         sess.IP,
+		CreatedAt:  sess.CreatedAt,
+		LastActive: sess.LastActive,
+		UserID:     sess.UserID,
+	}
+	sm.persistenceManager.Register(managedSess)
+	sm.persistenceManager.OnDisconnect(sess.ID, data)
+
+	sm.logger.Debug("session disconnected and persisted",
+		"session_id", sess.ID,
+		"data_size", len(data))
+}
+
+// OnSessionReconnect attempts to restore a session after reconnection.
+// Returns the restored session and true if successful, or nil and false if not found.
+func (sm *SessionManager) OnSessionReconnect(sessionID string) (*Session, bool) {
+	if sm.persistenceManager == nil {
+		return nil, false
+	}
+
+	// Try to restore from persistence manager
+	_, data, err := sm.persistenceManager.OnReconnect(sessionID)
+	if err != nil || data == nil {
+		return nil, false
+	}
+
+	// Deserialize and restore session
+	sess := sm.restoreSessionFromPersistence(sessionID, data)
+	if sess == nil {
+		return nil, false
+	}
+
+	// Re-register the session
+	sm.mu.Lock()
+	sm.sessions[sess.ID] = sess
+	sm.mu.Unlock()
+
+	sm.logger.Debug("session reconnected from persistence",
+		"session_id", sessionID)
+
+	return sess, true
+}
+
+// serializeSessionForPersistence converts a Session to bytes for storage.
+func (sm *SessionManager) serializeSessionForPersistence(sess *Session) []byte {
+	ss := &session.SerializableSession{
+		ID:         sess.ID,
+		UserID:     sess.UserID,
+		CreatedAt:  sess.CreatedAt,
+		LastActive: sess.LastActive,
+		Route:      sess.CurrentRoute,
+	}
+
+	data, err := session.Serialize(ss)
+	if err != nil {
+		sm.logger.Warn("failed to serialize session",
+			"session_id", sess.ID,
+			"error", err)
+		return nil
+	}
+	return data
+}
+
+// restoreSessionFromPersistence creates a Session from persisted bytes.
+func (sm *SessionManager) restoreSessionFromPersistence(sessionID string, data []byte) *Session {
+	ss, err := session.Deserialize(data)
+	if err != nil {
+		sm.logger.Warn("failed to deserialize session",
+			"session_id", sessionID,
+			"error", err)
+		return nil
+	}
+
+	// Create a new session with restored state
+	sess := &Session{
+		ID:           ss.ID,
+		UserID:       ss.UserID,
+		CreatedAt:    ss.CreatedAt,
+		LastActive:   time.Now(),
+		CurrentRoute: ss.Route,
+		config:       sm.config,
+		logger:       sm.logger.With("session_id", ss.ID),
+	}
+
+	return sess
+}
+
+// PersistenceManager returns the underlying persistence manager for advanced use.
+// Returns nil if persistence is not configured.
+func (sm *SessionManager) PersistenceManager() *session.Manager {
+	return sm.persistenceManager
+}
+
+// HasPersistence returns true if session persistence is configured.
+func (sm *SessionManager) HasPersistence() bool {
+	return sm.persistenceManager != nil
 }

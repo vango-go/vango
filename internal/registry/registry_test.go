@@ -140,7 +140,7 @@ func TestRegistry_Init(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := config.New()
-	cfg.UI.Path = filepath.Join(tmpDir, "ui")
+	cfg.Paths.UI = filepath.Join(tmpDir, "ui") // Phase 14: Use Paths.UI
 	cfg.SaveTo(filepath.Join(tmpDir, "vango.json"))
 
 	reg := New(cfg)
@@ -177,7 +177,7 @@ func TestRegistry_ListInstalled_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := config.New()
-	cfg.UI.Path = filepath.Join(tmpDir, "nonexistent")
+	cfg.Paths.UI = filepath.Join(tmpDir, "nonexistent") // Phase 14: Use Paths.UI
 	cfg.SaveTo(filepath.Join(tmpDir, "vango.json"))
 
 	reg := New(cfg)
@@ -208,7 +208,7 @@ func Button() {}
 	os.WriteFile(filepath.Join(uiDir, "button.go"), []byte(content), 0644)
 
 	cfg := config.New()
-	cfg.UI.Path = uiDir
+	cfg.Paths.UI = uiDir // Phase 14: Use Paths.UI instead of UI.Path
 	cfg.SaveTo(filepath.Join(tmpDir, "vango.json"))
 
 	reg := New(cfg)

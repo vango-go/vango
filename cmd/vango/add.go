@@ -12,6 +12,8 @@ import (
 	"github.com/vango-dev/vango/v2/internal/registry"
 )
 
+var addPath string
+
 func addCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add [command]",
@@ -24,24 +26,30 @@ You can modify them as needed.
 Commands:
   init       Initialize VangoUI in your project
   upgrade    Upgrade installed components
+  list       List all available components
 
 Examples:
   vango add init
   vango add button dialog
-  vango add upgrade`,
+  vango add button --path=app/components/custom
+  vango add upgrade
+  vango add list`,
 	}
 
 	cmd.AddCommand(
 		addInitCmd(),
 		addUpgradeCmd(),
+		addListCmd(),
 	)
+
+	cmd.PersistentFlags().StringVar(&addPath, "path", "", "Override component output path")
 
 	// Handle direct component installation
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
 		}
-		return runAddComponents(args)
+		return runAddComponents(args, addPath)
 	}
 
 	return cmd
@@ -113,10 +121,92 @@ func runAddInit() error {
 	return nil
 }
 
-func runAddComponents(components []string) error {
+func addListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all available components",
+		Long:  `List all components available in the VangoUI registry.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAddList()
+		},
+	}
+}
+
+func runAddList() error {
 	cfg, err := config.LoadFromWorkingDir()
 	if err != nil {
 		return err
+	}
+
+	reg := registry.New(cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	manifest, err := reg.FetchManifest(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("  Available VangoUI Components:")
+	fmt.Println()
+
+	// Get installed components for status
+	installed, _ := reg.ListInstalled()
+	installedMap := make(map[string]bool)
+	for _, ic := range installed {
+		installedMap[ic.Name] = true
+	}
+
+	// Sort component names for consistent output
+	var names []string
+	for name := range manifest.Components {
+		names = append(names, name)
+	}
+	sortStrings(names)
+
+	for _, name := range names {
+		comp := manifest.Components[name]
+		if comp.Internal {
+			continue // Skip internal components
+		}
+
+		status := "    "
+		if installedMap[name] {
+			status = " ✓  "
+		}
+
+		deps := ""
+		if len(comp.DependsOn) > 0 {
+			deps = fmt.Sprintf(" (requires: %s)", joinStrings(comp.DependsOn, ", "))
+		}
+
+		fmt.Printf("%s%s%s\n", status, name, deps)
+	}
+
+	fmt.Println()
+	fmt.Printf("  Registry version: %s\n", manifest.Version)
+	fmt.Println()
+
+	return nil
+}
+
+func runAddComponents(components []string, overridePath string) error {
+	cfg, err := config.LoadFromWorkingDir()
+	if err != nil {
+		return err
+	}
+
+	// Override path if specified
+	if overridePath != "" {
+		cfg.UI.Path = overridePath
 	}
 
 	fmt.Println("  Installing components...")
@@ -255,4 +345,14 @@ func joinStrings(s []string, sep string) string {
 		result += sep + s[i]
 	}
 	return result
+}
+
+func sortStrings(s []string) {
+	for i := 0; i < len(s); i++ {
+		for j := i + 1; j < len(s); j++ {
+			if s[i] > s[j] {
+				s[i], s[j] = s[j], s[i]
+			}
+		}
+	}
 }

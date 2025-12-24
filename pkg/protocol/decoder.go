@@ -128,13 +128,14 @@ func (d *Decoder) ReadString() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Allocation limit check first: prevent DoS via huge length prefix
+	// Check this before bounds to fail fast on malicious payloads
+	if length > DefaultMaxAllocation {
+		return "", ErrAllocationTooLarge
+	}
 	// Bounds check: length must fit in remaining buffer
 	if length > uint64(d.Remaining()) {
 		return "", io.ErrUnexpectedEOF
-	}
-	// Allocation limit check: prevent DoS via huge length prefix
-	if length > DefaultMaxAllocation {
-		return "", ErrAllocationTooLarge
 	}
 	n := int(length)
 	s := string(d.buf[d.pos : d.pos+n])
@@ -150,13 +151,14 @@ func (d *Decoder) ReadLenBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Allocation limit check first: prevent DoS via huge length prefix
+	// Check this before bounds to fail fast on malicious payloads
+	if length > DefaultMaxAllocation {
+		return nil, ErrAllocationTooLarge
+	}
 	// Bounds check: length must fit in remaining buffer
 	if length > uint64(d.Remaining()) {
 		return nil, io.ErrUnexpectedEOF
-	}
-	// Allocation limit check: prevent DoS via huge length prefix
-	if length > DefaultMaxAllocation {
-		return nil, ErrAllocationTooLarge
 	}
 	n := int(length)
 	b := make([]byte, n)

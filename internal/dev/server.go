@@ -38,17 +38,18 @@ type ServerOptions struct {
 
 // Server is the development server.
 type Server struct {
-	config       *config.Config
-	options      ServerOptions
-	compiler     *Compiler
-	watcher      *Watcher
-	reloadServer *ReloadServer
-	tailwind     *TailwindRunner
-	httpServer   *http.Server
-	appProxy     *httputil.ReverseProxy
-	mu           sync.Mutex
-	running      bool
-	appPort      int
+	config        *config.Config
+	options       ServerOptions
+	compiler      *Compiler
+	watcher       *Watcher
+	reloadServer  *ReloadServer
+	tailwind      *TailwindRunner
+	errorRecovery *ErrorRecovery
+	httpServer    *http.Server
+	appProxy      *httputil.ReverseProxy
+	mu            sync.Mutex
+	running       bool
+	appPort       int
 }
 
 // NewServer creates a new development server.
@@ -96,14 +97,19 @@ func NewServer(options ServerOptions) *Server {
 	// App will run on port + 1
 	appPort := cfg.Dev.Port + 1
 
+	// Create error recovery handler
+	modulePath, _ := GetModulePath(projectDir)
+	errorRecovery := NewErrorRecovery(projectDir, cfg.RoutesPath(), modulePath)
+
 	return &Server{
-		config:       cfg,
-		options:      options,
-		compiler:     compiler,
-		watcher:      watcher,
-		reloadServer: reloadServer,
-		tailwind:     tailwind,
-		appPort:      appPort,
+		config:        cfg,
+		options:       options,
+		compiler:      compiler,
+		watcher:       watcher,
+		reloadServer:  reloadServer,
+		tailwind:      tailwind,
+		errorRecovery: errorRecovery,
+		appPort:       appPort,
 	}
 }
 
@@ -214,9 +220,38 @@ func (s *Server) handleChange(ctx context.Context, change Change) {
 		}
 
 		if !result.Success {
-			s.logError("Build failed:\n%s", result.Output)
-			s.reloadServer.NotifyError(result.Output)
-			return
+			// Attempt automatic error recovery
+			if IsRecoverableError(result.Output) && s.errorRecovery != nil {
+				s.log("Attempting automatic recovery...")
+				recovery := s.errorRecovery.AttemptRecovery(result.Output)
+				if recovery.Recovered {
+					s.log("Recovery: %s (%s)", recovery.Action, recovery.Details)
+
+					// Retry the build
+					s.log("Retrying build...")
+					result = s.compiler.Build(ctx)
+					if s.options.OnBuildComplete != nil {
+						s.options.OnBuildComplete(result)
+					}
+
+					if result.Success {
+						s.log("Build succeeded after recovery")
+						// Continue to restart app below
+					} else {
+						s.logError("Build still failing after recovery:\n%s", result.Output)
+						s.reloadServer.NotifyError(result.Output)
+						return
+					}
+				} else {
+					s.logError("Build failed:\n%s", result.Output)
+					s.reloadServer.NotifyError(result.Output)
+					return
+				}
+			} else {
+				s.logError("Build failed:\n%s", result.Output)
+				s.reloadServer.NotifyError(result.Output)
+				return
+			}
 		}
 
 		s.log("Built in %s", result.Duration.Round(time.Millisecond))

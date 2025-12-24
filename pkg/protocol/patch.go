@@ -32,6 +32,10 @@ const (
 	PatchDispatch    PatchOp = 0x20 // Dispatch client event
 	// NOTE: PatchEval (0x21) has been REMOVED for security.
 	// Sending arbitrary JS from server to client is an XSS/RCE risk.
+
+	// URL operations (Phase 12: URLParam 2.0)
+	PatchURLPush    PatchOp = 0x30 // Update query params, push to history
+	PatchURLReplace PatchOp = 0x31 // Update query params, replace current entry
 )
 
 // String returns the string representation of the patch operation.
@@ -77,6 +81,10 @@ func (op PatchOp) String() string {
 		return "SetData"
 	case PatchDispatch:
 		return "Dispatch"
+	case PatchURLPush:
+		return "URLPush"
+	case PatchURLReplace:
+		return "URLReplace"
 	default:
 		return "Unknown"
 	}
@@ -103,6 +111,7 @@ type Patch struct {
 	X        int            // For ScrollTo
 	Y        int            // For ScrollTo
 	Behavior ScrollBehavior // For ScrollTo
+	Params   map[string]string // For URLPush/URLReplace
 }
 
 // PatchesFrame represents a batch of patches with sequence number.
@@ -191,6 +200,14 @@ func encodePatch(e *Encoder, p *Patch) {
 		e.WriteString(p.Key)   // Event name
 		e.WriteString(p.Value) // Event detail (JSON)
 		// NOTE: PatchEval case removed for security
+
+	case PatchURLPush, PatchURLReplace:
+		// Encode params as varint count + key/value pairs
+		e.WriteUvarint(uint64(len(p.Params)))
+		for key, value := range p.Params {
+			e.WriteString(key)
+			e.WriteString(value)
+		}
 	}
 }
 
@@ -201,7 +218,18 @@ func DecodePatches(data []byte) (*PatchesFrame, error) {
 }
 
 // DecodePatchesFrom decodes a patches frame from a decoder.
+// SECURITY: Enforces MaxPatchDepth to prevent stack overflow attacks.
 func DecodePatchesFrom(d *Decoder) (*PatchesFrame, error) {
+	return decodePatchesFromWithDepth(d, 0)
+}
+
+// decodePatchesFromWithDepth decodes a patches frame with depth tracking.
+func decodePatchesFromWithDepth(d *Decoder, depth int) (*PatchesFrame, error) {
+	// SECURITY: Check depth limit before any work
+	if err := checkDepth(depth, MaxPatchDepth); err != nil {
+		return nil, err
+	}
+
 	seq, err := d.ReadUvarint()
 	if err != nil {
 		return nil, err
@@ -215,7 +243,8 @@ func DecodePatchesFrom(d *Decoder) (*PatchesFrame, error) {
 
 	patches := make([]Patch, count)
 	for i := 0; i < count; i++ {
-		if err := decodePatch(d, &patches[i]); err != nil {
+		// SECURITY: Pass depth for VNode decoding inside patches
+		if err := decodePatchWithDepth(d, &patches[i], depth+1); err != nil {
 			return nil, err
 		}
 	}
@@ -227,7 +256,14 @@ func DecodePatchesFrom(d *Decoder) (*PatchesFrame, error) {
 }
 
 // decodePatch decodes a single patch.
+// This is the legacy version that calls the depth-aware version with depth 0.
 func decodePatch(d *Decoder, p *Patch) error {
+	return decodePatchWithDepth(d, p, 0)
+}
+
+// decodePatchWithDepth decodes a single patch with depth tracking.
+// The depth parameter is passed to VNode decoding for patches that contain nodes.
+func decodePatchWithDepth(d *Decoder, p *Patch, depth int) error {
 	opByte, err := d.ReadByte()
 	if err != nil {
 		return err
@@ -264,7 +300,8 @@ func decodePatch(d *Decoder, p *Patch) error {
 			return err
 		}
 		p.Index = int(idx)
-		p.Node, err = DecodeVNodeWire(d)
+		// SECURITY: Use depth-aware VNode decoding
+		p.Node, err = decodeVNodeWireWithDepth(d, depth)
 
 	case PatchRemoveNode:
 		// No additional data
@@ -279,7 +316,8 @@ func decodePatch(d *Decoder, p *Patch) error {
 		p.Index = int(idx)
 
 	case PatchReplaceNode:
-		p.Node, err = DecodeVNodeWire(d)
+		// SECURITY: Use depth-aware VNode decoding
+		p.Node, err = decodeVNodeWireWithDepth(d, depth)
 
 	case PatchSetValue:
 		p.Value, err = d.ReadString()
@@ -333,6 +371,25 @@ func decodePatch(d *Decoder, p *Patch) error {
 		}
 		p.Value, err = d.ReadString()
 		// NOTE: PatchEval case removed for security
+
+	case PatchURLPush, PatchURLReplace:
+		// Decode params
+		count, err := d.ReadCollectionCount()
+		if err != nil {
+			return err
+		}
+		p.Params = make(map[string]string, count)
+		for i := 0; i < count; i++ {
+			key, err := d.ReadString()
+			if err != nil {
+				return err
+			}
+			value, err := d.ReadString()
+			if err != nil {
+				return err
+			}
+			p.Params[key] = value
+		}
 
 	default:
 		// Unknown patch op - skip for forward compatibility
@@ -444,3 +501,13 @@ func NewDispatchPatch(hid, eventName, detail string) Patch {
 // NOTE: NewEvalPatch has been REMOVED for security.
 // Sending arbitrary JS from server to client is an XSS/RCE risk.
 // Use client-side hooks or PatchDispatch for safe interop.
+
+// NewURLPushPatch creates a URLPush patch (adds history entry).
+func NewURLPushPatch(params map[string]string) Patch {
+	return Patch{Op: PatchURLPush, Params: params}
+}
+
+// NewURLReplacePatch creates a URLReplace patch (replaces current entry).
+func NewURLReplacePatch(params map[string]string) Patch {
+	return Patch{Op: PatchURLReplace, Params: params}
+}

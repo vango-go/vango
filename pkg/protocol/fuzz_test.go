@@ -216,3 +216,64 @@ func FuzzRoundTrip(f *testing.F) {
 		}
 	})
 }
+
+// FuzzDecodeHookPayload tests that decoding hook payloads doesn't panic.
+// This is important for security as hook payloads come from clients.
+func FuzzDecodeHookPayload(f *testing.F) {
+	// Seed with valid JSON payloads
+	f.Add([]byte(`{"key": "value"}`))
+	f.Add([]byte(`{"nested": {"deep": {"deeper": true}}}`))
+	f.Add([]byte(`[1, 2, 3, "four", null, true]`))
+	f.Add([]byte(`"simple string"`))
+	f.Add([]byte(`42`))
+	f.Add([]byte(`true`))
+	f.Add([]byte(`null`))
+	f.Add([]byte(`{"array": [{"a": 1}, {"b": 2}]}`))
+
+	// Edge cases
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`[]`))
+	f.Add([]byte(`""`))
+	f.Add([]byte(`0`))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Should not panic - errors are acceptable for invalid input
+		_, _ = decodeHookValueWithDepth(NewDecoder(data), 0)
+	})
+}
+
+// FuzzDeeplyNestedVNode tests that deeply nested VNodes are rejected.
+func FuzzDeeplyNestedVNode(f *testing.F) {
+	// Seed with various VNode structures
+	e := NewEncoder()
+	EncodeVNodeWire(e, NewTextWire("Hello"))
+	f.Add(e.Bytes())
+
+	e.Reset()
+	EncodeVNodeWire(e, NewElementWire("div", nil))
+	f.Add(e.Bytes())
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		d := NewDecoder(data)
+		// Should not panic, should return error for deep nesting
+		_, _ = DecodeVNodeWire(d)
+	})
+}
+
+// FuzzPatchesWithVNodes tests patches containing VNodes are properly limited.
+func FuzzPatchesWithVNodes(f *testing.F) {
+	// Seed with valid patches
+	pf := &PatchesFrame{
+		Seq: 1,
+		Patches: []Patch{
+			NewInsertNodePatch("h1", "h0", 0, NewTextWire("text")),
+			NewReplaceNodePatch("h2", NewElementWire("span", nil)),
+		},
+	}
+	f.Add(EncodePatches(pf))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Should not panic
+		_, _ = DecodePatches(data)
+	})
+}

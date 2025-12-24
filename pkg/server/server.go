@@ -98,8 +98,20 @@ func New(config *ServerConfig) *Server {
 		limits.MaxMemoryPerSession = config.MaxMemoryPerSession
 	}
 
+	// Phase 12: Build persistence options
+	var persistOpts *SessionManagerOptions
+	if config.SessionStore != nil || config.ResumeWindow > 0 || config.MaxDetachedSessions > 0 || config.MaxSessionsPerIP > 0 {
+		persistOpts = &SessionManagerOptions{
+			SessionStore:        config.SessionStore,
+			ResumeWindow:        config.ResumeWindow,
+			MaxDetachedSessions: config.MaxDetachedSessions,
+			MaxSessionsPerIP:    config.MaxSessionsPerIP,
+			PersistInterval:     config.PersistInterval,
+		}
+	}
+
 	s := &Server{
-		sessions: NewSessionManager(config.SessionConfig, limits, logger),
+		sessions: NewSessionManagerWithOptions(config.SessionConfig, limits, logger, persistOpts),
 		config:   config,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  config.ReadBufferSize,

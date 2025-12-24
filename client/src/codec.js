@@ -77,6 +77,9 @@ export const PatchType = {
     SET_DATA: 0x15,
     DISPATCH: 0x20,
     // NOTE: EVAL (0x21) has been REMOVED for security. Server never sends it.
+    // URL operations (Phase 12: URLParam 2.0)
+    URL_PUSH: 0x30,
+    URL_REPLACE: 0x31,
 };
 
 /**
@@ -357,6 +360,23 @@ export class BinaryCodec {
 
             // NOTE: PatchType.EVAL (0x21) is intentionally not handled.
             // The server never sends it and we should not execute arbitrary code.
+
+            case PatchType.URL_PUSH:
+            case PatchType.URL_REPLACE: {
+                // Decode params: count + key/value pairs
+                const { value: count, bytesRead: countBytes } = this.decodeUvarint(buffer, offset);
+                offset += countBytes;
+                patch.params = {};
+                for (let i = 0; i < count; i++) {
+                    const { value: key, bytesRead: keyBytes } = this.decodeString(buffer, offset);
+                    offset += keyBytes;
+                    const { value: value, bytesRead: valueBytes } = this.decodeString(buffer, offset);
+                    offset += valueBytes;
+                    patch.params[key] = value;
+                }
+                patch.op = patch.type; // Store op for URLManager
+                break;
+            }
 
             default:
                 // Unknown patch type - skip for forward compatibility

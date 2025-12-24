@@ -196,3 +196,248 @@ func TestServerConfigShutdownTimeout(t *testing.T) {
 		t.Errorf("ShutdownTimeout = %v, want 60s", config.ShutdownTimeout)
 	}
 }
+
+// =============================================================================
+// Phase 13: Secure Defaults Tests
+// =============================================================================
+
+func TestDefaultServerConfigSecureDefaults(t *testing.T) {
+	config := DefaultServerConfig()
+
+	t.Run("DevMode is false by default", func(t *testing.T) {
+		if config.DevMode {
+			t.Error("DevMode should be false by default")
+		}
+	})
+
+	t.Run("SecureCookies is true by default", func(t *testing.T) {
+		if !config.SecureCookies {
+			t.Error("SecureCookies should be true by default")
+		}
+	})
+
+	t.Run("SameSiteMode is Lax by default", func(t *testing.T) {
+		if config.SameSiteMode != http.SameSiteLaxMode {
+			t.Errorf("SameSiteMode = %v, want %v", config.SameSiteMode, http.SameSiteLaxMode)
+		}
+	})
+
+	t.Run("MaxSessionsPerIP is set by default", func(t *testing.T) {
+		if config.MaxSessionsPerIP == 0 {
+			t.Error("MaxSessionsPerIP should be set by default")
+		}
+	})
+
+	t.Run("MaxDetachedSessions is set by default", func(t *testing.T) {
+		if config.MaxDetachedSessions == 0 {
+			t.Error("MaxDetachedSessions should be set by default")
+		}
+	})
+}
+
+func TestWithDevMode(t *testing.T) {
+	config := DefaultServerConfig().WithDevMode()
+
+	t.Run("DevMode is enabled", func(t *testing.T) {
+		if !config.DevMode {
+			t.Error("DevMode should be true after WithDevMode()")
+		}
+	})
+
+	t.Run("SecureCookies is disabled", func(t *testing.T) {
+		if config.SecureCookies {
+			t.Error("SecureCookies should be false in DevMode")
+		}
+	})
+
+	t.Run("CheckOrigin allows all", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://localhost", nil)
+		req.Header.Set("Origin", "http://malicious.com")
+		if !config.CheckOrigin(req) {
+			t.Error("CheckOrigin should allow all origins in DevMode")
+		}
+	})
+}
+
+func TestConfigValidation(t *testing.T) {
+	t.Run("secure config has no warnings", func(t *testing.T) {
+		config := DefaultServerConfig()
+		config.CSRFSecret = []byte("secret-key-for-csrf")
+
+		warnings := config.GetConfigWarnings()
+		if len(warnings) > 0 {
+			t.Errorf("secure config should have no warnings, got: %v", warnings)
+		}
+	})
+
+	t.Run("missing CSRF secret warns", func(t *testing.T) {
+		config := DefaultServerConfig()
+		config.CSRFSecret = nil
+
+		warnings := config.GetConfigWarnings()
+		found := false
+		for _, w := range warnings {
+			if containsString(w, "CSRF") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("should warn about missing CSRFSecret")
+		}
+	})
+
+	t.Run("DevMode warns", func(t *testing.T) {
+		config := DefaultServerConfig().WithDevMode()
+
+		warnings := config.GetConfigWarnings()
+		found := false
+		for _, w := range warnings {
+			if containsString(w, "DEV MODE") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("should warn about DevMode")
+		}
+	})
+
+	t.Run("disabled SecureCookies warns", func(t *testing.T) {
+		config := DefaultServerConfig()
+		config.SecureCookies = false
+
+		warnings := config.GetConfigWarnings()
+		found := false
+		for _, w := range warnings {
+			if containsString(w, "SecureCookies") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("should warn about disabled SecureCookies")
+		}
+	})
+}
+
+func TestIsSecure(t *testing.T) {
+	t.Run("default config is not fully secure", func(t *testing.T) {
+		config := DefaultServerConfig()
+		// Default config doesn't have CSRFSecret
+		if config.IsSecure() {
+			t.Error("default config should not be fully secure (missing CSRFSecret)")
+		}
+	})
+
+	t.Run("fully configured is secure", func(t *testing.T) {
+		config := DefaultServerConfig()
+		config.CSRFSecret = []byte("secret")
+
+		if !config.IsSecure() {
+			t.Error("fully configured config should be secure")
+		}
+	})
+
+	t.Run("DevMode is not secure", func(t *testing.T) {
+		config := DefaultServerConfig().WithDevMode()
+		config.CSRFSecret = []byte("secret")
+
+		if config.IsSecure() {
+			t.Error("DevMode config should not be secure")
+		}
+	})
+}
+
+func TestConfigHelpers(t *testing.T) {
+	t.Run("WithSecureCookies", func(t *testing.T) {
+		config := DefaultServerConfig().WithSecureCookies(false)
+		if config.SecureCookies {
+			t.Error("SecureCookies should be false")
+		}
+
+		config = config.WithSecureCookies(true)
+		if !config.SecureCookies {
+			t.Error("SecureCookies should be true")
+		}
+	})
+
+	t.Run("WithSameSiteMode", func(t *testing.T) {
+		config := DefaultServerConfig().WithSameSiteMode(http.SameSiteStrictMode)
+		if config.SameSiteMode != http.SameSiteStrictMode {
+			t.Errorf("SameSiteMode = %v, want %v", config.SameSiteMode, http.SameSiteStrictMode)
+		}
+	})
+
+	t.Run("WithCookieDomain", func(t *testing.T) {
+		config := DefaultServerConfig().WithCookieDomain(".example.com")
+		if config.CookieDomain != ".example.com" {
+			t.Errorf("CookieDomain = %q, want %q", config.CookieDomain, ".example.com")
+		}
+	})
+}
+
+func TestSameOriginCheck(t *testing.T) {
+	tests := []struct {
+		name   string
+		host   string
+		origin string
+		want   bool
+	}{
+		{
+			name:   "no origin header",
+			host:   "localhost:8080",
+			origin: "",
+			want:   true,
+		},
+		{
+			name:   "same origin",
+			host:   "localhost:8080",
+			origin: "http://localhost:8080",
+			want:   true,
+		},
+		{
+			name:   "different origin",
+			host:   "localhost:8080",
+			origin: "http://malicious.com",
+			want:   false,
+		},
+		{
+			name:   "different port",
+			host:   "localhost:8080",
+			origin: "http://localhost:3000",
+			want:   false,
+		},
+		{
+			name:   "https origin matching https host",
+			host:   "example.com",
+			origin: "https://example.com",
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", "http://"+tt.host, nil)
+			req.Host = tt.host
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+
+			got := SameOriginCheck(req)
+			if got != tt.want {
+				t.Errorf("SameOriginCheck() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// Helper function for string containment check
+func containsString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

@@ -26,7 +26,23 @@ const (
 )
 
 // Config represents the complete vango.json configuration.
+// This matches the Phase 14 specification schema.
 type Config struct {
+	// Name is the project name.
+	Name string `json:"name,omitempty"`
+
+	// Version is the project version.
+	Version string `json:"version,omitempty"`
+
+	// Port is the default server port (convenience field, also in Dev).
+	Port int `json:"port,omitempty"`
+
+	// Paths contains path configuration for various directories.
+	Paths PathsConfig `json:"paths,omitempty"`
+
+	// Static contains static file serving configuration.
+	Static StaticConfig `json:"static,omitempty"`
+
 	// Dev contains development server configuration.
 	Dev DevConfig `json:"dev,omitempty"`
 
@@ -36,23 +52,59 @@ type Config struct {
 	// Tailwind contains Tailwind CSS configuration.
 	Tailwind TailwindConfig `json:"tailwind,omitempty"`
 
-	// UI contains VangoUI component configuration.
+	// Session contains session configuration.
+	Session SessionConfig `json:"session,omitempty"`
+
+	// UI contains VangoUI component configuration (legacy, use Paths.UI).
 	UI UIConfig `json:"ui,omitempty"`
 
 	// Hooks is the path to custom client hooks JavaScript file.
 	Hooks string `json:"hooks,omitempty"`
 
+	// Routes is the path to the routes directory (legacy, use Paths.Routes).
+	Routes string `json:"routes,omitempty"`
+
+	// Components is the path to the components directory (legacy, use Paths.Components).
+	Components string `json:"components,omitempty"`
+
+	// Public is the path to the public static files directory (legacy, use Static.Dir).
+	Public string `json:"public,omitempty"`
+
+	// configPath stores the path where the config was loaded from.
+	configPath string
+}
+
+// PathsConfig contains path configuration for project directories.
+type PathsConfig struct {
 	// Routes is the path to the routes directory.
 	Routes string `json:"routes,omitempty"`
 
 	// Components is the path to the components directory.
 	Components string `json:"components,omitempty"`
 
-	// Public is the path to the public static files directory.
-	Public string `json:"public,omitempty"`
+	// UI is the path to the UI components directory.
+	UI string `json:"ui,omitempty"`
 
-	// configPath stores the path where the config was loaded from.
-	configPath string
+	// Store is the path to the store directory.
+	Store string `json:"store,omitempty"`
+
+	// Middleware is the path to the middleware directory.
+	Middleware string `json:"middleware,omitempty"`
+}
+
+// StaticConfig contains static file serving configuration.
+type StaticConfig struct {
+	// Dir is the directory containing static files.
+	Dir string `json:"dir,omitempty"`
+
+	// Prefix is the URL prefix for static files (default: "/").
+	Prefix string `json:"prefix,omitempty"`
+}
+
+// SessionConfig contains session configuration.
+type SessionConfig struct {
+	// ResumeWindow is the duration for session resumption (e.g., "30s").
+	ResumeWindow string `json:"resumeWindow,omitempty"`
 }
 
 // DevConfig contains development server settings.
@@ -77,6 +129,9 @@ type DevConfig struct {
 
 	// Ignore contains patterns to ignore during watch.
 	Ignore []string `json:"ignore,omitempty"`
+
+	// HotReload enables hot reload in development.
+	HotReload bool `json:"hotReload,omitempty"`
 }
 
 // BuildConfig contains production build settings.
@@ -86,6 +141,12 @@ type BuildConfig struct {
 
 	// Minify enables minification.
 	Minify bool `json:"minify,omitempty"`
+
+	// MinifyAssets enables minification of CSS and JS assets.
+	MinifyAssets bool `json:"minifyAssets,omitempty"`
+
+	// StripSymbols strips debug symbols from the binary (-ldflags="-s -w").
+	StripSymbols bool `json:"stripSymbols,omitempty"`
 
 	// SourceMaps enables source map generation.
 	SourceMaps bool `json:"sourceMaps,omitempty"`
@@ -133,19 +194,40 @@ type UIConfig struct {
 // New creates a new Config with default values.
 func New() *Config {
 	return &Config{
+		Version: "0.1.0",
+		Port:    DefaultPort,
+		Paths: PathsConfig{
+			Routes:     "app/routes",
+			Components: "app/components",
+			UI:         "app/components/ui",
+			Store:      "app/store",
+			Middleware: "app/middleware",
+		},
+		Static: StaticConfig{
+			Dir:    "public",
+			Prefix: "/",
+		},
 		Dev: DevConfig{
 			Port:        DefaultPort,
 			Host:        DefaultHost,
-			OpenBrowser: true,
+			OpenBrowser: false,
+			HotReload:   true,
+			Watch:       []string{"app", "db", "public"},
 		},
 		Build: BuildConfig{
-			Output: DefaultOutput,
-			Minify: true,
+			Output:       DefaultOutput,
+			Minify:       true,
+			MinifyAssets: true,
+			StripSymbols: true,
+		},
+		Session: SessionConfig{
+			ResumeWindow: "30s",
 		},
 		UI: UIConfig{
 			Registry: DefaultRegistry,
 			Path:     "app/components/ui",
 		},
+		// Legacy fields for backwards compatibility
 		Routes:     "app/routes",
 		Components: "app/components",
 		Public:     "public",
@@ -225,29 +307,88 @@ func (c *Config) Dir() string {
 
 // applyDefaults fills in default values for empty fields.
 func (c *Config) applyDefaults() {
+	// Port
+	if c.Port == 0 {
+		c.Port = DefaultPort
+	}
 	if c.Dev.Port == 0 {
-		c.Dev.Port = DefaultPort
+		c.Dev.Port = c.Port
 	}
 	if c.Dev.Host == "" {
 		c.Dev.Host = DefaultHost
 	}
+	if c.Dev.Watch == nil {
+		c.Dev.Watch = []string{"app", "db", "public"}
+	}
+
+	// Build
 	if c.Build.Output == "" {
 		c.Build.Output = DefaultOutput
 	}
+
+	// Session
+	if c.Session.ResumeWindow == "" {
+		c.Session.ResumeWindow = "30s"
+	}
+
+	// Paths - prefer new Paths config, fall back to legacy fields
+	if c.Paths.Routes == "" {
+		if c.Routes != "" {
+			c.Paths.Routes = c.Routes
+		} else {
+			c.Paths.Routes = "app/routes"
+		}
+	}
+	if c.Paths.Components == "" {
+		if c.Components != "" {
+			c.Paths.Components = c.Components
+		} else {
+			c.Paths.Components = "app/components"
+		}
+	}
+	if c.Paths.UI == "" {
+		if c.UI.Path != "" {
+			c.Paths.UI = c.UI.Path
+		} else {
+			c.Paths.UI = "app/components/ui"
+		}
+	}
+	if c.Paths.Store == "" {
+		c.Paths.Store = "app/store"
+	}
+	if c.Paths.Middleware == "" {
+		c.Paths.Middleware = "app/middleware"
+	}
+
+	// Static
+	if c.Static.Dir == "" {
+		if c.Public != "" {
+			c.Static.Dir = c.Public
+		} else {
+			c.Static.Dir = "public"
+		}
+	}
+	if c.Static.Prefix == "" {
+		c.Static.Prefix = "/"
+	}
+
+	// UI registry
 	if c.UI.Registry == "" {
 		c.UI.Registry = DefaultRegistry
 	}
 	if c.UI.Path == "" {
-		c.UI.Path = "app/components/ui"
+		c.UI.Path = c.Paths.UI
 	}
+
+	// Legacy fields - keep in sync for backwards compatibility
 	if c.Routes == "" {
-		c.Routes = "app/routes"
+		c.Routes = c.Paths.Routes
 	}
 	if c.Components == "" {
-		c.Components = "app/components"
+		c.Components = c.Paths.Components
 	}
 	if c.Public == "" {
-		c.Public = "public"
+		c.Public = c.Static.Dir
 	}
 }
 
@@ -284,34 +425,94 @@ func (c *Config) OutputPath() string {
 
 // RoutesPath returns the absolute path to the routes directory.
 func (c *Config) RoutesPath() string {
-	if filepath.IsAbs(c.Routes) {
-		return c.Routes
+	path := c.Paths.Routes
+	if path == "" {
+		path = c.Routes
 	}
-	return filepath.Join(c.Dir(), c.Routes)
+	if path == "" {
+		path = "app/routes"
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(c.Dir(), path)
 }
 
 // ComponentsPath returns the absolute path to the components directory.
 func (c *Config) ComponentsPath() string {
-	if filepath.IsAbs(c.Components) {
-		return c.Components
+	path := c.Paths.Components
+	if path == "" {
+		path = c.Components
 	}
-	return filepath.Join(c.Dir(), c.Components)
+	if path == "" {
+		path = "app/components"
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(c.Dir(), path)
 }
 
 // PublicPath returns the absolute path to the public directory.
 func (c *Config) PublicPath() string {
-	if filepath.IsAbs(c.Public) {
-		return c.Public
+	path := c.Static.Dir
+	if path == "" {
+		path = c.Public
 	}
-	return filepath.Join(c.Dir(), c.Public)
+	if path == "" {
+		path = "public"
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(c.Dir(), path)
 }
 
 // UIComponentsPath returns the absolute path to the UI components directory.
 func (c *Config) UIComponentsPath() string {
-	if filepath.IsAbs(c.UI.Path) {
-		return c.UI.Path
+	path := c.Paths.UI
+	if path == "" {
+		path = c.UI.Path
 	}
-	return filepath.Join(c.Dir(), c.UI.Path)
+	if path == "" {
+		path = "app/components/ui"
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(c.Dir(), path)
+}
+
+// StorePath returns the absolute path to the store directory.
+func (c *Config) StorePath() string {
+	path := c.Paths.Store
+	if path == "" {
+		path = "app/store"
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(c.Dir(), path)
+}
+
+// MiddlewarePath returns the absolute path to the middleware directory.
+func (c *Config) MiddlewarePath() string {
+	path := c.Paths.Middleware
+	if path == "" {
+		path = "app/middleware"
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(c.Dir(), path)
+}
+
+// StaticPrefix returns the URL prefix for static files.
+func (c *Config) StaticPrefix() string {
+	if c.Static.Prefix == "" {
+		return "/"
+	}
+	return c.Static.Prefix
 }
 
 // HasTailwind returns true if Tailwind CSS is enabled.

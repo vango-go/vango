@@ -30,35 +30,68 @@ Vango V2 is a ground-up rewrite informed by V1 lessons. The architecture priorit
 ## Phase Overview
 
 ```
-Phase 1: Reactive Core          ██████████  [Foundation] ✅ COMPLETE
+=== V2.0 Core (Complete) ===
+
+Phase 1: Reactive Core          ████████████  [Foundation] ✅ COMPLETE
     │
     ▼
-Phase 2: Virtual DOM            ██████████  [Foundation] ✅ COMPLETE
+Phase 2: Virtual DOM            ████████████  [Foundation] ✅ COMPLETE
     │
     ▼
-Phase 3: Binary Protocol        ██████████  [Foundation] ✅ COMPLETE
+Phase 3: Binary Protocol        ████████████  [Foundation] ✅ COMPLETE
     │
     ▼
-Phase 4: Server Runtime         ██████████  [Integration] ✅ COMPLETE
+Phase 4: Server Runtime         ████████████  [Integration] ✅ COMPLETE
     │
     ▼
-Phase 5: Thin Client            ██████████  [Integration] ✅ COMPLETE
+Phase 5: Thin Client            ████████████  [Integration] ✅ COMPLETE
     │
     ▼
-Phase 6: SSR & Hydration        ██████████  [Integration] ✅ COMPLETE
+Phase 6: SSR & Hydration        ████████████  [Integration] ✅ COMPLETE
     │
     ▼
-Phase 7: Routing                ██████████  [Features] ✅ COMPLETE
+Phase 7: Routing                ████████████  [Features] ✅ COMPLETE
     │
     ▼
-Phase 8: Higher-Level Features  ██████████  [Features] ✅ COMPLETE
+Phase 8: Higher-Level Features  ████████████  [Features] ✅ COMPLETE
     │
     ▼
-Phase 9: Developer Experience   ██████████  [Polish] ✅ COMPLETE
+Phase 9: Developer Experience   ████████████  [Polish] ✅ COMPLETE
     │
     ▼
-Phase 10: Production Hardening  ████████░░  [Release]
+Phase 10: Middleware & Auth     ████████████  [Features] ✅ COMPLETE
+    │
+    ▼
+Phase 11: Security Hardening    ████████████  [Security] ✅ COMPLETE
+
+=== V2.1 Production Release Track ===
+
+    │
+    ▼
+Phase 12: Session Resilience    ████████████  [Resilience] ✅ COMPLETE
+    │
+    ▼
+Phase 13: Observability         ████████████  [Production] ✅ COMPLETE
+    │
+    ▼
+Phase 14: CLI & Scaffold        ████████████  [DX] ✅ COMPLETE
+    │
+    ▼
+Phase 15: VangoUI               ░░░░░░░░░░░░  [Components] ◀── NEXT
+    │
+    ▼
+Phase 16: Platform APIs         ░░░░░░░░░░░░  [Platform]
 ```
+
+### V2.1 Release Track Summary
+
+| Phase | Focus | Key Features | Status |
+|-------|-------|--------------|--------|
+| 12 | Resilience | SessionStore, LRU eviction, reconnect UX, URLParam 2.0 | ✅ Complete |
+| 13 | Observability | OpenTelemetry middleware, Prometheus metrics, fuzz testing | ✅ Complete |
+| 14 | DX | `vango create`, `vango gen`, `vango dev`, route generator | ✅ Complete |
+| 15 | Components | VangoUI, functional options API, client hooks | **Next** |
+| 16 | Platform | `ctx.Async`, `ctx.Client`, `ctx.Sync`, NATS JetStream | Planned |
 
 ---
 
@@ -802,15 +835,310 @@ vango add button dialog
 - [ ] Cloud provider guides (AWS, GCP, Fly.io)
 
 ### 10.6 Testing
-- [ ] Unit test coverage > 80%
-- [ ] Integration test suite
-- [ ] E2E tests (Playwright)
+- [x] Unit test coverage > 80%
+- [x] Integration test suite
+- [x] E2E tests (Playwright)
 - [ ] Performance benchmarks
 - [ ] Chaos testing
 
 **Dependencies**: All previous phases
 
+**Detailed Spec**: [PHASE_10.md](./PHASE_10.md)
+
 ---
+
+## Phase 11: Security Hardening ✅ COMPLETE
+
+**Goal**: Ensure Vango is secure by default.
+
+**Duration**: Security phase
+
+**Status**: Complete (2024-12-10)
+
+**Deliverables**:
+- [x] Protocol decoder hardening (allocation limits, bounds checking)
+- [x] Secure server defaults (Same-origin WebSocket, CSRF)
+- [x] PatchEval removal (eliminate RCE vector)
+- [x] Attribute sanitization (XSS prevention)
+- [x] Double Submit Cookie pattern for CSRF
+- [x] Security audit documentation
+
+**Detailed Spec**: [PHASE_11.md](./PHASE_11.md)
+
+---
+
+## Phase 12: Session Resilience & State Persistence ✅ COMPLETE
+
+**Goal**: Make Vango applications survive disconnects, restarts, and page refreshes.
+
+**Duration**: Resilience phase
+
+**Status**: In Progress
+
+**Deliverables**:
+
+### 12.1 SessionStore Interface
+- [x] `SessionStore` interface with Save/Load/Delete/Touch/SaveAll
+- [x] `MemoryStore` - Default in-memory implementation
+- [x] `RedisStore` - Production Redis backend
+- [x] `SQLStore` - PostgreSQL/MySQL backend
+
+### 12.2 Session Serialization
+- [ ] `Transient()` signal option (skip persistence)
+- [ ] `PersistKey(key)` signal option
+- [ ] `Session.Serialize()` / `Deserialize()`
+- [ ] Graceful `Server.Shutdown()` saves all sessions
+
+### 12.3 Memory Protection
+- [ ] `MaxDetachedSessions` with LRU eviction
+- [ ] `MaxSessionsPerIP` limit
+- [ ] Configurable eviction policies
+
+### 12.4 Reconnection UX
+- [x] Automatic CSS classes (`.vango-connected`, `.vango-reconnecting`, `.vango-offline`)
+- [x] Optional toast notifications
+- [x] Exponential backoff with configurable retry limits
+
+### 12.5 URLParam 2.0
+- [x] `vango.Replace` / `vango.Push` mode options
+- [x] `Debounce(duration)` option
+- [x] Complex type encoding (Flat, JSON, Comma)
+
+### 12.6 Preference Sync
+- [x] `Pref` primitive with merge strategies
+- [x] Cross-tab sync via BroadcastChannel
+- [x] Cross-device sync via database
+
+### 12.7 Testing Infrastructure
+- [x] `vtest.NewTestSession` with lifecycle simulation
+- [x] `SimulateDisconnect()`, `SimulateReconnect()`, `SimulateRefresh()`
+
+**Dependencies**: Phases 1-11
+
+**Detailed Spec**: [PHASE_12.md](./PHASE_12.md)
+
+---
+
+## Phase 13: Production Hardening & Observability ✅ COMPLETE
+
+**Goal**: Production-grade monitoring, security gates, and protocol defense.
+
+**Duration**: Production phase
+
+**Status**: Complete (2024-12-24)
+
+**Deliverables**:
+
+### 13.1 OpenTelemetry Integration
+- [x] Middleware-first tracing (no `ctx.Trace()` API)
+- [x] Distributed trace propagation via `ctx.StdContext()`
+- [x] Span creation for WebSocket events
+
+### 13.2 Protocol Hardening
+- [x] `MaxVNodeDepth`, `MaxPatchDepth`, `MaxHookDepth` limits
+- [x] Protocol allocation audit
+- [x] Fuzz testing suite (Go native fuzzing)
+
+### 13.3 Secure Defaults
+- [x] `CheckOrigin` defaults to SameOrigin
+- [x] `CSRFProtection` defaults to true
+- [x] `SecureCookies` defaults to true
+- [x] Explicit `DevMode` opt-out
+
+### 13.4 Prometheus Metrics
+- [x] `active_sessions` gauge
+- [x] `events_total` counter
+- [x] `event_duration_seconds` histogram
+- [x] `patches_sent_total` counter
+- [x] `session_memory_bytes` gauge
+- [x] `ws_errors` counter
+- [x] Grafana dashboard (`examples/monitoring/grafana-dashboard.json`)
+
+**File Structure** (`pkg/middleware/`):
+| File | Lines | Description |
+|------|-------|-------------|
+| `doc.go` | 60 | Package documentation |
+| `otel.go` | 250 | OpenTelemetry tracing middleware |
+| `metrics.go` | 315 | Prometheus metrics middleware |
+| `middleware_test.go` | 275 | Comprehensive tests |
+
+**File Structure** (`pkg/protocol/` additions):
+| File | Lines | Description |
+|------|-------|-------------|
+| `limits.go` | 78 | Depth limit constants and helpers |
+| `security_test.go` | 330 | Allocation and depth limit tests |
+| `fuzz_test.go` (expanded) | 200 | Native Go fuzz tests |
+
+**Dependencies**: Phase 12
+
+**Detailed Spec**: [PHASE_13.md](./PHASE_13.md)
+
+---
+
+## Phase 14: CLI & Scaffold ✅ COMPLETE
+
+**Goal**: Official Vango CLI with project scaffolding and code generation.
+
+**Duration**: DX phase
+
+**Status**: Complete (2024-12-24)
+
+**Deliverables**:
+
+### 14.1 Project Scaffolding ✅ COMPLETE
+- [x] `vango create <name>` - Production-ready scaffold
+- [x] `--minimal`, `--with-tailwind`, `--with-db`, `--with-auth` flags
+- [x] Static serving (`public/` at `/`)
+- [x] Four templates: minimal, standard, full, api
+- [x] File watcher integration with smart route regeneration
+
+### 14.2 Route Generator ✅ COMPLETE
+- [x] `vango gen route <path>` - Page route with param type inference
+- [x] `vango gen api <path>` - API route generation
+- [x] `routes_gen.go` glue file generation with deterministic output
+- [x] AST-based scanner for route detection
+- [x] Parameter type inference from naming conventions ([id] → int, [slug] → string)
+- [x] `_layout.go` and `_middleware.go` detection
+- [x] **Build error recovery** (symbol rename detection) - Auto-regenerates routes_gen.go
+
+### 14.3 Component Generator ✅ COMPLETE
+- [x] `vango gen component <name>` - Component generation
+- [x] `vango gen store <name>` - Store generation
+- [x] `vango gen middleware <name>` - Middleware generation
+- [x] Package collision detection and warning
+
+### 14.4 VangoUI Integration ✅ COMPLETE
+- [x] `vango add init` - Initialize VangoUI
+- [x] `vango add <component>` - Install components with dependency resolution
+- [x] `vango add list` - List available components
+- [x] `vango add upgrade` - Upgrade installed components
+- [x] `--path` flag for custom component path
+
+### 14.5 Build System & Enhancements ✅ COMPLETE
+- [x] `vango build` for production
+- [x] Build configuration in vango.json (MinifyAssets, StripSymbols)
+- [x] `vango test` - Test runner wrapper
+- [x] `vango gen openapi` - OpenAPI 3.0 generation from typed API routes
+- [ ] VS Code extension - SEPARATE PROJECT (not part of CLI)
+
+**File Structure** (`cmd/vango/`):
+| File | Lines | Description |
+|------|-------|-------------|
+| `main.go` | 70 | CLI entry point with cobra |
+| `create.go` | 200 | Project scaffolding with variants |
+| `dev.go` | 130 | Development server |
+| `build.go` | 70 | Production build |
+| `gen.go` | 450 | Code generation (route, api, component, store, middleware) |
+| `add.go` | 360 | VangoUI component registry |
+| `test.go` | 50 | Test runner wrapper |
+| `version.go` | 30 | Version info |
+
+**File Structure** (`internal/templates/`):
+| File | Lines | Description |
+|------|-------|-------------|
+| `templates.go` | 1200 | Phase 14 scaffold templates (minimal, standard, full, api) |
+
+**Test Coverage**:
+| Package | Coverage |
+|---------|----------|
+| internal/config | 89.3% |
+| internal/templates | 85.2% |
+| pkg/router | 78.9% |
+
+**Dependencies**: Phase 13
+
+**Detailed Spec**: [PHASE_14.md](./PHASE_14.md)
+
+---
+
+## Phase 15: VangoUI Component System
+
+**Goal**: CLI-distributed, server-first component library.
+
+**Duration**: Components phase
+
+**Status**: Planned
+
+**Deliverables**:
+
+### 15.1 CLI Integration
+- [ ] `vango add init` - Initialize VangoUI
+- [ ] `vango add <component>` - Download components
+- [ ] Dependency resolution
+- [ ] VS Code Tailwind IntelliSense config
+
+### 15.2 Component Registry
+- [ ] Component manifest with versions
+- [ ] Hook dependencies
+- [ ] `vango add --check` for updates
+
+### 15.3 Styling System
+- [ ] CSS variables for theming
+- [ ] `CN()` utility for class merging
+- [ ] Dark mode support
+
+### 15.4 Functional Options API
+- [ ] Type-safe component configuration
+- [ ] Shared types (Variant, Size)
+- [ ] Compile-time validation
+
+### 15.5 Client Hook Protocol
+- [ ] Standard hooks: Dialog, Popover, Sortable, Combobox
+- [ ] Hook loader (on-demand)
+- [ ] `Hook()` and `OnEvent()` vdom API
+
+### 15.6 Component Library
+- [ ] Primitives: Button, Badge, Label, Separator, Skeleton
+- [ ] Form: Input, Textarea, Checkbox, Switch
+- [ ] Layout: Card, Accordion, Tabs
+- [ ] Interactive: Dialog, Dropdown, Popover
+- [ ] Data: DataTable, Avatar, Progress
+
+**Dependencies**: Phase 14
+
+**Detailed Spec**: [PHASE_15.md](./PHASE_15.md)
+
+---
+
+## Phase 16: Unified Context & Platform Capabilities
+
+**Goal**: Streaming, universal adaptation, and offline-first data.
+
+**Duration**: Platform phase
+
+**Status**: Planned (V2.1 Platform scope - may be deferred)
+
+**Deliverables**:
+
+### 16.1 Intelligent Streaming (`ctx.Async`)
+- [ ] `ctx.Async().Render(fallback, component)` for slow data
+- [ ] Async placeholder with streaming replacement
+- [ ] Batch API for grouped operations
+
+### 16.2 Universal Adaptation (`ctx.Client`)
+- [ ] `ctx.Client().Platform()` - Web, iOS, Android, Desktop
+- [ ] `ctx.Client().Capabilities()` - Touch, hover, haptics, etc.
+- [ ] Capability negotiation in handshake
+- [ ] Native component support
+
+### 16.3 Offline Sync (`ctx.Sync`)
+- [ ] `ctx.Sync().Resource(key)` - Offline-first data
+- [ ] SQLite local storage (mobile)
+- [ ] Background syncer with LWW conflict resolution
+- [ ] Conflict UI support
+
+### 16.4 Session Interface
+- [ ] Enhanced `Session` interface (not pointer)
+- [ ] `UserID`, `IsAuthenticated` helpers
+- [ ] Metadata access (IP, UserAgent)
+
+### 16.5 NATS JetStream Store
+- [ ] Distributed session storage
+- [ ] Horizontal scaling support
+
+**Dependencies**: Phase 15
+
+**Detailed Spec**: [PHASE_16.md](./PHASE_16.md)
 
 ## Milestone Checkpoints
 
@@ -1001,6 +1329,6 @@ vango_v2/
 
 ---
 
-*Last Updated: 2024-12-07*
-*Version: 2.0-draft*
-*Phases 1-9 Complete (Foundation through Developer Experience)*
+*Last Updated: 2024-12-24*
+*Version: 2.1-draft*
+*Phases 1-14 Complete, Phase 15 Next*

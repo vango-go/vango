@@ -104,15 +104,27 @@ type Signal[T any] struct {
 	// equal is the equality function used to determine if the value changed.
 	// If nil, uses default equality checking.
 	equal func(T, T) bool
+
+	// Persistence options (Phase 12)
+	transient  bool   // If true, signal is not persisted
+	persistKey string // Explicit key for serialization
 }
 
 // NewSignal creates a new signal with the given initial value.
-func NewSignal[T any](initial T) *Signal[T] {
+// Options can be passed to configure persistence behavior:
+//
+//	count := vango.NewSignal(0)                                  // Normal signal
+//	cursor := vango.NewSignal(Point{0, 0}, vango.Transient())   // Not persisted
+//	userID := vango.NewSignal(0, vango.PersistKey("user_id"))   // Custom key
+func NewSignal[T any](initial T, opts ...SignalOption) *Signal[T] {
+	options := applyOptions(opts)
 	return &Signal[T]{
 		base: signalBase{
 			id: nextID(),
 		},
-		value: initial,
+		value:      initial,
+		transient:  options.transient,
+		persistKey: options.persistKey,
 	}
 }
 
@@ -249,4 +261,51 @@ func defaultEquals[T any](a, b T) bool {
 type memoBase interface {
 	Listener
 	addSource(source *signalBase)
+}
+
+// =============================================================================
+// PersistableSignal interface implementation (Phase 12)
+// =============================================================================
+
+// IsTransient returns true if the signal should not be persisted.
+func (s *Signal[T]) IsTransient() bool {
+	return s.transient
+}
+
+// PersistKey returns the explicit persistence key, or empty string for auto-key.
+func (s *Signal[T]) PersistKey() string {
+	return s.persistKey
+}
+
+// GetAny returns the current value as an interface{}.
+// This is used for serialization without knowing the concrete type.
+func (s *Signal[T]) GetAny() any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.value
+}
+
+// SetAny sets the value from an interface{}.
+// Returns an error if the type doesn't match.
+// This is used for deserialization without knowing the concrete type.
+func (s *Signal[T]) SetAny(value any) error {
+	v, ok := value.(T)
+	if !ok {
+		return &TypeMismatchError{
+			Expected: reflect.TypeOf((*T)(nil)).Elem().String(),
+			Actual:   reflect.TypeOf(value).String(),
+		}
+	}
+	s.Set(v)
+	return nil
+}
+
+// TypeMismatchError is returned when SetAny receives a value of the wrong type.
+type TypeMismatchError struct {
+	Expected string
+	Actual   string
+}
+
+func (e *TypeMismatchError) Error() string {
+	return "type mismatch: expected " + e.Expected + ", got " + e.Actual
 }

@@ -122,6 +122,14 @@ export class PatchApplier {
             // NOTE: PatchType.EVAL has been REMOVED for security.
             // Executing arbitrary JS from server is an XSS/RCE risk.
 
+            case PatchType.URL_PUSH:
+            case PatchType.URL_REPLACE:
+                // Delegate to URLManager
+                if (this.client.urlManager) {
+                    this.client.urlManager.applyPatch(patch);
+                }
+                break;
+
             default:
                 if (this.client.options.debug) {
                     console.warn('[Vango] Unknown patch type:', patch.type);

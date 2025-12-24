@@ -33,6 +33,12 @@ type Event struct {
 	Time time.Time
 }
 
+// TypeString returns the string representation of the event type.
+// Used for logging and tracing.
+func (e *Event) TypeString() string {
+	return e.Type.String()
+}
+
 // MouseEvent represents a mouse event with position and modifiers.
 type MouseEvent struct {
 	ClientX  int

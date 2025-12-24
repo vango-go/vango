@@ -373,14 +373,14 @@ func TestUIComponentsPath(t *testing.T) {
 	cfg := New()
 	cfg.SaveTo(configPath)
 
-	// Default path
+	// Default path (Phase 14: Paths.UI)
 	expected := filepath.Join(tmpDir, "app/components/ui")
 	if got := cfg.UIComponentsPath(); got != expected {
 		t.Errorf("UIComponentsPath = %q, want %q", got, expected)
 	}
 
-	// Custom path
-	cfg.UI.Path = "components/ui"
+	// Custom path via Paths.UI (Phase 14 primary config)
+	cfg.Paths.UI = "components/ui"
 	expected = filepath.Join(tmpDir, "components/ui")
 	if got := cfg.UIComponentsPath(); got != expected {
 		t.Errorf("UIComponentsPath custom = %q, want %q", got, expected)

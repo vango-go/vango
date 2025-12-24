@@ -14,6 +14,9 @@ import { PatchApplier } from './patches.js';
 import { OptimisticUpdates } from './optimistic.js';
 import { HookManager } from './hooks/manager.js';
 import { ensurePortalRoot } from './hooks/portal.js';
+import { ConnectionManager, injectDefaultStyles } from './connection.js';
+import { URLManager } from './url.js';
+import { PrefManager, MergeStrategy } from './prefs.js';
 
 /**
  * Frame type constants for wire protocol
@@ -65,6 +68,16 @@ export class VangoClient {
         this.eventCapture = new EventCapture(this);
         this.optimistic = new OptimisticUpdates(this);
         this.hooks = new HookManager(this);
+        this.connection = new ConnectionManager({
+            toastOnReconnect: options.toastOnReconnect || window.__VANGO_TOAST_ON_RECONNECT__,
+            toastMessage: options.toastMessage || 'Connection restored',
+            maxRetries: options.maxRetries || 10,
+            baseDelay: options.reconnectInterval || 1000,
+            maxDelay: options.reconnectMaxInterval || 30000,
+            debug: options.debug,
+        });
+        this.urlManager = new URLManager(this, { debug: options.debug });
+        this.prefs = new PrefManager(this, { debug: options.debug });
 
         // Callbacks
         this.onConnect = options.onConnect || (() => { });
@@ -73,6 +86,9 @@ export class VangoClient {
 
         // Initialize portal root early to avoid race conditions
         ensurePortalRoot();
+
+        // Inject default connection styles
+        injectDefaultStyles();
 
         // Initialize
         this._buildNodeMap();
@@ -108,6 +124,7 @@ export class VangoClient {
      */
     _onConnected() {
         this.connected = true;
+        this.connection.onConnect();
         this.onConnect();
     }
 
@@ -116,6 +133,7 @@ export class VangoClient {
      */
     _onDisconnected() {
         this.connected = false;
+        this.connection.onDisconnect();
         this.onDisconnect();
     }
 
@@ -327,11 +345,23 @@ export class VangoClient {
     }
 
     /**
+     * Register a preference
+     * @param {string} key - Unique preference key
+     * @param {*} defaultValue - Default value
+     * @param {Object} options - Configuration options
+     * @returns {Pref} Preference instance
+     */
+    registerPref(key, defaultValue, options = {}) {
+        return this.prefs.register(key, defaultValue, options);
+    }
+
+    /**
      * Disconnect and cleanup
      */
     destroy() {
         this.eventCapture.detach();
         this.hooks.destroyAll();
+        this.prefs.destroy();
         this.wsManager.close();
     }
 }
@@ -369,4 +399,5 @@ if (typeof document !== 'undefined') {
 
 // Export for manual initialization and for the IIFE wrapper
 export { EventType } from './codec.js';
+export { ConnectionState, ConnectionManager } from './connection.js';
 export default VangoClient;

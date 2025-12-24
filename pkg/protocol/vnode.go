@@ -133,7 +133,19 @@ func EncodeVNodeWire(e *Encoder, node *VNodeWire) {
 }
 
 // DecodeVNodeWire decodes a VNodeWire from the decoder.
+// SECURITY: Enforces MaxVNodeDepth to prevent stack overflow attacks.
 func DecodeVNodeWire(d *Decoder) (*VNodeWire, error) {
+	return decodeVNodeWireWithDepth(d, 0)
+}
+
+// decodeVNodeWireWithDepth decodes a VNodeWire with depth tracking.
+// This is the internal implementation that tracks recursion depth.
+func decodeVNodeWireWithDepth(d *Decoder, depth int) (*VNodeWire, error) {
+	// SECURITY: Check depth limit before any work
+	if err := checkDepth(depth, MaxVNodeDepth); err != nil {
+		return nil, err
+	}
+
 	kindByte, err := d.ReadByte()
 	if err != nil {
 		return nil, err
@@ -192,7 +204,8 @@ func DecodeVNodeWire(d *Decoder) (*VNodeWire, error) {
 		if childCount > 0 {
 			node.Children = make([]*VNodeWire, childCount)
 			for i := 0; i < childCount; i++ {
-				child, err := DecodeVNodeWire(d)
+				// SECURITY: Increment depth for child nodes
+				child, err := decodeVNodeWireWithDepth(d, depth+1)
 				if err != nil {
 					return nil, err
 				}
@@ -216,7 +229,8 @@ func DecodeVNodeWire(d *Decoder) (*VNodeWire, error) {
 		if childCount > 0 {
 			node.Children = make([]*VNodeWire, childCount)
 			for i := 0; i < childCount; i++ {
-				child, err := DecodeVNodeWire(d)
+				// SECURITY: Increment depth for child nodes
+				child, err := decodeVNodeWireWithDepth(d, depth+1)
 				if err != nil {
 					return nil, err
 				}

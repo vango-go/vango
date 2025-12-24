@@ -62,6 +62,11 @@ func TestScannerConvertParams(t *testing.T) {
 func TestScannerExtractParams(t *testing.T) {
 	s := NewScanner("/app/routes")
 
+	// Phase 14 Spec Section 6.2 - Param Type Inference:
+	// - [id].go → int (convention for numeric IDs)
+	// - [userId].go → int (ends with "id")
+	// - [slug].go → string (default for named params)
+	// - [...path].go → []string (catch-all route)
 	tests := []struct {
 		relPath    string
 		wantParams []ParamDef
@@ -72,7 +77,7 @@ func TestScannerExtractParams(t *testing.T) {
 		},
 		{
 			"[id].go",
-			[]ParamDef{{Name: "id", Type: "string", Segment: "[id]"}},
+			[]ParamDef{{Name: "id", Type: "int", Segment: "[id]"}}, // Phase 14: "id" infers int
 		},
 		{
 			"[id:int].go",
@@ -85,7 +90,7 @@ func TestScannerExtractParams(t *testing.T) {
 		{
 			"users/[userId]/posts/[postId:int].go",
 			[]ParamDef{
-				{Name: "userId", Type: "string", Segment: "[userId]"},
+				{Name: "userId", Type: "int", Segment: "[userId]"}, // Phase 14: ends with "Id" infers int
 				{Name: "postId", Type: "int", Segment: "[postId:int]"},
 			},
 		},

@@ -80,11 +80,13 @@ func TestTemplate_Create_Minimal(t *testing.T) {
 		t.Fatalf("Create error: %v", err)
 	}
 
-	// Check that files were created
+	// Phase 14: Check that core files were created
 	expectedFiles := []string{
 		"main.go",
 		"go.mod",
 		"vango.json",
+		"app/routes/index.go",      // Phase 14 uses routes in app/routes/
+		"app/routes/api/health.go", // API routes in app/routes/api/
 	}
 
 	for _, file := range expectedFiles {
@@ -94,13 +96,13 @@ func TestTemplate_Create_Minimal(t *testing.T) {
 		}
 	}
 
-	// Check content substitution in main.go
+	// Phase 14: Check main.go contains routes.Register()
 	mainGo, _ := os.ReadFile(filepath.Join(tmpDir, "main.go"))
-	if !strings.Contains(string(mainGo), "test-app") {
-		t.Error("Project name not substituted in main.go")
+	if !strings.Contains(string(mainGo), "routes.Register") {
+		t.Error("routes.Register not in main.go")
 	}
-	if !strings.Contains(string(mainGo), "A test application") {
-		t.Error("Description not substituted in main.go")
+	if !strings.Contains(string(mainGo), "vango.New") {
+		t.Error("vango.New not in main.go")
 	}
 
 	// Check go.mod has module path
@@ -125,13 +127,19 @@ func TestTemplate_Create_Full(t *testing.T) {
 		t.Fatalf("Create error: %v", err)
 	}
 
-	// Check core files
+	// Phase 14: Check core files including Tailwind
 	expectedFiles := []string{
 		"main.go",
 		"go.mod",
 		"vango.json",
 		"README.md",
 		"tailwind.config.js",
+		"package.json",
+		"app/routes/index.go",
+		"app/routes/_layout.go",
+		"app/routes/about.go",
+		"app/components/shared/navbar.go",
+		"app/components/shared/footer.go",
 	}
 
 	for _, file := range expectedFiles {
@@ -141,20 +149,17 @@ func TestTemplate_Create_Full(t *testing.T) {
 		}
 	}
 
-	// Check main.go contains components
+	// Phase 14: Check main.go contains routes.Register()
 	mainGo, _ := os.ReadFile(filepath.Join(tmpDir, "main.go"))
 	mainGoStr := string(mainGo)
-	if !strings.Contains(mainGoStr, "Counter") {
-		t.Error("Counter component not in main.go")
+	if !strings.Contains(mainGoStr, "routes.Register") {
+		t.Error("routes.Register not in main.go")
 	}
-	if !strings.Contains(mainGoStr, "Navbar") {
-		t.Error("Navbar component not in main.go")
-	}
-	if !strings.Contains(mainGoStr, "HomePage") {
-		t.Error("HomePage component not in main.go")
+	if !strings.Contains(mainGoStr, "vango.New") {
+		t.Error("vango.New not in main.go")
 	}
 
-	// Check README
+	// Check README has project name
 	readme, _ := os.ReadFile(filepath.Join(tmpDir, "README.md"))
 	if !strings.Contains(string(readme), "my-app") {
 		t.Error("Project name not in README")

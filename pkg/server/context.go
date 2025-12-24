@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -83,19 +84,67 @@ type Ctx interface {
 	// The event will be dispatched as a CustomEvent with the given name and detail.
 	// Use this for notifications, toast messages, analytics, etc.
 	Emit(name string, data any)
+
+	// ==========================================================================
+	// Context propagation (Phase 13: Production Hardening)
+	// ==========================================================================
+
+	// StdContext returns the standard library context with trace propagation.
+	// Use this when calling external services or database drivers.
+	//
+	// Example:
+	//     row := db.QueryRowContext(ctx.StdContext(), "SELECT * FROM users WHERE id = $1", userID)
+	//     req, _ := http.NewRequestWithContext(ctx.StdContext(), "GET", url, nil)
+	//
+	// The context includes any trace spans injected by middleware (e.g., OpenTelemetry).
+	StdContext() context.Context
+
+	// WithStdContext returns a new Ctx with an updated standard context.
+	// Used by middleware to inject trace spans.
+	//
+	// This is typically called by observability middleware:
+	//     spanCtx, span := tracer.Start(ctx.StdContext(), "operation")
+	//     defer span.End()
+	//     ctx = ctx.WithStdContext(spanCtx)
+	//     return next()
+	WithStdContext(stdCtx context.Context) Ctx
+
+	// ==========================================================================
+	// Event & Metrics (Phase 13: Production Hardening)
+	// ==========================================================================
+
+	// Event returns the current WebSocket event being processed.
+	// Returns nil for HTTP-only requests (SSR).
+	//
+	// Example:
+	//     if event := ctx.Event(); event != nil {
+	//         log.Printf("Processing %s event on %s", event.Type, event.HID)
+	//     }
+	Event() *Event
+
+	// PatchCount returns the number of patches sent during this request.
+	// This is updated after each render cycle.
+	PatchCount() int
+
+	// AddPatchCount increments the patch count for this request.
+	// Called internally by the render system.
+	AddPatchCount(count int)
 }
 
 // ctx is the concrete implementation of Ctx.
 type ctx struct {
-	request *http.Request
-	writer  http.ResponseWriter
-	session *Session
-	params  map[string]string
-	user    any
-	logger  *slog.Logger
-	status  int
-	written bool
-	values  map[any]any // Request-scoped values (Phase 10)
+	request    *http.Request
+	writer     http.ResponseWriter
+	session    *Session
+	params     map[string]string
+	user       any
+	logger     *slog.Logger
+	status     int
+	written    bool
+	values     map[any]any     // Request-scoped values (Phase 10)
+	stdCtx     context.Context // Standard context with trace propagation (Phase 13)
+	event      *Event          // Current WebSocket event (Phase 13)
+	patchCount int             // Number of patches sent (Phase 13)
 }
 
 // newCtx creates a new context for a request.
@@ -269,6 +318,55 @@ func (c *ctx) Emit(name string, data any) {
 }
 
 // =============================================================================
+// Context Propagation (Phase 13)
+// =============================================================================
+
+// StdContext returns the standard library context with trace propagation.
+// If no custom context was set via WithStdContext, returns the request's context.
+func (c *ctx) StdContext() context.Context {
+	if c.stdCtx != nil {
+		return c.stdCtx
+	}
+	if c.request != nil {
+		return c.request.Context()
+	}
+	return context.Background()
+}
+
+// WithStdContext returns a new Ctx with an updated standard context.
+// Used by middleware to inject trace spans.
+func (c *ctx) WithStdContext(stdCtx context.Context) Ctx {
+	clone := *c
+	clone.stdCtx = stdCtx
+	return &clone
+}
+
+// =============================================================================
+// Event & Metrics (Phase 13)
+// =============================================================================
+
+// Event returns the current WebSocket event being processed.
+// Returns nil for HTTP-only requests (SSR).
+func (c *ctx) Event() *Event {
+	return c.event
+}
+
+// setEvent sets the current event for WebSocket requests.
+func (c *ctx) setEvent(e *Event) {
+	c.event = e
+}
+
+// PatchCount returns the number of patches sent during this request.
+func (c *ctx) PatchCount() int {
+	return c.patchCount
+}
+
+// AddPatchCount increments the patch count for this request.
+func (c *ctx) AddPatchCount(count int) {
+	c.patchCount += count
+}
+
+// =============================================================================
 // Test Helpers (Phase 10F)
 // =============================================================================
 
@@ -283,5 +381,6 @@ func NewTestContext(s *Session) Ctx {
 		logger:  slog.Default(),
 		status:  http.StatusOK,
 		values:  make(map[any]any),
+		stdCtx:  context.Background(),
 	}
 }

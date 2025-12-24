@@ -15,9 +15,12 @@ import (
 
 func createCmd() *cobra.Command {
 	var (
-		template    string
+		minimal     bool
+		withTailwind bool
+		withDB      string
+		withAuth    bool
+		full        bool
 		description string
-		tailwind    bool
 		skipPrompts bool
 	)
 
@@ -26,31 +29,58 @@ func createCmd() *cobra.Command {
 		Short: "Create a new Vango project",
 		Long: `Create a new Vango project with the specified name.
 
-Templates:
-  minimal   Just the essentials for a Vango app
-  full      Complete starter with example pages and components (default)
-  api       API-only project without UI
+Scaffold Variants:
+  (default)      Standard starter with home, about, health API, navbar, footer
+  --minimal      Just the essentials (home page, health API)
+  --with-tailwind Include Tailwind CSS configuration
+  --with-db=*    Include database setup (sqlite, postgres)
+  --with-auth    Include admin routes with authentication middleware
+  --full         All features: Tailwind, database, auth
 
 Examples:
   vango create my-app
-  vango create my-app --template=minimal
-  vango create my-api --template=api`,
+  vango create my-app --minimal
+  vango create my-app --with-tailwind
+  vango create my-app --with-db=postgres
+  vango create my-app --with-auth
+  vango create my-app --full`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			return runCreate(name, template, description, tailwind, skipPrompts)
+			return runCreate(name, createOptions{
+				minimal:      minimal,
+				withTailwind: withTailwind,
+				withDB:       withDB,
+				withAuth:     withAuth,
+				full:         full,
+				description:  description,
+				skipPrompts:  skipPrompts,
+			})
 		},
 	}
 
-	cmd.Flags().StringVarP(&template, "template", "t", "full", "Project template (minimal, full, api)")
+	cmd.Flags().BoolVar(&minimal, "minimal", false, "Create minimal scaffold (home page only)")
+	cmd.Flags().BoolVar(&withTailwind, "with-tailwind", false, "Include Tailwind CSS")
+	cmd.Flags().StringVar(&withDB, "with-db", "", "Include database setup (sqlite, postgres)")
+	cmd.Flags().BoolVar(&withAuth, "with-auth", false, "Include admin routes with auth middleware")
+	cmd.Flags().BoolVar(&full, "full", false, "Include all features (Tailwind, database, auth)")
 	cmd.Flags().StringVarP(&description, "description", "d", "", "Project description")
-	cmd.Flags().BoolVar(&tailwind, "tailwind", true, "Include Tailwind CSS")
 	cmd.Flags().BoolVarP(&skipPrompts, "yes", "y", false, "Skip prompts and use defaults")
 
 	return cmd
 }
 
-func runCreate(name, templateName, description string, tailwind, skipPrompts bool) error {
+type createOptions struct {
+	minimal      bool
+	withTailwind bool
+	withDB       string
+	withAuth     bool
+	full         bool
+	description  string
+	skipPrompts  bool
+}
+
+func runCreate(name string, opts createOptions) error {
 	printBanner()
 	fmt.Println("  Creating a new Vango project...")
 	fmt.Println()
@@ -75,21 +105,54 @@ func runCreate(name, templateName, description string, tailwind, skipPrompts boo
 	}
 
 	// Interactive prompts if not skipped
-	if !skipPrompts {
+	if !opts.skipPrompts {
 		var err error
-		description, tailwind, err = promptForConfig(name, description, tailwind)
+		opts.description, err = promptForDescription(opts.description)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Set defaults
-	if description == "" {
-		description = "A Vango web application"
+	if opts.description == "" {
+		opts.description = "A Vango web application"
 	}
 
-	// Get template
-	tmpl, err := templates.Get(templateName)
+	// --full enables all options
+	if opts.full {
+		opts.withTailwind = true
+		opts.withAuth = true
+		if opts.withDB == "" {
+			opts.withDB = "sqlite"
+		}
+	}
+
+	// Determine template name
+	templateName := "standard"
+	if opts.minimal {
+		templateName = "minimal"
+	} else if opts.withTailwind || opts.full {
+		templateName = "full"
+	}
+
+	// Create template configuration
+	cfg := templates.Config{
+		ProjectName:  name,
+		ModulePath:   name, // Simple module path for local projects
+		Description:  opts.description,
+		HasTailwind:  opts.withTailwind || opts.full,
+		HasDatabase:  opts.withDB != "",
+		DatabaseType: opts.withDB,
+		HasAuth:      opts.withAuth || opts.full,
+	}
+
+	// Get template with options
+	var tmpl *templates.Template
+	if cfg.HasDatabase || cfg.HasAuth {
+		tmpl, err = templates.GetWithOptions(templateName, cfg)
+	} else {
+		tmpl, err = templates.Get(templateName)
+	}
 	if err != nil {
 		return err
 	}
@@ -101,15 +164,18 @@ func runCreate(name, templateName, description string, tailwind, skipPrompts boo
 	}
 
 	// Create project from template
-	config := templates.Config{
-		ProjectName: name,
-		ModulePath:  name, // Simple module path for local projects
-		Description: description,
-		HasTailwind: tailwind && templateName != "api",
+	info("Creating project from '%s' template...", tmpl.Name)
+	if cfg.HasTailwind {
+		info("  Including Tailwind CSS")
+	}
+	if cfg.HasDatabase {
+		info("  Including database setup (%s)", cfg.DatabaseType)
+	}
+	if cfg.HasAuth {
+		info("  Including authentication scaffold")
 	}
 
-	info("Creating project from '%s' template...", templateName)
-	if err := tmpl.Create(projectDir, config); err != nil {
+	if err := tmpl.Create(projectDir, cfg); err != nil {
 		// Clean up on error
 		os.RemoveAll(projectDir)
 		return err
@@ -128,9 +194,9 @@ func runCreate(name, templateName, description string, tailwind, skipPrompts boo
 	}
 
 	// Initialize Tailwind if enabled
-	if config.HasTailwind {
+	if cfg.HasTailwind {
 		info("Setting up Tailwind CSS...")
-		if err := setupTailwind(projectDir); err != nil {
+		if err := setupTailwind(projectDir, name); err != nil {
 			warn("Could not set up Tailwind: %v", err)
 		}
 	}
@@ -147,39 +213,41 @@ func runCreate(name, templateName, description string, tailwind, skipPrompts boo
 	fmt.Printf("  Your app will be running at http://localhost:3000\n")
 	fmt.Println()
 
+	// Show additional setup for optional features
+	if cfg.HasTailwind {
+		fmt.Println("  Tailwind CSS setup:")
+		fmt.Println()
+		fmt.Println("    npm install")
+		fmt.Println("    npm run watch:css")
+		fmt.Println()
+	}
+
+	if cfg.HasDatabase {
+		fmt.Println("  Database setup:")
+		fmt.Println()
+		fmt.Printf("    Configure your %s database in db/db.go\n", cfg.DatabaseType)
+		fmt.Println()
+	}
+
 	return nil
 }
 
-func promptForConfig(name, description string, tailwind bool) (string, bool, error) {
+func promptForDescription(description string) (string, error) {
+	if description != "" {
+		return description, nil
+	}
+
 	reader := bufio.NewReader(os.Stdin)
-
-	// Description
-	if description == "" {
-		fmt.Printf("? Description: ")
-		desc, err := reader.ReadString('\n')
-		if err != nil {
-			return "", false, err
-		}
-		description = strings.TrimSpace(desc)
-		if description == "" {
-			description = "A Vango web application"
-		}
-	}
-
-	// Tailwind
-	fmt.Printf("? Include Tailwind CSS? [Y/n] ")
-	answer, err := reader.ReadString('\n')
+	fmt.Printf("? Description: ")
+	desc, err := reader.ReadString('\n')
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
-	answer = strings.TrimSpace(strings.ToLower(answer))
-	if answer == "n" || answer == "no" {
-		tailwind = false
-	} else {
-		tailwind = true
+	description = strings.TrimSpace(desc)
+	if description == "" {
+		description = "A Vango web application"
 	}
-
-	return description, tailwind, nil
+	return description, nil
 }
 
 func isValidProjectName(name string) bool {
@@ -229,7 +297,7 @@ func goModTidy(dir string) error {
 	return cmd.Run()
 }
 
-func setupTailwind(dir string) error {
+func setupTailwind(dir, projectName string) error {
 	// Check if npm/npx is available
 	if _, err := exec.LookPath("npx"); err != nil {
 		return fmt.Errorf("npx not found, please install Node.js")
@@ -239,7 +307,7 @@ func setupTailwind(dir string) error {
 	packageJSON := filepath.Join(dir, "package.json")
 	if _, err := os.Stat(packageJSON); os.IsNotExist(err) {
 		content := `{
-  "name": "` + filepath.Base(dir) + `",
+  "name": "` + projectName + `",
   "private": true,
   "scripts": {
     "build:css": "npx tailwindcss -i ./app/styles/input.css -o ./public/styles.css --minify",
@@ -250,7 +318,9 @@ func setupTailwind(dir string) error {
   }
 }
 `
-		os.WriteFile(packageJSON, []byte(content), 0644)
+		if err := os.WriteFile(packageJSON, []byte(content), 0644); err != nil {
+			return err
+		}
 	}
 
 	return nil

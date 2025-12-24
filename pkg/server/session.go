@@ -49,6 +49,10 @@ type Session struct {
 	CreatedAt  time.Time
 	LastActive time.Time
 
+	// Phase 12: Session persistence fields
+	IP           string // Client IP address for per-IP limits
+	CurrentRoute string // Current page route for restoration
+
 	// Connection
 	conn   *websocket.Conn
 	mu     sync.Mutex // Protects conn writes
