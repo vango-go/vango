@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -76,9 +77,10 @@ type Session struct {
 	hidGen      *vdom.HIDGenerator // Hydration ID generator
 
 	// Channels
-	events   chan *Event   // Incoming events
-	renderCh chan struct{} // Signal for re-render
-	done     chan struct{} // Shutdown signal
+	events     chan *Event    // Incoming events
+	renderCh   chan struct{}  // Signal for re-render
+	dispatchCh chan func()    // Functions to run on event loop (ctx.Dispatch)
+	done       chan struct{}  // Shutdown signal
 
 	// Configuration
 	config *SessionConfig
@@ -125,6 +127,7 @@ func newSession(conn *websocket.Conn, userID string, config *SessionConfig, logg
 		hidGen:     vdom.NewHIDGenerator(),
 		events:     make(chan *Event, config.MaxEventQueue),
 		renderCh:   make(chan struct{}, 1),
+		dispatchCh: make(chan func(), config.MaxEventQueue),
 		done:       make(chan struct{}),
 		config:     config,
 		logger:     logger.With("session_id", id),
@@ -219,11 +222,17 @@ func (s *Session) handleEvent(event *Event) {
 		fmt.Printf("[EVENT] Handler found for %s, executing...\n", event.HID)
 	}
 
-	// Execute handler with panic recovery
-	s.safeExecute(handler, event)
+	// Create context for this event so UseCtx() works in handlers
+	ctx := s.createEventContext(event)
 
-	// Run pending effects (scheduled by signal updates)
-	s.owner.RunPendingEffects()
+	// Execute handler and effects with context set
+	vango.WithCtx(ctx, func() {
+		// Execute handler with panic recovery
+		s.safeExecute(handler, event)
+
+		// Run pending effects (scheduled by signal updates)
+		s.owner.RunPendingEffects()
+	})
 
 	// Re-render dirty components
 	s.renderDirty()
@@ -363,6 +372,12 @@ func (s *Session) sendPatches(vdomPatches []vdom.Patch) {
 		return
 	}
 
+	// Guard against nil connection (can happen in tests or edge cases)
+	if s.conn == nil {
+		s.logger.Warn("sendPatches: no connection available")
+		return
+	}
+
 	// Increment sequence number
 	seq := s.sendSeq.Add(1)
 
@@ -437,6 +452,14 @@ func (s *Session) sendErrorMessage(code protocol.ErrorCode, message string) {
 		return
 	}
 
+	// Guard against nil connection (can happen in tests or edge cases)
+	if s.conn == nil {
+		s.logger.Warn("sendErrorMessage: no connection available",
+			"code", code,
+			"message", message)
+		return
+	}
+
 	errMsg := protocol.NewError(code, message)
 	payload := protocol.EncodeErrorMessage(errMsg)
 	frame := protocol.NewFrame(protocol.FrameError, payload)
@@ -452,6 +475,11 @@ func (s *Session) sendPing() error {
 
 	if s.closed.Load() {
 		return ErrSessionClosed
+	}
+
+	// Guard against nil connection
+	if s.conn == nil {
+		return ErrNoConnection
 	}
 
 	ct, pp := protocol.NewPing(uint64(time.Now().UnixMilli()))
@@ -545,6 +573,41 @@ func (s *Session) QueueEvent(event *Event) error {
 	}
 }
 
+// Dispatch queues a function to run on the session's event loop.
+// This is safe to call from any goroutine and is the correct way to
+// update signals from asynchronous operations (database calls, timers, etc.).
+//
+// The function will be executed synchronously on the event loop, ensuring
+// signal writes are properly serialized. After the function completes,
+// pending effects will run and dirty components will re-render.
+//
+// Example:
+//
+//	go func() {
+//	    user, err := db.Users.FindByID(ctx.StdContext(), id)
+//	    ctx.Dispatch(func() {
+//	        if err != nil {
+//	            errorSignal.Set(err)
+//	        } else {
+//	            userSignal.Set(user)
+//	        }
+//	    })
+//	}()
+func (s *Session) Dispatch(fn func()) {
+	if s.closed.Load() {
+		return
+	}
+	select {
+	case s.dispatchCh <- fn:
+		// Successfully queued
+	case <-s.done:
+		// Session is closing, discard
+	default:
+		// Queue full - this shouldn't happen normally, but log it
+		s.logger.Warn("dispatch queue full, discarding callback")
+	}
+}
+
 // UpdateLastActive updates the last activity timestamp.
 func (s *Session) UpdateLastActive() {
 	s.LastActive = time.Now()
@@ -627,6 +690,27 @@ func (s *Session) Owner() *vango.Owner {
 // BytesReceived adds to the bytes received counter.
 func (s *Session) BytesReceived(n int) {
 	s.bytesRecv.Add(uint64(n))
+}
+
+// createEventContext creates a Ctx for event handling.
+// This context is set via vango.WithCtx so UseCtx() works in handlers.
+func (s *Session) createEventContext(event *Event) Ctx {
+	return &ctx{
+		session: s,
+		event:   event,
+		logger:  s.logger,
+		stdCtx:  context.Background(),
+	}
+}
+
+// createRenderContext creates a Ctx for component rendering.
+// This context is set via vango.WithCtx so UseCtx() works during render.
+func (s *Session) createRenderContext() Ctx {
+	return &ctx{
+		session: s,
+		logger:  s.logger,
+		stdCtx:  context.Background(),
+	}
 }
 
 // =============================================================================
@@ -739,6 +823,7 @@ func NewMockSession() *Session {
 		hidGen:     vdom.NewHIDGenerator(),
 		events:     make(chan *Event, 256),
 		renderCh:   make(chan struct{}, 1),
+		dispatchCh: make(chan func(), 256),
 		done:       make(chan struct{}),
 		config:     DefaultSessionConfig(),
 		logger:     slog.Default().With("session_id", "test-session-id"),

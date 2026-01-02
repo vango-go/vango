@@ -89,7 +89,8 @@ func newComponentInstance(component Component, parent *ComponentInstance, sessio
 }
 
 // Render renders the component and returns the VNode tree.
-// It sets up the tracking context so signals are properly tracked.
+// It sets up the tracking context so signals are properly tracked,
+// and sets the runtime context so UseCtx() works during render.
 func (c *ComponentInstance) Render() *vdom.VNode {
 	if c.Component == nil {
 		return nil
@@ -97,11 +98,20 @@ func (c *ComponentInstance) Render() *vdom.VNode {
 
 	var tree *vdom.VNode
 
+	// Create render context so UseCtx() works during component render
+	var ctx Ctx
+	if c.session != nil {
+		ctx = c.session.createRenderContext()
+	}
+
 	// Set up tracking context for this component's owner
 	// This ensures signals created during render are owned by this component
-	vango.WithOwner(c.Owner, func() {
-		vango.WithListener(c, func() {
-			tree = c.Component.Render()
+	// Also set the runtime context for UseCtx()
+	vango.WithCtx(ctx, func() {
+		vango.WithOwner(c.Owner, func() {
+			vango.WithListener(c, func() {
+				tree = c.Component.Render()
+			})
 		})
 	})
 

@@ -27,8 +27,8 @@ func (s *MapSignal[K, V]) SetKey(key K, value V) {
 	})
 }
 
-// DeleteKey removes a key from the map.
-func (s *MapSignal[K, V]) DeleteKey(key K) {
+// RemoveKey removes a key from the map.
+func (s *MapSignal[K, V]) RemoveKey(key K) {
 	s.Update(func(m map[K]V) map[K]V {
 		if _, ok := m[key]; !ok {
 			// Key doesn't exist, no change
@@ -41,6 +41,31 @@ func (s *MapSignal[K, V]) DeleteKey(key K) {
 				newMap[k] = v
 			}
 		}
+		return newMap
+	})
+}
+
+// DeleteKey removes a key from the map.
+// Deprecated: use RemoveKey instead.
+func (s *MapSignal[K, V]) DeleteKey(key K) {
+	s.RemoveKey(key)
+}
+
+// UpdateKey updates the value for a key using the provided function.
+// Does nothing if the key doesn't exist.
+func (s *MapSignal[K, V]) UpdateKey(key K, fn func(V) V) {
+	s.Update(func(m map[K]V) map[K]V {
+		v, ok := m[key]
+		if !ok {
+			// Key doesn't exist, no change
+			return m
+		}
+		// Create a copy to avoid modifying the original
+		newMap := make(map[K]V, len(m))
+		for k, val := range m {
+			newMap[k] = val
+		}
+		newMap[key] = fn(v)
 		return newMap
 	})
 }

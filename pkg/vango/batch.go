@@ -1,5 +1,12 @@
 package vango
 
+import "fmt"
+
+// DebugMode enables debug logging throughout the vango package.
+// When true, operations like TxNamed will log transaction boundaries.
+// This should be set at startup and not changed during runtime.
+var DebugMode bool
+
 // Batch groups multiple signal updates into a single notification phase.
 // All signal updates within the batch function are collected, deduplicated,
 // and then all affected listeners are notified once when the batch completes.
@@ -79,4 +86,44 @@ func Untracked(fn func()) {
 // This is a convenience function equivalent to signal.Peek().
 func UntrackedGet[T any](s *Signal[T]) T {
 	return s.Peek()
+}
+
+// Tx runs fn as a transaction, grouping all signal updates.
+// This is an alias for Batch() that aligns with the transaction
+// terminology used in the spec (§3.9.4 and §7).
+//
+// All signal updates within the transaction are collected, deduplicated,
+// and notifications only fire when the transaction completes.
+//
+// Example:
+//
+//	Tx(func() {
+//	    user.Set(newUser)
+//	    profile.Set(newProfile)
+//	    settings.Set(newSettings)
+//	})
+//	// Single re-render with all changes
+func Tx(fn func()) {
+	Batch(fn)
+}
+
+// TxNamed runs fn as a named transaction for debugging and tracing.
+// The transaction name is logged in debug mode for observability.
+//
+// This is useful for understanding which transactions trigger re-renders
+// during development and for production tracing.
+//
+// Example:
+//
+//	TxNamed("user-profile-update", func() {
+//	    user.Set(newUser)
+//	    profile.Set(newProfile)
+//	})
+//	// Debug output: [TX] user-profile-update start/end
+func TxNamed(name string, fn func()) {
+	if DebugMode {
+		fmt.Printf("[TX] %s start\n", name)
+		defer fmt.Printf("[TX] %s end\n", name)
+	}
+	Batch(fn)
 }

@@ -68,6 +68,7 @@ func (m *mockCtx) WithStdContext(ctx context.Context) server.Ctx {
 func (m *mockCtx) Event() *server.Event     { return m.event }
 func (m *mockCtx) PatchCount() int          { return m.patchCount }
 func (m *mockCtx) AddPatchCount(count int)  { m.patchCount += count }
+func (m *mockCtx) Dispatch(fn func())       { fn() } // Execute inline for tests
 
 // =============================================================================
 // OpenTelemetry Tests

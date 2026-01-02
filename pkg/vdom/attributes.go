@@ -71,6 +71,12 @@ func AriaHasPopup(value string) Attr { return attr("aria-haspopup", value) }
 // AriaModal sets the aria-modal attribute.
 func AriaModal(modal bool) Attr { return attr("aria-modal", modal) }
 
+// AriaAtomic sets the aria-atomic attribute.
+func AriaAtomic(atomic bool) Attr { return attr("aria-atomic", atomic) }
+
+// AriaBusy sets the aria-busy attribute.
+func AriaBusy(busy bool) Attr { return attr("aria-busy", busy) }
+
 // AriaValueNow sets the aria-valuenow attribute.
 func AriaValueNow(value float64) Attr { return attr("aria-valuenow", value) }
 

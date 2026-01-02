@@ -307,3 +307,198 @@ func TestBatchWithMemo(t *testing.T) {
 		t.Errorf("expected 30, got %d", sum.Get())
 	}
 }
+
+// =============================================================================
+// Tx() and TxNamed() Tests (Phase 4 additions)
+// =============================================================================
+
+func TestTxIsAliasForBatch(t *testing.T) {
+	count := NewSignal(0)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = count.Get()
+	})
+
+	// Tx should behave exactly like Batch
+	Tx(func() {
+		count.Set(1)
+		count.Set(2)
+		count.Set(3)
+	})
+
+	// Only one notification (batched)
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("Tx: expected 1 notification, got %d", listener.getDirtyCount())
+	}
+
+	if count.Get() != 3 {
+		t.Errorf("Tx: expected final value 3, got %d", count.Get())
+	}
+}
+
+func TestTxNested(t *testing.T) {
+	count := NewSignal(0)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = count.Get()
+	})
+
+	Tx(func() {
+		count.Set(1)
+		Tx(func() {
+			count.Set(2)
+		})
+		count.Set(3)
+	})
+
+	// Only one notification after outermost Tx
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("Nested Tx: expected 1 notification, got %d", listener.getDirtyCount())
+	}
+}
+
+func TestTxWithBatchNested(t *testing.T) {
+	count := NewSignal(0)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = count.Get()
+	})
+
+	// Tx and Batch can be nested interchangeably
+	Tx(func() {
+		count.Set(1)
+		Batch(func() {
+			count.Set(2)
+		})
+		count.Set(3)
+	})
+
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("Tx+Batch: expected 1 notification, got %d", listener.getDirtyCount())
+	}
+}
+
+func TestTxNamed(t *testing.T) {
+	count := NewSignal(0)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = count.Get()
+	})
+
+	TxNamed("test-transaction", func() {
+		count.Set(1)
+		count.Set(2)
+		count.Set(3)
+	})
+
+	// Same behavior as Tx
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("TxNamed: expected 1 notification, got %d", listener.getDirtyCount())
+	}
+
+	if count.Get() != 3 {
+		t.Errorf("TxNamed: expected final value 3, got %d", count.Get())
+	}
+}
+
+func TestTxNamedDebugMode(t *testing.T) {
+	oldDebug := DebugMode
+	DebugMode = true
+	defer func() { DebugMode = oldDebug }()
+
+	count := NewSignal(0)
+
+	// Should not panic and should still work
+	TxNamed("debug-transaction", func() {
+		count.Set(42)
+	})
+
+	if count.Get() != 42 {
+		t.Errorf("TxNamed debug: expected 42, got %d", count.Get())
+	}
+}
+
+func TestTxNamedNested(t *testing.T) {
+	count := NewSignal(0)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = count.Get()
+	})
+
+	TxNamed("outer", func() {
+		count.Set(1)
+		TxNamed("inner", func() {
+			count.Set(2)
+		})
+		count.Set(3)
+	})
+
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("Nested TxNamed: expected 1 notification, got %d", listener.getDirtyCount())
+	}
+}
+
+func TestTxMultipleSignals(t *testing.T) {
+	a := NewSignal(0)
+	b := NewSignal(0)
+	c := NewSignal(0)
+
+	listener := newTestListener()
+	WithListener(listener, func() {
+		_ = a.Get()
+		_ = b.Get()
+		_ = c.Get()
+	})
+
+	Tx(func() {
+		a.Set(1)
+		b.Set(2)
+		c.Set(3)
+	})
+
+	// Single notification even with multiple signals
+	if listener.getDirtyCount() != 1 {
+		t.Errorf("Tx multi-signal: expected 1 notification, got %d", listener.getDirtyCount())
+	}
+}
+
+func TestTxPanicRecovery(t *testing.T) {
+	count := NewSignal(0)
+	listener := newTestListener()
+
+	WithListener(listener, func() {
+		_ = count.Get()
+	})
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic to propagate")
+		}
+		// Verify transaction cleanup happened via defer
+	}()
+
+	Tx(func() {
+		count.Set(1)
+		panic("test panic in transaction")
+	})
+}
+
+func TestTxNamedPanicRecovery(t *testing.T) {
+	count := NewSignal(0)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic to propagate")
+		}
+	}()
+
+	TxNamed("panic-transaction", func() {
+		count.Set(1)
+		panic("test panic in named transaction")
+	})
+}

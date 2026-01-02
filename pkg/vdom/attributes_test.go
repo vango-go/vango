@@ -265,6 +265,8 @@ func TestMoreAttributes(t *testing.T) {
 		{"AriaSelected", AriaSelected(true), "aria-selected", true},
 		{"AriaHasPopup", AriaHasPopup("menu"), "aria-haspopup", "menu"},
 		{"AriaModal", AriaModal(true), "aria-modal", true},
+		{"AriaAtomic", AriaAtomic(true), "aria-atomic", true},
+		{"AriaBusy", AriaBusy(false), "aria-busy", false},
 		{"AriaValueNow", AriaValueNow(50), "aria-valuenow", 50.0},
 		{"AriaValueMin", AriaValueMin(0), "aria-valuemin", 0.0},
 		{"AriaValueMax", AriaValueMax(100), "aria-valuemax", 100.0},

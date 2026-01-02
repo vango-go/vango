@@ -39,6 +39,9 @@ var (
 
 	// ErrReadTimeout is returned when a read operation times out.
 	ErrReadTimeout = errors.New("server: read timeout")
+
+	// ErrNoConnection is returned when attempting to send on a nil connection.
+	ErrNoConnection = errors.New("server: no connection")
 )
 
 // SessionError wraps an error with session context for debugging.

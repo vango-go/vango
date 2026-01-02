@@ -11,6 +11,8 @@ import { TooltipHook } from './tooltip.js';
 import { DropdownHook } from './dropdown.js';
 import { FocusTrapHook } from './focustrap.js';
 import { PortalHook } from './portal.js';
+import { DialogHook } from './dialog.js';
+import { PopoverHook } from './popover.js';
 
 export class HookManager {
     constructor(client) {
@@ -25,6 +27,8 @@ export class HookManager {
             'Dropdown': DropdownHook,
             'FocusTrap': FocusTrapHook,
             'Portal': PortalHook,
+            'Dialog': DialogHook,
+            'Popover': PopoverHook,
         };
     }
 

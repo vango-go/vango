@@ -25,6 +25,22 @@ func (s *IntSignal) Add(n int) {
 	s.Update(func(v int) int { return v + n })
 }
 
+// Sub subtracts the given value.
+func (s *IntSignal) Sub(n int) {
+	s.Update(func(v int) int { return v - n })
+}
+
+// Mul multiplies by the given value.
+func (s *IntSignal) Mul(n int) {
+	s.Update(func(v int) int { return v * n })
+}
+
+// Div divides by the given value.
+// Note: Integer division truncates toward zero.
+func (s *IntSignal) Div(n int) {
+	s.Update(func(v int) int { return v / n })
+}
+
 // Int64Signal wraps Signal[int64] with convenience methods for integer operations.
 type Int64Signal struct {
 	*Signal[int64]
@@ -50,6 +66,22 @@ func (s *Int64Signal) Add(n int64) {
 	s.Update(func(v int64) int64 { return v + n })
 }
 
+// Sub subtracts the given value.
+func (s *Int64Signal) Sub(n int64) {
+	s.Update(func(v int64) int64 { return v - n })
+}
+
+// Mul multiplies by the given value.
+func (s *Int64Signal) Mul(n int64) {
+	s.Update(func(v int64) int64 { return v * n })
+}
+
+// Div divides by the given value.
+// Note: Integer division truncates toward zero.
+func (s *Int64Signal) Div(n int64) {
+	s.Update(func(v int64) int64 { return v / n })
+}
+
 // Float64Signal wraps Signal[float64] with convenience methods for float operations.
 type Float64Signal struct {
 	*Signal[float64]
@@ -65,7 +97,22 @@ func (s *Float64Signal) Add(n float64) {
 	s.Update(func(v float64) float64 { return v + n })
 }
 
-// Multiply multiplies by the given value.
-func (s *Float64Signal) Multiply(n float64) {
+// Sub subtracts the given value.
+func (s *Float64Signal) Sub(n float64) {
+	s.Update(func(v float64) float64 { return v - n })
+}
+
+// Mul multiplies by the given value.
+func (s *Float64Signal) Mul(n float64) {
 	s.Update(func(v float64) float64 { return v * n })
+}
+
+// Multiply is an alias for Mul. Deprecated: use Mul instead.
+func (s *Float64Signal) Multiply(n float64) {
+	s.Mul(n)
+}
+
+// Div divides by the given value.
+func (s *Float64Signal) Div(n float64) {
+	s.Update(func(v float64) float64 { return v / n })
 }

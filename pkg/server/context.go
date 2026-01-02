@@ -2,10 +2,23 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+
+	"github.com/vango-dev/vango/v2/pkg/protocol"
 )
+
+// encodeJSON encodes a value to JSON string.
+func encodeJSON(v any) (string, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
 
 // Ctx provides access to request data within components.
 // It is passed to route handlers and can be used to access the request,
@@ -84,6 +97,32 @@ type Ctx interface {
 	// The event will be dispatched as a CustomEvent with the given name and detail.
 	// Use this for notifications, toast messages, analytics, etc.
 	Emit(name string, data any)
+
+	// Dispatch (Phase 12: Spec compliance)
+
+	// Dispatch queues a function to run on the session's event loop.
+	// This is safe to call from any goroutine and is the correct way to
+	// update signals from asynchronous operations (database calls, timers, etc.).
+	//
+	// The function will be executed synchronously on the event loop, ensuring
+	// signal writes are properly serialized. After the function completes,
+	// pending effects will run and dirty components will re-render.
+	//
+	// Example:
+	//
+	//     go func() {
+	//         user, err := db.Users.FindByID(ctx.StdContext(), id)
+	//         ctx.Dispatch(func() {
+	//             if err != nil {
+	//                 errorSignal.Set(err)
+	//             } else {
+	//                 userSignal.Set(user)
+	//             }
+	//         })
+	//     }()
+	//
+	// IMPORTANT: This method MUST be safe to call from any goroutine.
+	Dispatch(fn func())
 
 	// ==========================================================================
 	// Context propagation (Phase 13: Production Hardening)
@@ -307,14 +346,57 @@ func (c *ctx) Value(key any) any {
 // The event will be dispatched as a CustomEvent with the given name and detail.
 // Use this for notifications, toast messages, analytics, etc.
 //
-// Note: This is a placeholder implementation. The actual emission happens
-// via the protocol layer which sends a custom event patch to the client.
+// The event is sent as a Dispatch patch which the client interprets as a
+// CustomEvent to dispatch on the target element or document.
 func (c *ctx) Emit(name string, data any) {
-	// TODO: Implement via protocol layer
-	// For now, log that we would emit
-	if c.logger != nil {
-		c.logger.Debug("emit custom event", "name", name, "data", data)
+	if c.session == nil {
+		if c.logger != nil {
+			c.logger.Warn("cannot emit event: no session", "name", name)
+		}
+		return
 	}
+
+	// Convert data to JSON string for the patch
+	var detail string
+	if data != nil {
+		if s, ok := data.(string); ok {
+			detail = s
+		} else {
+			// Try to JSON-encode the data
+			if encoded, err := encodeJSON(data); err == nil {
+				detail = encoded
+			} else {
+				detail = fmt.Sprintf("%v", data)
+			}
+		}
+	}
+
+	// Send dispatch patch to client
+	// The client will dispatch this as a CustomEvent on the document
+	patch := protocol.NewDispatchPatch("", name, detail)
+	c.session.SendPatches([]protocol.Patch{patch})
+
+	if c.logger != nil {
+		c.logger.Debug("emitted custom event", "name", name)
+	}
+}
+
+// =============================================================================
+// Dispatch (Phase 12: Spec compliance)
+// =============================================================================
+
+// Dispatch queues a function to run on the session's event loop.
+// This is safe to call from any goroutine.
+func (c *ctx) Dispatch(fn func()) {
+	if c.session == nil {
+		// No session (SSR-only request), execute immediately but warn
+		if c.logger != nil {
+			c.logger.Warn("dispatch called without session, executing inline")
+		}
+		fn()
+		return
+	}
+	c.session.Dispatch(fn)
 }
 
 // =============================================================================

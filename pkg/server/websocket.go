@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -181,13 +182,17 @@ func (s *Session) WriteLoop() {
 	}
 }
 
-// EventLoop processes queued events and render signals.
+// EventLoop processes queued events, dispatch callbacks, and render signals.
 // It runs handlers, schedules effects, and triggers re-renders.
 func (s *Session) EventLoop() {
 	for {
 		select {
 		case event := <-s.events:
 			s.handleEvent(event)
+
+		case fn := <-s.dispatchCh:
+			// Execute dispatched function on the event loop
+			s.executeDispatch(fn)
 
 		case <-s.renderCh:
 			s.renderDirty()
@@ -196,6 +201,29 @@ func (s *Session) EventLoop() {
 			return
 		}
 	}
+}
+
+// executeDispatch runs a dispatched function with proper cleanup.
+// It handles panic recovery, runs pending effects, and re-renders dirty components.
+func (s *Session) executeDispatch(fn func()) {
+	// Panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			s.logger.Error("dispatch panic",
+				"panic", r,
+				"stack", string(stack))
+		}
+	}()
+
+	// Execute the dispatched function
+	fn()
+
+	// Run pending effects (scheduled by signal updates)
+	s.owner.RunPendingEffects()
+
+	// Re-render dirty components
+	s.renderDirty()
 }
 
 // Start starts all session loops.

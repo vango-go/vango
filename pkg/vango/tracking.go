@@ -25,6 +25,11 @@ type TrackingContext struct {
 	// pendingUpdates accumulates listeners to notify when batch completes.
 	// Deduplicated by ID before notification.
 	pendingUpdates []Listener
+
+	// currentCtx holds the current runtime context (server.Ctx).
+	// Set during event handling and render to provide access via UseCtx().
+	// Stored as any to avoid circular imports with server package.
+	currentCtx any
 }
 
 // trackingContexts stores per-goroutine tracking contexts.
@@ -177,4 +182,36 @@ func WithListener(l Listener, fn func()) {
 func cleanupGoroutineContext() {
 	gid := getGoroutineID()
 	trackingContexts.Delete(gid)
+}
+
+// getCurrentCtx returns the current runtime context for the goroutine.
+// Returns nil if no context is set.
+func getCurrentCtx() any {
+	ctx := getTrackingContext()
+	return ctx.currentCtx
+}
+
+// setCurrentCtx sets the current runtime context.
+// Returns the previous context so it can be restored.
+func setCurrentCtx(c any) any {
+	ctx := getTrackingContext()
+	old := ctx.currentCtx
+	ctx.currentCtx = c
+	return old
+}
+
+// WithCtx runs a function with the specified runtime context.
+// This is used by the server to establish context during event handling
+// and component rendering.
+//
+// Example (internal use by server):
+//
+//	WithCtx(ctx, func() {
+//	    // UseCtx() will return ctx here
+//	    component.Render()
+//	})
+func WithCtx(c any, fn func()) {
+	old := setCurrentCtx(c)
+	defer setCurrentCtx(old)
+	fn()
 }
