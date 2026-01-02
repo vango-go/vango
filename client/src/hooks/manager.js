@@ -7,8 +7,11 @@
 
 import { SortableHook } from './sortable.js';
 import { DraggableHook } from './draggable.js';
+import { DroppableHook } from './droppable.js';
+import { ResizableHook } from './resizable.js';
 import { TooltipHook } from './tooltip.js';
 import { DropdownHook } from './dropdown.js';
+import { CollapsibleHook } from './collapsible.js';
 import { FocusTrapHook } from './focustrap.js';
 import { PortalHook } from './portal.js';
 import { DialogHook } from './dialog.js';
@@ -19,12 +22,16 @@ export class HookManager {
         this.client = client;
         this.instances = new Map(); // hid -> { hook, instance, el }
 
-        // Register standard hooks
+        // Register standard hooks (Section 8.4 of spec)
         this.hooks = {
             'Sortable': SortableHook,
             'Draggable': DraggableHook,
+            'Droppable': DroppableHook,
+            'Resizable': ResizableHook,
             'Tooltip': TooltipHook,
             'Dropdown': DropdownHook,
+            'Collapsible': CollapsibleHook,
+            // VangoUI helper hooks
             'FocusTrap': FocusTrapHook,
             'Portal': PortalHook,
             'Dialog': DialogHook,
