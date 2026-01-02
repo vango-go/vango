@@ -1,0 +1,15 @@
+./batch.go
+./context.go
+./doc.go
+./effect.go
+./id.go
+./listener.go
+./memo.go
+./owner.go
+./signal.go
+./signal_bool.go
+./signal_int.go
+./signal_map.go
+./signal_options.go
+./signal_slice.go
+./tracking.go
