@@ -140,6 +140,11 @@ func (e *Effect) dispose() {
 func CreateEffect(fn func() Cleanup) *Effect {
 	owner := getCurrentOwner()
 
+	// Track hook call for dev-mode order validation
+	if owner != nil {
+		owner.TrackHook(HookEffect)
+	}
+
 	e := &Effect{
 		id:    nextID(),
 		fn:    fn,

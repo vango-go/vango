@@ -109,6 +109,10 @@ func (c *ComponentInstance) Render() *vdom.VNode {
 	// Also set the runtime context for UseCtx()
 	vango.WithCtx(ctx, func() {
 		vango.WithOwner(c.Owner, func() {
+			// Start render for hook order tracking (dev mode)
+			c.Owner.StartRender()
+			defer c.Owner.EndRender()
+
 			vango.WithListener(c, func() {
 				tree = c.Component.Render()
 			})

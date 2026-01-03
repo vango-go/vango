@@ -419,7 +419,8 @@ func TestSessionHandleEventSetsContext(t *testing.T) {
 	var capturedCtx vango.Ctx
 
 	// Register a handler that captures the context
-	session.handlers["h1"] = func(event *Event) {
+	// Key format is HID_eventtype (e.g., "h1_onclick")
+	session.handlers["h1_onclick"] = func(event *Event) {
 		capturedCtx = vango.UseCtx()
 	}
 
@@ -518,7 +519,8 @@ func TestContextPropagationStdContext(t *testing.T) {
 
 	var capturedStdCtx context.Context
 
-	session.handlers["h1"] = func(event *Event) {
+	// Key format is HID_eventtype (e.g., "h1_onclick")
+	session.handlers["h1_onclick"] = func(event *Event) {
 		ctx := vango.UseCtx()
 		if ctx != nil {
 			capturedStdCtx = ctx.StdContext()
@@ -573,7 +575,8 @@ func TestSessionHandleEventMetrics(t *testing.T) {
 	config := DefaultSessionConfig()
 	session := newSession(nil, "", config, slog.Default())
 
-	session.handlers["h1"] = func(e *Event) {}
+	// Key format is HID_eventtype (e.g., "h1_onclick")
+	session.handlers["h1_onclick"] = func(e *Event) {}
 
 	event := &Event{HID: "h1", Type: protocol.EventClick, Seq: 42}
 

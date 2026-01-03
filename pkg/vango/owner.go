@@ -1,9 +1,50 @@
 package vango
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 )
+
+// Note: DebugMode is declared in batch.go and shared across the package.
+// It enables dev-time validation like hook order checking.
+
+// HookType identifies the type of hook call for order validation.
+type HookType uint8
+
+const (
+	HookSignal HookType = iota + 1
+	HookMemo
+	HookEffect
+	HookResource
+	HookForm
+	HookURLParam
+)
+
+// String returns a human-readable name for the hook type.
+func (h HookType) String() string {
+	switch h {
+	case HookSignal:
+		return "Signal"
+	case HookMemo:
+		return "Memo"
+	case HookEffect:
+		return "Effect"
+	case HookResource:
+		return "Resource"
+	case HookForm:
+		return "Form"
+	case HookURLParam:
+		return "URLParam"
+	default:
+		return "Unknown"
+	}
+}
+
+// hookRecord records a single hook call for order validation.
+type hookRecord struct {
+	Type HookType
+}
 
 // Owner represents a component scope that owns reactive primitives.
 // When an Owner is disposed, all signals, memos, effects, and child owners
@@ -41,6 +82,11 @@ type Owner struct {
 
 	// disposed indicates whether this Owner has been disposed.
 	disposed atomic.Bool
+
+	// Dev-mode hook order tracking (only used when DebugMode is true)
+	hookOrder   []hookRecord // Expected order from first render
+	hookIndex   int          // Current index during render
+	renderCount int          // 0 = first render, 1+ = subsequent
 }
 
 // NewOwner creates a new Owner with the given parent.
@@ -200,4 +246,58 @@ func (o *Owner) Dispose() {
 	o.pendingEffectsMu.Lock()
 	o.pendingEffects = nil
 	o.pendingEffectsMu.Unlock()
+}
+
+// =============================================================================
+// Dev-mode Hook Order Validation
+// =============================================================================
+
+// StartRender is called at the beginning of a component render.
+// In debug mode, it resets the hook index for order validation.
+func (o *Owner) StartRender() {
+	if !DebugMode {
+		return
+	}
+	o.hookIndex = 0
+}
+
+// EndRender is called at the end of a component render.
+// In debug mode, it validates that all expected hooks were called.
+func (o *Owner) EndRender() {
+	if !DebugMode {
+		return
+	}
+	if o.renderCount == 0 {
+		// First render complete, lock in hook order
+		o.renderCount = 1
+	} else if o.hookIndex < len(o.hookOrder) {
+		panic(fmt.Sprintf("[VANGO E002] Hook order changed: expected %d hooks, got %d",
+			len(o.hookOrder), o.hookIndex))
+	}
+}
+
+// TrackHook records a hook call during render for order validation.
+// In debug mode, it validates that hooks are called in the same order
+// on every render. Violations cause a panic with a descriptive error.
+func (o *Owner) TrackHook(ht HookType) {
+	if !DebugMode {
+		return
+	}
+
+	if o.renderCount == 0 {
+		// First render: record hook order
+		o.hookOrder = append(o.hookOrder, hookRecord{Type: ht})
+	} else {
+		// Subsequent renders: validate order
+		if o.hookIndex >= len(o.hookOrder) {
+			panic(fmt.Sprintf("[VANGO E002] Hook order changed: extra %s hook at index %d",
+				ht, o.hookIndex))
+		}
+		expected := o.hookOrder[o.hookIndex]
+		if expected.Type != ht {
+			panic(fmt.Sprintf("[VANGO E002] Hook order changed at index %d: expected %s, got %s",
+				o.hookIndex, expected.Type, ht))
+		}
+	}
+	o.hookIndex++
 }

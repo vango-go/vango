@@ -67,9 +67,10 @@ type Session struct {
 	ackSeq  atomic.Uint64 // Last acknowledged by client
 
 	// Component state
-	root       *ComponentInstance            // Root component
-	components map[string]*ComponentInstance // HID -> component that owns element
-	handlers   map[string]Handler            // HID -> event handler
+	root          *ComponentInstance              // Root component
+	allComponents map[*ComponentInstance]struct{} // ALL mounted components (for dirty checking)
+	components    map[string]*ComponentInstance   // HID -> component that owns element
+	handlers      map[string]Handler              // HID_eventType -> event handler
 
 	// Reactive ownership
 	owner *vango.Owner
@@ -118,21 +119,22 @@ func newSession(conn *websocket.Conn, userID string, config *SessionConfig, logg
 	id := generateSessionID()
 
 	s := &Session{
-		ID:         id,
-		UserID:     userID,
-		CreatedAt:  now,
-		LastActive: now,
-		conn:       conn,
-		handlers:   make(map[string]Handler),
-		components: make(map[string]*ComponentInstance),
-		owner:      vango.NewOwner(nil),
-		hidGen:     vdom.NewHIDGenerator(),
-		events:     make(chan *Event, config.MaxEventQueue),
-		renderCh:   make(chan struct{}, 1),
-		dispatchCh: make(chan func(), config.MaxEventQueue),
-		done:       make(chan struct{}),
-		config:     config,
-		logger:     logger.With("session_id", id),
+		ID:            id,
+		UserID:        userID,
+		CreatedAt:     now,
+		LastActive:    now,
+		conn:          conn,
+		allComponents: make(map[*ComponentInstance]struct{}),
+		handlers:      make(map[string]Handler),
+		components:    make(map[string]*ComponentInstance),
+		owner:         vango.NewOwner(nil),
+		hidGen:        vdom.NewHIDGenerator(),
+		events:        make(chan *Event, config.MaxEventQueue),
+		renderCh:      make(chan struct{}, 1),
+		dispatchCh:    make(chan func(), config.MaxEventQueue),
+		done:          make(chan struct{}),
+		config:        config,
+		logger:        logger.With("session_id", id),
 	}
 
 	return s
@@ -143,6 +145,9 @@ func (s *Session) MountRoot(component Component) {
 	// Create root component instance
 	s.root = newComponentInstance(component, nil, s)
 	s.root.InstanceID = "root"
+
+	// Register root component for dirty tracking
+	s.registerComponent(s.root)
 
 	// Render the component tree
 	tree := s.root.Render()
@@ -170,15 +175,37 @@ func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance)
 		return
 	}
 
-	// If this node has an HID and event handlers, register them
+	// If this node has an HID, check for event handlers
 	if node.HID != "" {
+		// Track that this component owns this HID (for cleanup and lookup)
+		s.components[node.HID] = instance
+
 		for key, value := range node.Props {
-			if strings.HasPrefix(key, "on") && value != nil {
+			if value == nil {
+				continue
+			}
+
+			// Case 1: Standard on* handlers (onclick, oninput, etc.)
+			if strings.HasPrefix(key, "on") {
 				handler := wrapHandler(value)
-				s.handlers[node.HID] = handler
-				s.components[node.HID] = instance
+				// Use compound key: HID_eventType (e.g., "h1_onclick")
+				eventType := strings.ToLower(key) // "onclick", "onmouseenter"
+				handlerKey := node.HID + "_" + eventType
+				s.handlers[handlerKey] = handler
 				if DebugMode {
-					fmt.Printf("[HANDLER] Registered %s on %s (%s)\n", key, node.HID, node.Tag)
+					fmt.Printf("[HANDLER] Registered %s on %s (%s) -> key=%s\n", key, node.HID, node.Tag, handlerKey)
+				}
+				continue
+			}
+
+			// Case 2: EventHandler struct (from hooks.OnEvent for custom hook events)
+			if eh, ok := value.(vdom.EventHandler); ok {
+				handler := wrapHandler(eh.Handler)
+				// Hook events use key: HID_hook_eventName (e.g., "h1_hook_reorder")
+				handlerKey := node.HID + "_hook_" + eh.Event
+				s.handlers[handlerKey] = handler
+				if DebugMode {
+					fmt.Printf("[HANDLER] Registered hook event %s on %s (%s) -> key=%s\n", eh.Event, node.HID, node.Tag, handlerKey)
 				}
 			}
 		}
@@ -190,6 +217,9 @@ func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance)
 			// Mount child component
 			childInstance := newComponentInstance(child.Comp, instance, s)
 			instance.AddChild(childInstance)
+
+			// Register for dirty tracking
+			s.registerComponent(childInstance)
 
 			// Render child and collect its handlers
 			childTree := childInstance.Render()
@@ -212,16 +242,27 @@ func (s *Session) handleEvent(event *Event) {
 		fmt.Printf("[EVENT] Received: HID=%s Type=%v Seq=%d\n", event.HID, event.Type, event.Seq)
 	}
 
-	// Find handler for this HID
-	handler, exists := s.handlers[event.HID]
+	// Build handler key based on event type
+	var handlerKey string
+	if hookData, ok := event.Payload.(*protocol.HookEventData); ok {
+		// Hook events keyed by: HID_hook_eventName
+		handlerKey = event.HID + "_hook_" + hookData.Name
+	} else {
+		// Standard events keyed by: HID_oneventtype (e.g., "h1_onclick")
+		eventType := "on" + strings.ToLower(event.Type.String())
+		handlerKey = event.HID + "_" + eventType
+	}
+
+	// Find handler using compound key
+	handler, exists := s.handlers[handlerKey]
 	if !exists {
-		s.logger.Warn("handler not found", "hid", event.HID, "type", event.Type)
-		s.sendErrorMessage(protocol.ErrHandlerNotFound, "Handler not found for HID: "+event.HID)
+		s.logger.Warn("handler not found", "hid", event.HID, "type", event.Type, "key", handlerKey)
+		s.sendErrorMessage(protocol.ErrHandlerNotFound, "Handler not found: "+handlerKey)
 		return
 	}
 
 	if DebugMode {
-		fmt.Printf("[EVENT] Handler found for %s, executing...\n", event.HID)
+		fmt.Printf("[EVENT] Handler found for %s (key=%s), executing...\n", event.HID, handlerKey)
 	}
 
 	// Create context for this event so UseCtx() works in handlers
@@ -262,18 +303,28 @@ func (s *Session) safeExecute(handler Handler, event *Event) {
 	handler(event)
 }
 
+// registerComponent adds a component to the allComponents set for dirty tracking.
+func (s *Session) registerComponent(comp *ComponentInstance) {
+	s.allComponents[comp] = struct{}{}
+}
+
+// unregisterComponent removes a component from the allComponents set.
+func (s *Session) unregisterComponent(comp *ComponentInstance) {
+	delete(s.allComponents, comp)
+}
+
 // renderDirty re-renders all dirty components and sends patches.
 func (s *Session) renderDirty() {
-	// Collect dirty components
+	// Collect dirty components from ALL components (not just those with handlers)
 	var dirty []*ComponentInstance
-	for _, comp := range s.components {
+	for comp := range s.allComponents {
 		if comp.IsDirty() {
 			dirty = append(dirty, comp)
 			comp.ClearDirty()
 		}
 	}
 
-	// Also check root
+	// Also check root if not in allComponents (edge case)
 	if s.root != nil && s.root.IsDirty() {
 		dirty = append(dirty, s.root)
 		s.root.ClearDirty()
@@ -342,11 +393,25 @@ func (s *Session) renderComponent(comp *ComponentInstance) []vdom.Patch {
 }
 
 // clearComponentHandlers removes handlers for a component.
+// This clears all handlers with keys prefixed by the component's HIDs.
 func (s *Session) clearComponentHandlers(comp *ComponentInstance) {
+	// First, collect all HIDs owned by this component
+	var hidsToRemove []string
 	for hid, c := range s.components {
 		if c == comp {
-			delete(s.handlers, hid)
-			delete(s.components, hid)
+			hidsToRemove = append(hidsToRemove, hid)
+		}
+	}
+
+	// Then remove the HIDs and all associated handlers
+	for _, hid := range hidsToRemove {
+		delete(s.components, hid)
+		// Delete ALL handlers with this HID as prefix (e.g., "h1_onclick", "h1_hook_reorder")
+		prefix := hid + "_"
+		for key := range s.handlers {
+			if strings.HasPrefix(key, prefix) {
+				delete(s.handlers, key)
+			}
 		}
 	}
 }
@@ -528,9 +593,10 @@ func (s *Session) closeInternal() {
 		s.root.Dispose()
 	}
 
-	// Clear handlers
+	// Clear handlers and components
 	s.handlers = nil
 	s.components = nil
+	s.allComponents = nil
 
 	// Send close message and close WebSocket
 	if s.conn != nil {
@@ -936,20 +1002,21 @@ func (s *Session) Deserialize(data []byte) error {
 // The session has all fields initialized except conn.
 func NewMockSession() *Session {
 	return &Session{
-		ID:         "test-session-id",
-		UserID:     "",
-		CreatedAt:  time.Now(),
-		LastActive: time.Now(),
-		handlers:   make(map[string]Handler),
-		components: make(map[string]*ComponentInstance),
-		owner:      vango.NewOwner(nil),
-		hidGen:     vdom.NewHIDGenerator(),
-		events:     make(chan *Event, 256),
-		renderCh:   make(chan struct{}, 1),
-		dispatchCh: make(chan func(), 256),
-		done:       make(chan struct{}),
-		config:     DefaultSessionConfig(),
-		logger:     slog.Default().With("session_id", "test-session-id"),
-		data:       make(map[string]any),
+		ID:            "test-session-id",
+		UserID:        "",
+		CreatedAt:     time.Now(),
+		LastActive:    time.Now(),
+		allComponents: make(map[*ComponentInstance]struct{}),
+		handlers:      make(map[string]Handler),
+		components:    make(map[string]*ComponentInstance),
+		owner:         vango.NewOwner(nil),
+		hidGen:        vdom.NewHIDGenerator(),
+		events:        make(chan *Event, 256),
+		renderCh:      make(chan struct{}, 1),
+		dispatchCh:    make(chan func(), 256),
+		done:          make(chan struct{}),
+		config:        DefaultSessionConfig(),
+		logger:        slog.Default().With("session_id", "test-session-id"),
+		data:          make(map[string]any),
 	}
 }

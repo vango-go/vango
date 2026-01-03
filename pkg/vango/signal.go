@@ -117,6 +117,11 @@ type Signal[T any] struct {
 //	cursor := vango.NewSignal(Point{0, 0}, vango.Transient())   // Not persisted
 //	userID := vango.NewSignal(0, vango.PersistKey("user_id"))   // Custom key
 func NewSignal[T any](initial T, opts ...SignalOption) *Signal[T] {
+	// Track hook call for dev-mode order validation
+	if owner := getCurrentOwner(); owner != nil {
+		owner.TrackHook(HookSignal)
+	}
+
 	options := applyOptions(opts)
 	return &Signal[T]{
 		base: signalBase{

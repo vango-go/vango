@@ -45,6 +45,11 @@ type Memo[T any] struct {
 // NewMemo creates a new memo with the given computation function.
 // The computation is not run immediately; it runs lazily on first Get().
 func NewMemo[T any](compute func() T) *Memo[T] {
+	// Track hook call for dev-mode order validation
+	if owner := getCurrentOwner(); owner != nil {
+		owner.TrackHook(HookMemo)
+	}
+
 	return &Memo[T]{
 		base: signalBase{
 			id: nextID(),
