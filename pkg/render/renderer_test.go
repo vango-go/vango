@@ -174,8 +174,8 @@ func TestRenderHydrationID(t *testing.T) {
 	if !strings.Contains(html, `data-hid="h1"`) {
 		t.Errorf("should contain hydration ID, got %q", html)
 	}
-	if !strings.Contains(html, `data-on-click="true"`) {
-		t.Errorf("should contain event marker, got %q", html)
+	if !strings.Contains(html, `data-ve="click"`) {
+		t.Errorf("should contain event marker data-ve, got %q", html)
 	}
 }
 

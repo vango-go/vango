@@ -6,10 +6,10 @@
 // Usage:
 //
 //	// Define a shared signal (session-scoped)
-//	var Cart = store.SharedSignal([]Item{})
+//	var Cart = store.NewSharedSignal([]Item{})
 //
 //	// Define a global signal (app-wide)
-//	var ServerStatus = store.GlobalSignal("online")
+//	var ServerStatus = store.NewGlobalSignal("online")
 //
 //	func MyComponent() *vdom.VNode {
 //	    // Access signal

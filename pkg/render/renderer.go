@@ -230,7 +230,27 @@ func (r *Renderer) renderAttributes(w io.Writer, node *vdom.VNode) error {
 	for _, key := range keys {
 		value := node.Props[key]
 
-		// Skip internal props
+		// Handle _hook configuration (renders data-hook and data-hook-config attributes)
+		if key == "_hook" {
+			if hookConfig, ok := value.(HookConfig); ok {
+				if err := renderHookConfig(w, hookConfig); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		// Handle _optimistic configuration (renders data-optimistic JSON attribute)
+		if key == "_optimistic" {
+			if optConfig, ok := value.(OptimisticConfig); ok {
+				if err := renderOptimisticConfig(w, optConfig); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		// Skip other internal props
 		if strings.HasPrefix(key, "_") {
 			continue
 		}
@@ -283,13 +303,20 @@ func (r *Renderer) renderAttributes(w io.Writer, node *vdom.VNode) error {
 		}
 	}
 
-	// Add event marker attributes (for client-side binding)
+	// Add data-ve attribute with comma-separated events (spec Section 5.2)
+	// Format: data-ve="click,input,change" instead of separate data-on-* attributes
+	var events []string
 	for _, key := range keys {
 		if strings.HasPrefix(key, "on") && isEventHandler(node.Props[key]) {
-			eventName := strings.ToLower(key[2:]) // onclick -> click
-			if _, err := fmt.Fprintf(w, ` data-on-%s="true"`, eventName); err != nil {
-				return err
-			}
+			eventName := strings.ToLower(key[2:]) // onClick -> click
+			events = append(events, eventName)
+		}
+	}
+	if len(events) > 0 {
+		// Sort events for deterministic output
+		sort.Strings(events)
+		if _, err := fmt.Fprintf(w, ` data-ve="%s"`, strings.Join(events, ",")); err != nil {
+			return err
 		}
 	}
 

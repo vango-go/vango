@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vango-dev/vango/v2/pkg/protocol"
+	"github.com/vango-dev/vango/v2/pkg/session"
 	"github.com/vango-dev/vango/v2/pkg/vango"
 	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
@@ -803,6 +805,127 @@ func (s *Session) Has(key string) bool {
 	defer s.dataMu.RUnlock()
 	_, ok := s.data[key]
 	return ok
+}
+
+// GetAllData returns a copy of all session data for serialization.
+// This is used during session persistence to save all key-value pairs.
+// Returns nil if no data has been set.
+func (s *Session) GetAllData() map[string]any {
+	s.dataMu.RLock()
+	defer s.dataMu.RUnlock()
+
+	if s.data == nil {
+		return nil
+	}
+
+	// Return a copy to prevent external mutations
+	dataCopy := make(map[string]any, len(s.data))
+	for k, v := range s.data {
+		dataCopy[k] = v
+	}
+	return dataCopy
+}
+
+// RestoreData restores session data from serialized values.
+// This is used during session restoration after server restart or reconnection.
+// Values are merged into existing data (doesn't clear existing keys).
+func (s *Session) RestoreData(values map[string]any) {
+	if values == nil {
+		return
+	}
+
+	s.dataMu.Lock()
+	defer s.dataMu.Unlock()
+
+	if s.data == nil {
+		s.data = make(map[string]any)
+	}
+	for k, v := range values {
+		s.data[k] = v
+	}
+}
+
+// =============================================================================
+// Session Serialization (Phase 12)
+// =============================================================================
+
+// Serialize converts the session state to bytes for persistence.
+// This is called during graceful shutdown, disconnect, and periodic saves.
+//
+// The serialized state includes:
+//   - Session ID and user ID
+//   - Creation and last active timestamps
+//   - Current route for page restoration
+//   - All session data values (from Get/Set)
+//
+// Note: Signals are persisted separately when they have PersistKey options.
+// Transient signals are not serialized.
+func (s *Session) Serialize() ([]byte, error) {
+	// Convert session data to JSON-friendly format
+	var values map[string]json.RawMessage
+	if data := s.GetAllData(); data != nil {
+		values = make(map[string]json.RawMessage, len(data))
+		for k, v := range data {
+			b, err := json.Marshal(v)
+			if err != nil {
+				// Skip unserializable values
+				continue
+			}
+			values[k] = b
+		}
+	}
+
+	ss := &session.SerializableSession{
+		ID:         s.ID,
+		UserID:     s.UserID,
+		CreatedAt:  s.CreatedAt,
+		LastActive: s.LastActive,
+		Values:     values,
+		Route:      s.CurrentRoute,
+	}
+
+	return session.Serialize(ss)
+}
+
+// Deserialize restores session state from bytes.
+// This is called when resuming a session after server restart or reconnection.
+//
+// The deserialized state is merged into the current session:
+//   - ID is restored (should match existing ID from cookie)
+//   - User ID is restored
+//   - Timestamps are restored
+//   - Current route is restored for page navigation
+//   - All session data values are restored
+//
+// Note: Signals are restored on-demand when components re-render and
+// call NewSignal with PersistKey options. The restored signal values
+// are matched by their persist keys.
+func (s *Session) Deserialize(data []byte) error {
+	ss, err := session.Deserialize(data)
+	if err != nil {
+		return err
+	}
+
+	// Restore identity fields
+	s.ID = ss.ID
+	s.UserID = ss.UserID
+	s.CreatedAt = ss.CreatedAt
+	s.LastActive = ss.LastActive
+	s.CurrentRoute = ss.Route
+
+	// Restore session data values (converting json.RawMessage to any)
+	if ss.Values != nil {
+		values := make(map[string]any, len(ss.Values))
+		for k, v := range ss.Values {
+			var val any
+			if err := json.Unmarshal(v, &val); err == nil {
+				values[k] = val
+			}
+		}
+		s.RestoreData(values)
+	}
+
+	return nil
 }
 
 // =============================================================================

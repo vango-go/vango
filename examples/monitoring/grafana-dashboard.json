@@ -215,7 +215,7 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 12,
+        "w": 6,
         "x": 12,
         "y": 1
       },
@@ -254,6 +254,94 @@
         }
       ],
       "title": "Sessions Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rate(vango_reconnects_total[1m])",
+          "legendFormat": "Reconnects/sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Reconnect Rate",
       "type": "timeseries"
     },
     {
@@ -350,11 +438,11 @@
             "uid": "${datasource}"
           },
           "expr": "rate(vango_events_total[1m])",
-          "legendFormat": "{{type}}",
+          "legendFormat": "{{path}} ({{status}})",
           "refId": "A"
         }
       ],
-      "title": "Event Rate by Type",
+      "title": "Event Rate by Path",
       "type": "timeseries"
     },
     {

@@ -8,11 +8,11 @@ import (
 
 var (
 	// Define signals at package level to simulate real usage
-	GlobalCounter = GlobalSignal(0)
-	SharedCounter = SharedSignal(0)
+	GlobalCounter = NewGlobalSignal(0)
+	SharedCounter = NewSharedSignal(0)
 )
 
-func TestGlobalSignal(t *testing.T) {
+func TestNewGlobalSignal(t *testing.T) {
 	GlobalCounter.Set(10)
 	if GlobalCounter.Get() != 10 {
 		t.Errorf("Expected 10, got %d", GlobalCounter.Get())
@@ -22,7 +22,7 @@ func TestGlobalSignal(t *testing.T) {
 	GlobalCounter.Set(0)
 }
 
-func TestSharedSignal(t *testing.T) {
+func TestNewSharedSignal(t *testing.T) {
 	// Root owner for Session A
 	rootA := vango.NewOwner(nil)
 	storeA := NewSessionStore()
@@ -101,7 +101,7 @@ func TestSharedSignalUpdate(t *testing.T) {
 		vango.SetContext(SessionKey, store)
 
 		// Use Update function
-		sharedVal := SharedSignal("initial")
+		sharedVal := NewSharedSignal("initial")
 
 		if sharedVal.Get() != "initial" {
 			t.Errorf("Expected 'initial', got '%s'", sharedVal.Get())
@@ -122,7 +122,7 @@ func TestSharedSignalUpdateWithoutContext(t *testing.T) {
 
 	vango.WithOwner(root, func() {
 		// No context set - Update should be no-op
-		sharedVal := SharedSignal(42)
+		sharedVal := NewSharedSignal(42)
 
 		// Should not panic
 		sharedVal.Update(func(n int) int {
@@ -142,7 +142,7 @@ func TestGlobalSignalWithStruct(t *testing.T) {
 		Age  int
 	}
 
-	globalUser := GlobalSignal(User{Name: "Anonymous", Age: 0})
+	globalUser := NewGlobalSignal(User{Name: "Anonymous", Age: 0})
 
 	if globalUser.Get().Name != "Anonymous" {
 		t.Errorf("Expected 'Anonymous', got '%s'", globalUser.Get().Name)
@@ -166,21 +166,21 @@ func TestSharedSignalWithDifferentTypes(t *testing.T) {
 		vango.SetContext(SessionKey, store)
 
 		// Test with string
-		sharedStr := SharedSignal("hello")
+		sharedStr := NewSharedSignal("hello")
 		sharedStr.Set("world")
 		if sharedStr.Get() != "world" {
 			t.Errorf("Expected 'world', got '%s'", sharedStr.Get())
 		}
 
 		// Test with bool
-		sharedBool := SharedSignal(false)
+		sharedBool := NewSharedSignal(false)
 		sharedBool.Set(true)
 		if !sharedBool.Get() {
 			t.Error("Expected true")
 		}
 
 		// Test with float
-		sharedFloat := SharedSignal(0.0)
+		sharedFloat := NewSharedSignal(0.0)
 		sharedFloat.Set(3.14)
 		if sharedFloat.Get() != 3.14 {
 			t.Errorf("Expected 3.14, got %f", sharedFloat.Get())
@@ -196,9 +196,9 @@ func TestSessionStoreMultipleSignals(t *testing.T) {
 		vango.SetContext(SessionKey, store)
 
 		// Create multiple signals
-		counter1 := SharedSignal(0)
-		counter2 := SharedSignal(100)
-		name := SharedSignal("default")
+		counter1 := NewSharedSignal(0)
+		counter2 := NewSharedSignal(100)
+		name := NewSharedSignal("default")
 
 		// Set values
 		counter1.Set(10)
@@ -232,7 +232,7 @@ func TestSharedSignalConcurrentAccess(t *testing.T) {
 	vango.WithOwner(root, func() {
 		vango.SetContext(SessionKey, store)
 
-		sharedCounter := SharedSignal(0)
+		sharedCounter := NewSharedSignal(0)
 
 		// First access creates the signal
 		sharedCounter.Set(1)
@@ -269,7 +269,7 @@ func TestSharedSignalWrongContextType(t *testing.T) {
 		// Set context to wrong type
 		vango.SetContext(SessionKey, "not a session store")
 
-		sharedVal := SharedSignal(42)
+		sharedVal := NewSharedSignal(42)
 
 		// Should return initial value when context is wrong type
 		if sharedVal.Get() != 42 {

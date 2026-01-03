@@ -16,6 +16,7 @@ import (
 
 	"github.com/vango-dev/vango/v2/internal/config"
 	"github.com/vango-dev/vango/v2/internal/errors"
+	"github.com/vango-dev/vango/v2/pkg/router"
 )
 
 // ServerOptions configures the development server.
@@ -207,6 +208,11 @@ func (s *Server) handleChange(ctx context.Context, change Change) {
 
 	switch change.Type {
 	case ChangeGo:
+		// Check if this is a route file change - if so, regenerate routes_gen.go
+		if s.isRouteFile(change.Path) {
+			s.regenerateRoutesIfNeeded()
+		}
+
 		// Rebuild and restart
 		if s.options.OnBuildStart != nil {
 			s.options.OnBuildStart()
@@ -295,6 +301,65 @@ func (s *Server) startApp(ctx context.Context) error {
 	os.Setenv("PORT", fmt.Sprintf("%d", s.appPort))
 	os.Setenv("VANGO_DEV", "1")
 	return s.compiler.Start(ctx)
+}
+
+// isRouteFile checks if a file path is within the routes directory.
+func (s *Server) isRouteFile(path string) bool {
+	routesPath := s.config.RoutesPath()
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absRoutesPath, err := filepath.Abs(routesPath)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(absPath, absRoutesPath)
+}
+
+// regenerateRoutesIfNeeded scans routes and regenerates routes_gen.go if the manifest changed.
+// This implements the smart regeneration from Phase 14 spec section 5.5.
+func (s *Server) regenerateRoutesIfNeeded() {
+	routesPath := s.config.RoutesPath()
+	routesGenPath := filepath.Join(routesPath, "routes_gen.go")
+
+	// Get current routes_gen.go content
+	currentContent, err := os.ReadFile(routesGenPath)
+	if err != nil && !os.IsNotExist(err) {
+		s.logError("Failed to read routes_gen.go: %v", err)
+		return
+	}
+
+	// Scan routes
+	scanner := router.NewScanner(routesPath)
+	routes, err := scanner.Scan()
+	if err != nil {
+		s.logError("Failed to scan routes: %v", err)
+		return
+	}
+
+	// Generate new routes_gen.go
+	modulePath, err := GetModulePath(s.config.Dir())
+	if err != nil {
+		s.logError("Failed to get module path: %v", err)
+		return
+	}
+
+	gen := router.NewGenerator(routes, modulePath)
+	newContent, err := gen.Generate()
+	if err != nil {
+		s.logError("Failed to generate routes: %v", err)
+		return
+	}
+
+	// Only write if content changed (deterministic output means minimal churn)
+	if string(currentContent) != string(newContent) {
+		if err := os.WriteFile(routesGenPath, newContent, 0644); err != nil {
+			s.logError("Failed to write routes_gen.go: %v", err)
+			return
+		}
+		s.log("Regenerated routes_gen.go")
+	}
 }
 
 // restartApp restarts the application process.

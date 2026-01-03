@@ -1066,7 +1066,8 @@ func TestCartSurvivesRestart(t *testing.T) {
 - [x] `ErrTooManySessionsFromIP` returned when limit exceeded
 
 ### 12.4 Reconnection UX
-- [x] `.vango-connected`, `.vango-reconnecting`, `.vango-offline` CSS classes added
+- [x] `.vango-connecting`, `.vango-connected`, `.vango-reconnecting`, `.vango-disconnected` CSS classes added
+- [x] Classes applied to `<html>` element (document.documentElement)
 - [x] Exponential backoff reconnection logic
 - [x] Optional toast on reconnect
 - [x] `vango:connection` custom event dispatched
@@ -1114,10 +1115,12 @@ func TestCartSurvivesRestart(t *testing.T) {
 - `pkg/server/config.go` - Added Phase 12 config fields (SessionStore, ResumeWindow, MaxDetachedSessions, MaxSessionsPerIP, PersistInterval, ReconnectConfig)
 - `pkg/server/server.go` - Integration with SessionManagerOptions for persistence
 - `pkg/server/manager.go` - Added persistence integration (OnSessionDisconnect, OnSessionReconnect, CheckIPLimit, ShutdownWithContext)
-- `pkg/server/session.go` - Added IP and CurrentRoute fields
+- `pkg/server/session.go` - Added IP, CurrentRoute fields, GetAllData(), RestoreData() methods
 - `pkg/vango/signal.go` - Added IsTransient(), PersistKey() methods
 - `pkg/vango/signal_options.go` - Added Transient(), PersistKey() options
 - `pkg/protocol/patch.go` - Added PatchURLPush (0x30) and PatchURLReplace (0x31)
+- `pkg/vtest/session.go` - Improved serialization to include session data values
+- `client/src/connection.js` - Fixed CSS classes per spec (vango-connecting, vango-disconnected), applied to html element
 - `client/src/index.js` - ConnectionManager and PrefManager integration
 
 ### Test Files
@@ -1200,3 +1203,19 @@ All Phase 12 subsystems have comprehensive tests:
 - `pkg/server/` - 3 new tests (persistence integration)
 
 Total: 39 new tests, all passing.
+
+### Spec Audit (2026-01-02)
+
+Following audit against VANGO_ARCHITECTURE_AND_GUIDE.md, the following corrections were made:
+
+1. **Connection CSS Classes**: Fixed to match spec Section 5.4:
+   - Added `vango-connecting` state for initial connection
+   - Renamed `vango-offline` to `vango-disconnected`
+   - Changed element from `<body>` to `<html>` (document.documentElement)
+   - All four classes: `vango-connecting`, `vango-connected`, `vango-reconnecting`, `vango-disconnected`
+
+2. **URLParam Package Location**: Per spec, URLParam is accessed via `urlparam.Param()` from the `pkg/urlparam` package, not re-exported from `pkg/vango` (to avoid import cycle since urlparam depends on vango.Signal).
+
+3. **Session Serialization**: Added `GetAllData()` and `RestoreData()` methods to `server.Session` for proper serialization of session values.
+
+4. **vtest Improvements**: Updated `serializeSession()` and `deserializeSession()` to properly persist and restore session data values.

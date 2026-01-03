@@ -1,7 +1,9 @@
+//go:build vangoui
+
 package ui
 
 import (
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
 
 // ButtonOption configures a Button component.
@@ -155,7 +157,7 @@ func WithAttr(name, value string) ButtonOption {
 }
 
 // Button renders a button element with the configured options.
-func Button(opts ...ButtonOption) *VNode {
+func Button(opts ...ButtonOption) *vdom.VNode {
 	cfg := defaultButtonConfig()
 	for _, opt := range opts {
 		opt(&cfg)
@@ -185,7 +187,7 @@ func Button(opts ...ButtonOption) *VNode {
 		SizeIcon: "h-10 w-10",
 	}
 
-	classes := CN(
+	classes := vdom.CN(
 		baseClasses,
 		variantClasses[cfg.variant],
 		sizeClasses[cfg.size],
@@ -201,46 +203,46 @@ func Button(opts ...ButtonOption) *VNode {
 
 	// Build attributes
 	attrs := []any{
-		Class(classes),
+		vdom.Class(classes),
 	}
 
 	if cfg.disabled || cfg.loading {
-		attrs = append(attrs, Disabled())
+		attrs = append(attrs, vdom.Disabled())
 	}
 
 	if cfg.onClick != nil && !cfg.disabled && !cfg.loading {
-		attrs = append(attrs, OnClick(cfg.onClick))
+		attrs = append(attrs, vdom.OnClick(cfg.onClick))
 	}
 
 	for name, value := range cfg.attrs {
-		attrs = append(attrs, Data(name, value))
+		attrs = append(attrs, vdom.Data(name, value))
 	}
 
 	// Append children to attrs
 	attrs = append(attrs, children...)
 
-	return El("button", attrs...)
+	return vdom.El("button", attrs...)
 }
 
 // spinnerIcon returns an SVG spinner icon for loading state.
-func spinnerIcon() *VNode {
-	return El("svg",
-		Class("mr-2 h-4 w-4 animate-spin"),
-		Attr{Key: "xmlns", Value: "http://www.w3.org/2000/svg"},
-		Attr{Key: "fill", Value: "none"},
-		Attr{Key: "viewBox", Value: "0 0 24 24"},
-		El("circle",
-			Class("opacity-25"),
-			Attr{Key: "cx", Value: "12"},
-			Attr{Key: "cy", Value: "12"},
-			Attr{Key: "r", Value: "10"},
-			Attr{Key: "stroke", Value: "currentColor"},
-			Attr{Key: "stroke-width", Value: "4"},
+func spinnerIcon() *vdom.VNode {
+	return vdom.El("svg",
+		vdom.Class("mr-2 h-4 w-4 animate-spin"),
+		vdom.Attr{Key: "xmlns", Value: "http://www.w3.org/2000/svg"},
+		vdom.Attr{Key: "fill", Value: "none"},
+		vdom.Attr{Key: "viewBox", Value: "0 0 24 24"},
+		vdom.El("circle",
+			vdom.Class("opacity-25"),
+			vdom.Attr{Key: "cx", Value: "12"},
+			vdom.Attr{Key: "cy", Value: "12"},
+			vdom.Attr{Key: "r", Value: "10"},
+			vdom.Attr{Key: "stroke", Value: "currentColor"},
+			vdom.Attr{Key: "stroke-width", Value: "4"},
 		),
-		El("path",
-			Class("opacity-75"),
-			Attr{Key: "fill", Value: "currentColor"},
-			Attr{Key: "d", Value: "M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"},
+		vdom.El("path",
+			vdom.Class("opacity-75"),
+			vdom.Attr{Key: "fill", Value: "currentColor"},
+			vdom.Attr{Key: "d", Value: "M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"},
 		),
 	)
 }

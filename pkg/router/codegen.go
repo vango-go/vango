@@ -191,7 +191,12 @@ func (g *Generator) generateRouteConstants(buf *bytes.Buffer) {
 func (g *Generator) getHandlerName(route ScannedRoute) string {
 	prefix := g.getPackagePrefix(route)
 
-	// Determine function name from path
+	// If the scanner found the actual handler name, use it
+	if route.HandlerName != "" {
+		return prefix + route.HandlerName
+	}
+
+	// Fall back to inferring from filename (for backwards compatibility)
 	baseName := filepath.Base(strings.TrimSuffix(route.FilePath, ".go"))
 
 	switch baseName {
@@ -202,7 +207,12 @@ func (g *Generator) getHandlerName(route ScannedRoute) string {
 	case "_middleware":
 		return prefix + "Middleware"
 	default:
-		// Remove brackets and convert to PascalCase
+		// Check if it's a dynamic route [param]
+		if strings.HasPrefix(baseName, "[") && strings.HasSuffix(baseName, "]") {
+			// [id].go, [slug].go -> ShowPage per spec
+			return prefix + "ShowPage"
+		}
+		// Remove any brackets and convert to PascalCase
 		name := strings.ReplaceAll(baseName, "[", "")
 		name = strings.ReplaceAll(name, "]", "")
 		name = strings.ReplaceAll(name, "...", "")
@@ -242,8 +252,25 @@ type importDef struct {
 
 // collectImports gathers all required imports.
 func (g *Generator) collectImports() []importDef {
+	// Always import router
 	imports := []importDef{
-		{path: g.modulePath + "/pkg/router"},
+		{path: "github.com/vango-dev/vango/router"},
+	}
+
+	// Collect unique packages from routes that need to be imported
+	// Routes in the root "routes" package don't need import (they're in the same package)
+	packagePaths := make(map[string]bool)
+
+	for _, route := range g.routes {
+		if route.Package != "routes" && route.Package != "" {
+			// Determine the import path for this package
+			// The package is typically at {modulePath}/app/routes/{package}
+			importPath := g.getPackageImportPath(route)
+			if importPath != "" && !packagePaths[importPath] {
+				packagePaths[importPath] = true
+				imports = append(imports, importDef{path: importPath})
+			}
+		}
 	}
 
 	// Sort for deterministic output
@@ -252,6 +279,38 @@ func (g *Generator) collectImports() []importDef {
 	})
 
 	return imports
+}
+
+// getPackageImportPath returns the Go import path for a route's package.
+func (g *Generator) getPackageImportPath(route ScannedRoute) string {
+	if route.Package == "routes" || route.Package == "" {
+		return ""
+	}
+
+	// Derive package path from file path
+	// FilePath is like "app/routes/api/health.go" or "/full/path/app/routes/admin/index.go"
+	// We need to get "app/routes/api" or "app/routes/admin"
+	dir := filepath.Dir(route.FilePath)
+
+	// Find the routes directory and construct the import path
+	// Look for "app/routes" or "routes" in the path
+	parts := strings.Split(filepath.ToSlash(dir), "/")
+	routesIdx := -1
+	for i, part := range parts {
+		if part == "routes" {
+			routesIdx = i
+			break
+		}
+	}
+
+	if routesIdx >= 0 && routesIdx < len(parts)-1 {
+		// Build the relative path from routes directory
+		subPath := strings.Join(parts[routesIdx:], "/")
+		return g.modulePath + "/" + subPath
+	}
+
+	// Fallback: assume package is directly under routes
+	return g.modulePath + "/app/routes/" + route.Package
 }
 
 // generateParamStruct generates a params struct for a route.

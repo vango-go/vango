@@ -9,18 +9,20 @@
  * Connection states
  */
 export const ConnectionState = {
+    CONNECTING: 'connecting',
     CONNECTED: 'connected',
     RECONNECTING: 'reconnecting',
-    OFFLINE: 'offline',
+    DISCONNECTED: 'disconnected',
 };
 
 /**
- * CSS classes applied to document.body
+ * CSS classes applied to document.documentElement (<html>)
  */
 const CSS_CLASSES = {
+    [ConnectionState.CONNECTING]: 'vango-connecting',
     [ConnectionState.CONNECTED]: 'vango-connected',
     [ConnectionState.RECONNECTING]: 'vango-reconnecting',
-    [ConnectionState.OFFLINE]: 'vango-offline',
+    [ConnectionState.DISCONNECTED]: 'vango-disconnected',
 };
 
 /**
@@ -45,9 +47,12 @@ export class ConnectionManager {
             ...options,
         };
 
-        this.state = ConnectionState.CONNECTED;
+        this.state = ConnectionState.CONNECTING;
         this.retryCount = 0;
         this.previousState = null;
+
+        // Apply initial connecting state
+        this._updateClasses();
     }
 
     /**
@@ -78,20 +83,20 @@ export class ConnectionManager {
     }
 
     /**
-     * Update CSS classes on document.body
+     * Update CSS classes on document.documentElement (<html>)
      */
     _updateClasses() {
-        const body = document.body;
+        const root = document.documentElement;
 
         // Remove all connection state classes
         Object.values(CSS_CLASSES).forEach(cls => {
-            body.classList.remove(cls);
+            root.classList.remove(cls);
         });
 
         // Add current state class
         const currentClass = CSS_CLASSES[this.state];
         if (currentClass) {
-            body.classList.add(currentClass);
+            root.classList.add(currentClass);
         }
     }
 
@@ -130,7 +135,7 @@ export class ConnectionManager {
         this.retryCount++;
 
         if (this.retryCount >= this.options.maxRetries) {
-            this.setState(ConnectionState.OFFLINE);
+            this.setState(ConnectionState.DISCONNECTED);
             return false; // Stop retrying
         }
 
@@ -163,10 +168,10 @@ export class ConnectionManager {
     }
 
     /**
-     * Check if offline (gave up reconnecting)
+     * Check if disconnected (gave up reconnecting)
      */
-    isOffline() {
-        return this.state === ConnectionState.OFFLINE;
+    isDisconnected() {
+        return this.state === ConnectionState.DISCONNECTED;
     }
 
     /**
@@ -246,8 +251,26 @@ export function injectDefaultStyles() {
     style.textContent = `
         /* Vango Connection State Styles */
 
+        /* Connecting indicator - pulsing bar at top */
+        html.vango-connecting::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--vango-primary, #3b82f6), transparent);
+            animation: vango-connect-pulse 1.5s ease-in-out infinite;
+            z-index: 9999;
+        }
+
+        @keyframes vango-connect-pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
         /* Reconnecting indicator - pulsing bar at top */
-        body.vango-reconnecting::after {
+        html.vango-reconnecting::after {
             content: '';
             position: fixed;
             top: 0;
@@ -264,12 +287,12 @@ export function injectDefaultStyles() {
             50% { opacity: 1; }
         }
 
-        /* Offline state - slight grayscale and overlay */
-        body.vango-offline {
+        /* Disconnected state - slight grayscale and overlay */
+        html.vango-disconnected {
             filter: grayscale(0.3);
         }
 
-        body.vango-offline::before {
+        html.vango-disconnected::before {
             content: 'Connection lost. Click to retry...';
             position: fixed;
             top: 50%;

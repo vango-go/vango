@@ -48,8 +48,11 @@ type ScannedRoute struct {
 	// Params are the route parameters
 	Params []ParamDef
 
-	// HasPage indicates the file exports a Page function
+	// HasPage indicates the file exports a page handler function (e.g., IndexPage)
 	HasPage bool
+
+	// HandlerName is the actual name of the page handler function (e.g., "IndexPage", "ShowPage")
+	HandlerName string
 
 	// HasLayout indicates the file exports a Layout function
 	HasLayout bool
@@ -57,7 +60,7 @@ type ScannedRoute struct {
 	// HasMeta indicates the file exports a Meta function
 	HasMeta bool
 
-	// HasMiddleware indicates the file exports a Middleware function
+	// HasMiddleware indicates the file exports a Middleware variable or function
 	HasMiddleware bool
 
 	// Methods lists HTTP methods for API routes (GET, POST, etc.)

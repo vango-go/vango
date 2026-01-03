@@ -4,7 +4,7 @@
  * Applies DOM patches received from the server.
  */
 
-import { PatchType } from './codec.js';
+import { PatchType, EventType } from './codec.js';
 
 export class PatchApplier {
     constructor(client) {
@@ -385,12 +385,54 @@ export class PatchApplier {
             }
         }
 
+        // Handle special "vango:navigate" event for programmatic navigation
+        if (eventName === 'vango:navigate') {
+            this._handleNavigate(parsedDetail);
+            return;
+        }
+
+        // For regular events, dispatch on document if no target element
+        const target = el || document;
         const event = new CustomEvent(eventName, {
             detail: parsedDetail,
             bubbles: true,
             cancelable: true,
         });
-        el.dispatchEvent(event);
+        target.dispatchEvent(event);
+    }
+
+    /**
+     * Handle server-initiated navigation
+     * Called when server sends ctx.Navigate() via dispatch patch
+     */
+    _handleNavigate(data) {
+        if (!data || !data.path) {
+            if (this.client.options.debug) {
+                console.warn('[Vango] Invalid navigate data:', data);
+            }
+            return;
+        }
+
+        const { path, replace, scroll } = data;
+
+        // Update browser history
+        if (replace) {
+            history.replaceState(null, '', path);
+        } else {
+            history.pushState(null, '', path);
+        }
+
+        // Send navigate event to server to trigger re-render
+        this.client.sendEvent(EventType.NAVIGATE, 'nav', { path });
+
+        // Scroll to top if requested (default: true)
+        if (scroll !== false) {
+            window.scrollTo({ top: 0, behavior: 'instant' });
+        }
+
+        if (this.client.options.debug) {
+            console.log('[Vango] Navigated to:', path, { replace, scroll });
+        }
     }
 
     // NOTE: _evalCode method has been REMOVED for security.

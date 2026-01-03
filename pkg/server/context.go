@@ -20,6 +20,41 @@ func encodeJSON(v any) (string, error) {
 	return string(data), nil
 }
 
+// =============================================================================
+// Navigation Options (Phase 7: Routing)
+// =============================================================================
+
+// NavigateOption is a functional option for Navigate.
+type NavigateOption func(*navigateOptions)
+
+// navigateOptions holds navigation configuration.
+type navigateOptions struct {
+	Replace bool           // Replace current history entry instead of pushing
+	Params  map[string]any // Query parameters to add to the URL
+	Scroll  bool           // Scroll to top after navigation (default: true)
+}
+
+// WithReplace replaces the current history entry instead of pushing.
+func WithReplace() NavigateOption {
+	return func(o *navigateOptions) {
+		o.Replace = true
+	}
+}
+
+// WithNavigateParams adds query parameters to the navigation URL.
+func WithNavigateParams(params map[string]any) NavigateOption {
+	return func(o *navigateOptions) {
+		o.Params = params
+	}
+}
+
+// WithoutScroll disables scrolling to top after navigation.
+func WithoutScroll() NavigateOption {
+	return func(o *navigateOptions) {
+		o.Scroll = false
+	}
+}
+
 // Ctx provides access to request data within components.
 // It is passed to route handlers and can be used to access the request,
 // session, and response control methods.
@@ -123,6 +158,31 @@ type Ctx interface {
 	//
 	// IMPORTANT: This method MUST be safe to call from any goroutine.
 	Dispatch(fn func())
+
+	// ==========================================================================
+	// Navigation (Phase 7: Routing)
+	// ==========================================================================
+
+	// Navigate performs a client-side navigation to the given path.
+	// Unlike Redirect(), this updates the browser URL and re-renders the page
+	// without a full HTTP redirect. The navigation is queued and processed
+	// after the current handler completes.
+	//
+	// Options can be provided to customize behavior:
+	//   - WithReplace() - replace current history entry instead of pushing
+	//   - WithParams(map[string]any) - add query parameters to the URL
+	//   - WithoutScroll() - disable scrolling to top after navigation
+	//
+	// Example:
+	//
+	//     func handleSave(ctx vango.Ctx) {
+	//         project := saveProject()
+	//         ctx.Navigate("/projects/" + project.ID)
+	//     }
+	//
+	// For HTTP-only requests (SSR without WebSocket), this falls back to
+	// an HTTP redirect.
+	Navigate(path string, opts ...NavigateOption)
 
 	// ==========================================================================
 	// Context propagation (Phase 13: Production Hardening)
@@ -397,6 +457,75 @@ func (c *ctx) Dispatch(fn func()) {
 		return
 	}
 	c.session.Dispatch(fn)
+}
+
+// =============================================================================
+// Navigation (Phase 7: Routing)
+// =============================================================================
+
+// Navigate performs a client-side navigation to the given path.
+// For WebSocket sessions, this sends a navigate event to the client which
+// triggers client-side navigation. For HTTP-only requests, this falls back
+// to an HTTP redirect.
+func (c *ctx) Navigate(path string, opts ...NavigateOption) {
+	// Apply options with defaults
+	options := navigateOptions{
+		Scroll: true, // Default to scrolling to top
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	// Build full URL with query params
+	fullPath := path
+	if len(options.Params) > 0 {
+		q := url.Values{}
+		for k, v := range options.Params {
+			q.Set(k, fmt.Sprintf("%v", v))
+		}
+		if len(q) > 0 {
+			fullPath = path + "?" + q.Encode()
+		}
+	}
+
+	// If no session (SSR-only), fall back to HTTP redirect
+	if c.session == nil {
+		code := 302 // Found (temporary redirect)
+		if options.Replace {
+			code = 303 // See Other (for POST -> GET)
+		}
+		c.Redirect(fullPath, code)
+		return
+	}
+
+	// Build navigation event data
+	navData := struct {
+		Path    string `json:"path"`
+		Replace bool   `json:"replace,omitempty"`
+		Scroll  bool   `json:"scroll"`
+	}{
+		Path:    fullPath,
+		Replace: options.Replace,
+		Scroll:  options.Scroll,
+	}
+
+	// Encode to JSON
+	detail, err := encodeJSON(navData)
+	if err != nil {
+		if c.logger != nil {
+			c.logger.Error("failed to encode navigation data", "error", err)
+		}
+		return
+	}
+
+	// Send as a special dispatch event that the client handles
+	// The client will intercept "vango:navigate" and perform navigation
+	patch := protocol.NewDispatchPatch("", "vango:navigate", detail)
+	c.session.SendPatches([]protocol.Patch{patch})
+
+	if c.logger != nil {
+		c.logger.Debug("queued navigation", "path", fullPath, "replace", options.Replace)
+	}
 }
 
 // =============================================================================

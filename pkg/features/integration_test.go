@@ -225,7 +225,7 @@ func TestContextProviderWorkflow(t *testing.T) {
 // TestStoreSessionIsolation tests that session stores are properly isolated.
 func TestStoreSessionIsolation(t *testing.T) {
 	// Create shared signal definition (package-level in real usage)
-	counter := store.SharedSignal(0)
+	counter := store.NewSharedSignal(0)
 
 	// Session A
 	rootA := vango.NewOwner(nil)
@@ -273,7 +273,7 @@ func TestStoreSessionIsolation(t *testing.T) {
 // TestGlobalStoreSharedAcrossSessions tests that global signals are shared.
 func TestGlobalStoreSharedAcrossSessions(t *testing.T) {
 	// Global signal (shared across all sessions)
-	globalCounter := store.GlobalSignal(0)
+	globalCounter := store.NewGlobalSignal(0)
 
 	// Set from "Session A"
 	globalCounter.Set(42)

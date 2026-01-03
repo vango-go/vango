@@ -64,27 +64,32 @@ func (r *Router) SetErrorPage(handler ErrorHandler) {
 // Match finds the handler for a path.
 func (r *Router) Match(method, path string) (*MatchResult, bool) {
 	params := make(map[string]string)
-	var layouts []LayoutHandler
 
-	// Collect root layout if present
+	// Initialize match context with global middleware
+	ctx := &matchContext{
+		layouts:    nil,
+		middleware: append([]Middleware{}, r.middleware...), // Copy global middleware
+	}
+
+	// Collect root layout and middleware if present
 	if r.root.layoutHandler != nil {
-		layouts = append(layouts, r.root.layoutHandler)
+		ctx.layouts = append(ctx.layouts, r.root.layoutHandler)
+	}
+	if len(r.root.middleware) > 0 {
+		ctx.middleware = append(ctx.middleware, r.root.middleware...)
 	}
 
 	// Match against tree
-	node, matchedLayouts, ok := r.root.match(splitPath(path), params, layouts)
+	node, matchCtx, ok := r.root.match(splitPath(path), params, ctx)
 	if !ok {
 		return nil, false
 	}
 
 	result := &MatchResult{
-		Params:  params,
-		Layouts: matchedLayouts,
+		Params:     params,
+		Layouts:    matchCtx.layouts,
+		Middleware: matchCtx.middleware,
 	}
-
-	// Collect middleware from root
-	result.Middleware = append(result.Middleware, r.middleware...)
-	result.Middleware = append(result.Middleware, node.middleware...)
 
 	// Check for API handler
 	if node.apiHandlers != nil {

@@ -81,14 +81,15 @@ func defaultMetricsConfig() MetricsConfig {
 
 // metrics holds the Prometheus metrics for Vango.
 type metrics struct {
-	eventsTotal     *prometheus.CounterVec
-	eventDuration   *prometheus.HistogramVec
-	eventErrors     *prometheus.CounterVec
-	patchesSent     prometheus.Counter
-	activeSessions  prometheus.Gauge
+	eventsTotal      *prometheus.CounterVec
+	eventDuration    *prometheus.HistogramVec
+	eventErrors      *prometheus.CounterVec
+	patchesSent      prometheus.Counter
+	activeSessions   prometheus.Gauge
 	detachedSessions prometheus.Gauge
-	sessionMemory   prometheus.Histogram
-	wsErrors        *prometheus.CounterVec
+	sessionMemory    prometheus.Histogram
+	wsErrors         *prometheus.CounterVec
+	reconnectsTotal  prometheus.Counter // Phase 13 audit: added per spec
 }
 
 // globalMetrics is the singleton metrics instance.
@@ -169,6 +170,14 @@ func initMetrics(config MetricsConfig) *metrics {
 			Help:        "Total WebSocket errors by type",
 			ConstLabels: config.ConstLabels,
 		}, []string{"type"}),
+
+		reconnectsTotal: factory.NewCounter(prometheus.CounterOpts{
+			Namespace:   config.Namespace,
+			Subsystem:   config.Subsystem,
+			Name:        "reconnects_total",
+			Help:        "Total number of session reconnections",
+			ConstLabels: config.ConstLabels,
+		}),
 	}
 }
 
@@ -183,6 +192,7 @@ func initMetrics(config MetricsConfig) *metrics {
 //   - vango_detached_sessions: Gauge of detached sessions
 //   - vango_session_memory_bytes: Histogram of session memory usage
 //   - vango_websocket_errors_total: Counter of WebSocket errors
+//   - vango_reconnects_total: Counter of session reconnections
 //
 // Example:
 //
@@ -334,6 +344,14 @@ func RecordWebSocketError(errorType string) {
 	}
 }
 
+// RecordReconnect records a session reconnection.
+// Call this when a detached session is successfully resumed.
+func RecordReconnect() {
+	if globalMetrics != nil {
+		globalMetrics.reconnectsTotal.Inc()
+	}
+}
+
 // =============================================================================
 // Metrics Collector
 // =============================================================================
@@ -341,14 +359,15 @@ func RecordWebSocketError(errorType string) {
 // Collector returns the metrics for use in custom registrations.
 // This allows collecting Vango metrics alongside other application metrics.
 type Collector struct {
-	eventsTotal     *prometheus.CounterVec
-	eventDuration   *prometheus.HistogramVec
-	eventErrors     *prometheus.CounterVec
-	patchesSent     prometheus.Counter
-	activeSessions  prometheus.Gauge
+	eventsTotal      *prometheus.CounterVec
+	eventDuration    *prometheus.HistogramVec
+	eventErrors      *prometheus.CounterVec
+	patchesSent      prometheus.Counter
+	activeSessions   prometheus.Gauge
 	detachedSessions prometheus.Gauge
-	sessionMemory   prometheus.Histogram
-	wsErrors        *prometheus.CounterVec
+	sessionMemory    prometheus.Histogram
+	wsErrors         *prometheus.CounterVec
+	reconnectsTotal  prometheus.Counter
 }
 
 // GetMetrics returns the global metrics collector.
@@ -358,13 +377,14 @@ func GetMetrics() *Collector {
 		return nil
 	}
 	return &Collector{
-		eventsTotal:     globalMetrics.eventsTotal,
-		eventDuration:   globalMetrics.eventDuration,
-		eventErrors:     globalMetrics.eventErrors,
-		patchesSent:     globalMetrics.patchesSent,
-		activeSessions:  globalMetrics.activeSessions,
+		eventsTotal:      globalMetrics.eventsTotal,
+		eventDuration:    globalMetrics.eventDuration,
+		eventErrors:      globalMetrics.eventErrors,
+		patchesSent:      globalMetrics.patchesSent,
+		activeSessions:   globalMetrics.activeSessions,
 		detachedSessions: globalMetrics.detachedSessions,
-		sessionMemory:   globalMetrics.sessionMemory,
-		wsErrors:        globalMetrics.wsErrors,
+		sessionMemory:    globalMetrics.sessionMemory,
+		wsErrors:         globalMetrics.wsErrors,
+		reconnectsTotal:  globalMetrics.reconnectsTotal,
 	}
 }

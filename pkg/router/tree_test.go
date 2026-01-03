@@ -167,21 +167,24 @@ func TestRouteNodeMatchLayoutCollection(t *testing.T) {
 	listNode.pageHandler = dummyPageHandler
 
 	params := make(map[string]string)
-	var layouts []LayoutHandler
+	ctx := &matchContext{
+		layouts:    nil,
+		middleware: nil,
+	}
 
 	// Include root layout
 	if root.layoutHandler != nil {
-		layouts = append(layouts, root.layoutHandler)
+		ctx.layouts = append(ctx.layouts, root.layoutHandler)
 	}
 
-	_, matchedLayouts, ok := root.match(splitPath("/users/list"), params, layouts)
+	_, matchCtx, ok := root.match(splitPath("/users/list"), params, ctx)
 
 	if !ok {
 		t.Fatal("expected match")
 	}
 	// Layouts: root (passed in) + users (collected during match)
-	if len(matchedLayouts) < 2 {
-		t.Errorf("len(layouts) = %d, want at least 2", len(matchedLayouts))
+	if len(matchCtx.layouts) < 2 {
+		t.Errorf("len(layouts) = %d, want at least 2", len(matchCtx.layouts))
 	}
 }
 

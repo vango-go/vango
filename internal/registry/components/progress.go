@@ -1,9 +1,11 @@
+//go:build vangoui
+
 package ui
 
 import (
 	"fmt"
 
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
 
 // ProgressOption configures a Progress component.

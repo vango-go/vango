@@ -1001,18 +1001,20 @@ func %s() vango.Component {
 
 func generateStoreCode(name string, isGlobal bool) string {
 	signalType := "SharedSignal"
-	signalFunc := "vango.SharedSignal"
+	signalFunc := "vstore.NewSharedSignal"
 	comment := "across the user's session"
 
 	if isGlobal {
 		signalType = "GlobalSignal"
-		signalFunc = "vango.GlobalSignal"
+		signalFunc = "vstore.NewGlobalSignal"
 		comment = "across all users"
 	}
 
 	return fmt.Sprintf(`package store
 
-import "github.com/vango-dev/vango"
+import (
+	vstore "github.com/vango-dev/vango/v2/pkg/features/store"
+)
 
 // %sState holds the state for %s.
 // This state is shared %s.
@@ -1055,15 +1057,17 @@ func %s(next router.Handler) router.Handler {
 		// Before handler execution
 
 		// Call the next handler
-		err := next(ctx)
+		if err := next(ctx); err != nil {
+			return err
+		}
 
 		// After handler execution
 
-		return err
+		return nil
 	}
 }
 
-// Example: %s with options
+// %sWithOptions returns a configurable version of %s.
 func %sWithOptions(/* options */) router.Middleware {
 	return func(next router.Handler) router.Handler {
 		return func(ctx vango.Ctx) error {
@@ -1072,7 +1076,7 @@ func %sWithOptions(/* options */) router.Middleware {
 		}
 	}
 }
-`, name, name, name, name)
+`, name, name, name, name, name)
 }
 
 func paramTypeToGoType(paramType string) string {

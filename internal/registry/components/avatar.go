@@ -1,7 +1,9 @@
+//go:build vangoui
+
 package ui
 
 import (
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
 
 // AvatarOption configures an Avatar component.

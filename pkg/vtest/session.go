@@ -261,34 +261,15 @@ func (t *TestSession) SimulateTimeout() error {
 }
 
 // serializeSession converts session state to bytes.
+// Delegates to Session.Serialize() which handles all session data.
 func (t *TestSession) serializeSession() ([]byte, error) {
-	ss := &session.SerializableSession{
-		ID:         t.Session.ID,
-		UserID:     t.Session.UserID,
-		CreatedAt:  t.Session.CreatedAt,
-		LastActive: t.Session.LastActive,
-	}
-
-	return session.Serialize(ss)
+	return t.Session.Serialize()
 }
 
 // deserializeSession restores session state from bytes.
+// Delegates to Session.Deserialize() which handles all session data.
 func (t *TestSession) deserializeSession(data []byte) error {
-	ss, err := session.Deserialize(data)
-	if err != nil {
-		return err
-	}
-
-	// Restore basic fields
-	t.Session.ID = ss.ID
-	t.Session.UserID = ss.UserID
-	t.Session.CreatedAt = ss.CreatedAt
-	t.Session.LastActive = ss.LastActive
-
-	// Restore data values would go here
-	// In a full implementation, we'd call Session.RestoreData(ss.Values)
-
-	return nil
+	return t.Session.Deserialize(data)
 }
 
 // Store returns the underlying session store for advanced testing.

@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+// Note: We use token.VAR to detect variable declarations (like var Middleware = ...)
+
 // Scanner scans a directory for route files.
 type Scanner struct {
 	rootDir string
@@ -93,6 +95,8 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 	switch baseName {
 	case "_layout.go":
 		route.HasLayout = true
+	case "_middleware.go":
+		route.HasMiddleware = true
 	case "_error.go", "_404.go":
 		// Error handlers - still scan for functions
 	}
@@ -100,24 +104,74 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 	// Check for API route
 	route.IsAPI = s.isAPIRoute(relPath)
 
-	// Scan for exported functions
+	// Scan for exported functions and variables
 	for _, decl := range f.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name == nil || !fn.Name.IsExported() {
-			continue
-		}
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Name == nil || !d.Name.IsExported() {
+				continue
+			}
 
-		switch fn.Name.Name {
-		case "Page":
-			route.HasPage = true
-		case "Layout":
-			route.HasLayout = true
-		case "Meta":
-			route.HasMeta = true
-		case "Middleware":
-			route.HasMiddleware = true
-		case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
-			route.Methods = append(route.Methods, fn.Name.Name)
+			name := d.Name.Name
+
+			// Check for Layout function
+			if name == "Layout" {
+				route.HasLayout = true
+				continue
+			}
+
+			// Check for Middleware function
+			if name == "Middleware" {
+				route.HasMiddleware = true
+				continue
+			}
+
+			// Check for Meta function
+			if name == "Meta" {
+				route.HasMeta = true
+				continue
+			}
+
+			// Check for HTTP method handlers (API routes)
+			switch name {
+			case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+				route.Methods = append(route.Methods, name)
+				continue
+			}
+
+			// Check for page handler functions (IndexPage, AboutPage, ShowPage, etc.)
+			// Per spec: function names ending in "Page" are page handlers
+			if strings.HasSuffix(name, "Page") {
+				route.HasPage = true
+				route.HandlerName = name
+				continue
+			}
+
+			// Also detect {Resource}GET, {Resource}POST patterns for API routes
+			// e.g., UsersGET, HealthGET, UsersPOST
+			for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"} {
+				if strings.HasSuffix(name, method) {
+					route.Methods = append(route.Methods, method)
+					break
+				}
+			}
+
+		case *ast.GenDecl:
+			// Check for Middleware variable (var Middleware = []router.Middleware{...})
+			if d.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range d.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, ident := range vs.Names {
+					if ident.Name == "Middleware" && ident.IsExported() {
+						route.HasMiddleware = true
+					}
+				}
+			}
 		}
 	}
 

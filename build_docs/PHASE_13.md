@@ -968,6 +968,7 @@ go http.ListenAndServe(":9090", internalMux) // Internal port
 
 **Status**: Complete
 **Completed**: 2024-12-24
+**Audited**: 2026-01-02 (spec alignment verification)
 **All Tests Passing**: Yes
 
 ### Implementation Highlights
@@ -978,8 +979,8 @@ go http.ListenAndServe(":9090", internalMux) // Internal port
    - Context propagation via `ctx.StdContext()` for database/HTTP calls
 
 2. **Prometheus Metrics** (`pkg/middleware/metrics.go`)
-   - 7 metrics: active_sessions, detached_sessions, events_total, event_duration_seconds, patches_sent_total, session_memory_bytes, websocket_errors_total
-   - Global record functions for server hooks: `RecordPatches()`, `RecordSessionCreate()`, etc.
+   - 8 metrics: active_sessions, detached_sessions, events_total, event_duration_seconds, patches_sent_total, session_memory_bytes, websocket_errors_total, reconnects_total
+   - Global record functions for server hooks: `RecordPatches()`, `RecordSessionCreate()`, `RecordReconnect()`, etc.
 
 3. **Protocol Security**
    - 15 fuzz test targets covering all decode functions
@@ -988,9 +989,113 @@ go http.ListenAndServe(":9090", internalMux) // Internal port
 
 4. **Secure Defaults** (`pkg/server/config.go`)
    - DevMode=false, SecureCookies=true, SameSiteMode=Lax, CheckOrigin=SameOrigin
+   - **Design Note**: SameSiteLaxMode (not Strict) is intentional - it allows OAuth flows and payment redirects while still providing CSRF protection for top-level navigations. StrictMode would break legitimate cross-site flows.
 
 5. **Grafana Dashboard** (`examples/monitoring/grafana-dashboard.json`)
-   - 6 panels: Sessions, Event Rate, Event Latency (P50/P95/P99), Patch Rate, Memory Distribution, Errors
+   - 7 panels: Sessions, Detached Sessions, Sessions Over Time, Reconnect Rate, Event Rate by Path, Event Latency (P50/P95/P99), Patch Rate, Memory Distribution, Errors
+
+### Audit Notes (2026-01-02)
+
+- **Transaction (Tx) Tracing**: The spec (Section 7.8.1) mentions Tx-level OTel attributes like `vango.tx.id`, `vango.tx.writes.count`. These are explicitly v2.2+ features and will be implemented when the Transaction system is built.
+- **Reconnect Metric**: Added `vango_reconnects_total` counter per spec requirement (Section 14.6).
+- **Grafana Dashboard Labels**: Fixed to use `{{path}}` instead of `{{type}}` to match actual metric labels.
+
+---
+
+## Spec Verification Matrix
+
+This section annotates every Phase 13 spec requirement against the implementation source code.
+
+### 14.6 Observability (VANGO_ARCHITECTURE_AND_GUIDE.md)
+
+| Requirement | Status | Source Location |
+|-------------|--------|-----------------|
+| No `ctx.Trace()` API (middleware-first) | ✅ VERIFIED | No such API exists in `pkg/server/context.go` |
+| OpenTelemetry: middleware starts spans for each event | ✅ VERIFIED | `pkg/middleware/otel.go:179` - `tracer.Start()` |
+| Spans for click/input/nav events | ✅ VERIFIED | `pkg/middleware/otel.go:152-158` - `event.TypeString()` |
+| Records patch counts | ✅ VERIFIED | `pkg/middleware/otel.go:206` - `vango.patch_count` attribute |
+| Records errors | ✅ VERIFIED | `pkg/middleware/otel.go:200-203` - `span.RecordError(err)` |
+| Context propagation via `ctx.StdContext()` | ✅ VERIFIED | `pkg/server/context.go:535-545` |
+| `ctx.WithStdContext()` for middleware injection | ✅ VERIFIED | `pkg/server/context.go:547-553` |
+| Prometheus: session counts | ✅ VERIFIED | `pkg/middleware/metrics.go` - `activeSessions`, `detachedSessions` gauges |
+| Prometheus: event rates | ✅ VERIFIED | `pkg/middleware/metrics.go` - `eventsTotal` counter |
+| Prometheus: patch rates | ✅ VERIFIED | `pkg/middleware/metrics.go` - `patchesSent` counter |
+| Prometheus: reconnects | ✅ VERIFIED | `pkg/middleware/metrics.go:346-352` - `reconnectsTotal` counter (added 2026-01-02) |
+
+### 15.1 Secure Defaults (VANGO_ARCHITECTURE_AND_GUIDE.md)
+
+| Setting | Default | Status | Source Location |
+|---------|---------|--------|-----------------|
+| `CheckOrigin` same-origin only | `SameOriginCheck` | ✅ VERIFIED | `pkg/server/config.go:279` |
+| CSRF warning if disabled | Warning logged | ✅ VERIFIED | `pkg/server/server.go:87-89` |
+| `on*` attributes stripped unless handler | Stripped | ✅ VERIFIED | `pkg/render/renderer.go:258-264` - `isEventHandlerKey()` |
+| Protocol limits 4MB max allocation | 4MB | ✅ VERIFIED | `pkg/protocol/decoder.go:13` - `DefaultMaxAllocation` |
+
+### 15.3 CSRF Protection (VANGO_ARCHITECTURE_AND_GUIDE.md)
+
+| Requirement | Status | Source Location |
+|-------------|--------|-----------------|
+| Double Submit Cookie pattern | ✅ VERIFIED | `pkg/server/server.go:348-397` - `validateCSRF()` |
+| `server.GenerateCSRFToken()` | ✅ VERIFIED | `pkg/server/server.go:404-428` |
+| `server.SetCSRFCookie()` | ✅ VERIFIED | `pkg/server/server.go:430-441` |
+| Cookie name `__vango_csrf` | ✅ VERIFIED | `pkg/server/server.go:346` - `CSRFCookieName` |
+| Token embedded as `window.__VANGO_CSRF__` | ✅ VERIFIED | `pkg/render/page.go:357` |
+| Client reads from cookie/global | ✅ VERIFIED | `client/src/websocket.js:83-91` |
+| Warning if CSRFSecret nil | ✅ VERIFIED | `pkg/server/server.go:87-89` |
+
+### 15.4 WebSocket Origin Validation (VANGO_ARCHITECTURE_AND_GUIDE.md)
+
+| Requirement | Status | Source Location |
+|-------------|--------|-----------------|
+| `SameOriginCheck` as default | ✅ VERIFIED | `pkg/server/config.go:279` |
+| Proper URL parsing (not string manipulation) | ✅ VERIFIED | `pkg/server/config.go:304-343` - uses `url.Parse()` |
+| Tests for edge cases | ✅ VERIFIED | `pkg/server/config_test.go:380-432` |
+
+### 15.5 Session Security (VANGO_ARCHITECTURE_AND_GUIDE.md)
+
+| Setting | Status | Source Location | Notes |
+|---------|--------|-----------------|-------|
+| HttpOnly | ✅ VERIFIED | `pkg/server/server.go:437` | Set to `false` for CSRF cookie (required for Double Submit) |
+| Secure | ✅ VERIFIED | `pkg/server/server.go:439` - `s.isSecure()` | Conditional on environment |
+| SameSite | ✅ VERIFIED | `pkg/server/config.go:289` | Uses `Lax` (not Strict) - allows OAuth flows |
+
+### 15.6 Protocol Defense (VANGO_ARCHITECTURE_AND_GUIDE.md)
+
+| Limit | Spec Value | Impl Value | Status | Source Location |
+|-------|------------|------------|--------|-----------------|
+| Max string/bytes | 4MB | 4MB | ✅ VERIFIED | `pkg/protocol/decoder.go:13` |
+| Max collection | 100K items | 100,000 | ✅ VERIFIED | `pkg/protocol/decoder.go:21` |
+| Max VNode depth | 256 | 256 | ✅ VERIFIED | `pkg/protocol/limits.go:9` |
+| Max patch depth | 128 | 128 | ✅ VERIFIED | `pkg/protocol/limits.go:14` |
+| Hard cap | 16MB | 16MB | ✅ VERIFIED | `pkg/protocol/decoder.go:17` |
+| Fuzz testing for decoders | Required | 15 targets | ✅ VERIFIED | `pkg/protocol/fuzz_test.go` |
+
+### Fuzz Test Targets (15 total)
+
+| Target | Status | Source Location |
+|--------|--------|-----------------|
+| `FuzzDecodeUvarint` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:8` |
+| `FuzzDecodeSvarint` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:22` |
+| `FuzzDecodeFrame` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:35` |
+| `FuzzDecodeEvent` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:50` |
+| `FuzzDecodePatches` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:74` |
+| `FuzzDecodeVNodeWire` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:94` |
+| `FuzzDecodeClientHello` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:114` |
+| `FuzzDecodeServerHello` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:133` |
+| `FuzzDecodeControl` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:150` |
+| `FuzzDecodeAck` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:162` |
+| `FuzzDecodeErrorMessage` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:173` |
+| `FuzzRoundTrip` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:184` |
+| `FuzzDecodeHookPayload` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:220` |
+| `FuzzDeeplyNestedVNode` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:245` |
+| `FuzzPatchesWithVNodes` | ✅ VERIFIED | `pkg/protocol/fuzz_test.go:263` |
+
+### v2.2+ Features (NOT in Phase 13 scope)
+
+| Feature | Spec Reference | Status |
+|---------|----------------|--------|
+| Transaction (Tx) OTel attributes | Section 7.8.1 | DEFERRED to v2.2 |
+| `vango.tx.id`, `vango.tx.name`, etc. | Section 7.8.1 | DEFERRED to v2.2 |
 
 ### Ctx Interface Additions (Phase 13)
 
@@ -1013,4 +1118,4 @@ WithStdContext(stdCtx context.Context) Ctx
 
 ---
 
-*Last Updated: 2024-12-24*
+*Last Updated: 2026-01-02*

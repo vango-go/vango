@@ -371,10 +371,110 @@ func TestRenderOptimisticConfig(t *testing.T) {
 
 	html := buf.String()
 
-	if !strings.Contains(html, `data-optimistic-class="pending"`) {
-		t.Errorf("should contain optimistic class, got %q", html)
+	// Should use single JSON attribute per spec Section 5.2
+	if !strings.Contains(html, `data-optimistic='`) {
+		t.Errorf("should contain data-optimistic JSON attribute, got %q", html)
 	}
-	if !strings.Contains(html, `data-optimistic-text="Saving..."`) {
-		t.Errorf("should contain optimistic text, got %q", html)
+	if !strings.Contains(html, `"class":"pending"`) {
+		t.Errorf("should contain class in JSON, got %q", html)
+	}
+	if !strings.Contains(html, `"text":"Saving..."`) {
+		t.Errorf("should contain text in JSON, got %q", html)
+	}
+}
+
+func TestRenderOptimisticConfigWithAttr(t *testing.T) {
+	var buf bytes.Buffer
+
+	config := OptimisticConfig{
+		Attr:  "disabled",
+		Value: "true",
+	}
+
+	err := renderOptimisticConfig(&buf, config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	html := buf.String()
+
+	if !strings.Contains(html, `data-optimistic='`) {
+		t.Errorf("should contain data-optimistic JSON attribute, got %q", html)
+	}
+	if !strings.Contains(html, `"attr":"disabled"`) {
+		t.Errorf("should contain attr in JSON, got %q", html)
+	}
+	if !strings.Contains(html, `"value":"true"`) {
+		t.Errorf("should contain value in JSON, got %q", html)
+	}
+}
+
+func TestRenderOptimisticConfigEmpty(t *testing.T) {
+	var buf bytes.Buffer
+
+	config := OptimisticConfig{}
+
+	err := renderOptimisticConfig(&buf, config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	html := buf.String()
+
+	// Empty config should produce no output
+	if html != "" {
+		t.Errorf("empty config should produce no output, got %q", html)
+	}
+}
+
+func TestRenderPageWithDebugMode(t *testing.T) {
+	renderer := NewRenderer(RendererConfig{})
+
+	// Test with Debug=true
+	page := PageData{
+		Body:  vdom.Div(vdom.Text("Debug test")),
+		Title: "Debug Page",
+		Debug: true,
+	}
+
+	var buf bytes.Buffer
+	err := renderer.RenderPage(&buf, page)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	html := buf.String()
+
+	if !strings.Contains(html, `data-debug="true"`) {
+		t.Errorf("should contain data-debug when Debug=true, got %q", html)
+	}
+}
+
+func TestRenderPageWithoutDebugMode(t *testing.T) {
+	renderer := NewRenderer(RendererConfig{})
+
+	// Test with Debug=false (default)
+	page := PageData{
+		Body:  vdom.Div(vdom.Text("Production test")),
+		Title: "Production Page",
+		Debug: false,
+	}
+
+	var buf bytes.Buffer
+	err := renderer.RenderPage(&buf, page)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	html := buf.String()
+
+	if strings.Contains(html, `data-debug`) {
+		t.Errorf("should NOT contain data-debug when Debug=false, got %q", html)
+	}
+	// Should still contain the client script
+	if !strings.Contains(html, `<script src="/_vango/client.js"`) {
+		t.Errorf("should still contain client script, got %q", html)
 	}
 }

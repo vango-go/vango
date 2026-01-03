@@ -115,27 +115,40 @@ func (n *RouteNode) insertRoute(path string) *RouteNode {
 	return current
 }
 
+// matchContext holds the accumulated layouts and middleware during matching.
+type matchContext struct {
+	layouts    []LayoutHandler
+	middleware []Middleware
+}
+
 // match finds a node matching the given path segments.
-// Returns the node, collected layouts, and extracted parameters.
-func (n *RouteNode) match(segments []string, params map[string]string, layouts []LayoutHandler) (*RouteNode, []LayoutHandler, bool) {
-	// Collect layout at this node
+// Returns the node, collected layouts/middleware, and extracted parameters.
+// Layouts and middleware are collected at each level during traversal.
+func (n *RouteNode) match(segments []string, params map[string]string, ctx *matchContext) (*RouteNode, *matchContext, bool) {
+	// Collect layout and middleware at this node
 	if n.layoutHandler != nil {
-		layouts = append(layouts, n.layoutHandler)
+		ctx.layouts = append(ctx.layouts, n.layoutHandler)
+	}
+	if len(n.middleware) > 0 {
+		ctx.middleware = append(ctx.middleware, n.middleware...)
 	}
 
 	// Base case: no more segments
 	if len(segments) == 0 {
 		// Check if this node has handlers
 		if n.pageHandler != nil || n.apiHandlers != nil {
-			return n, layouts, true
+			return n, ctx, true
 		}
 		// Check for index child (handles trailing slash)
 		if child := n.findChild(""); child != nil {
 			if child.layoutHandler != nil {
-				layouts = append(layouts, child.layoutHandler)
+				ctx.layouts = append(ctx.layouts, child.layoutHandler)
+			}
+			if len(child.middleware) > 0 {
+				ctx.middleware = append(ctx.middleware, child.middleware...)
 			}
 			if child.pageHandler != nil || child.apiHandlers != nil {
-				return child, layouts, true
+				return child, ctx, true
 			}
 		}
 		return nil, nil, false
@@ -146,16 +159,16 @@ func (n *RouteNode) match(segments []string, params map[string]string, layouts [
 
 	// Try exact match first
 	if child := n.findChild(segment); child != nil {
-		if node, lays, ok := child.match(remaining, params, layouts); ok {
-			return node, lays, true
+		if node, mctx, ok := child.match(remaining, params, ctx); ok {
+			return node, mctx, true
 		}
 	}
 
 	// Try parameter match
 	if n.paramChild != nil {
 		params[n.paramChild.paramName] = segment
-		if node, lays, ok := n.paramChild.match(remaining, params, layouts); ok {
-			return node, lays, true
+		if node, mctx, ok := n.paramChild.match(remaining, params, ctx); ok {
+			return node, mctx, true
 		}
 		// Backtrack on failure
 		delete(params, n.paramChild.paramName)
@@ -167,9 +180,12 @@ func (n *RouteNode) match(segments []string, params map[string]string, layouts [
 		allSegments := append([]string{segment}, remaining...)
 		params[n.catchAllChild.paramName] = strings.Join(allSegments, "/")
 		if n.catchAllChild.layoutHandler != nil {
-			layouts = append(layouts, n.catchAllChild.layoutHandler)
+			ctx.layouts = append(ctx.layouts, n.catchAllChild.layoutHandler)
 		}
-		return n.catchAllChild, layouts, true
+		if len(n.catchAllChild.middleware) > 0 {
+			ctx.middleware = append(ctx.middleware, n.catchAllChild.middleware...)
+		}
+		return n.catchAllChild, ctx, true
 	}
 
 	return nil, nil, false

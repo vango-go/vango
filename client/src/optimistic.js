@@ -11,36 +11,37 @@ export class OptimisticUpdates {
     }
 
     /**
-     * Apply optimistic update based on element data attributes
+     * Apply optimistic update based on element data attributes.
+     * Parses data-optimistic='{"class":"...","text":"...","attr":"...","value":"..."}' format
+     * per spec Section 5.2.
      */
     applyOptimistic(el, eventType) {
         const hid = el.dataset.hid;
         if (!hid) return;
 
-        // Check for optimistic class toggle
-        const optimisticClass = el.dataset.optimisticClass;
-        if (optimisticClass) {
-            this._applyClassOptimistic(el, hid, optimisticClass);
-        }
+        // Parse JSON data-optimistic attribute
+        const optimisticData = el.dataset.optimistic;
+        if (!optimisticData) return;
 
-        // Check for optimistic text
-        const optimisticText = el.dataset.optimisticText;
-        if (optimisticText) {
-            this._applyTextOptimistic(el, hid, optimisticText);
-        }
+        try {
+            const config = JSON.parse(optimisticData);
 
-        // Check for optimistic attribute
-        const optimisticAttr = el.dataset.optimisticAttr;
-        const optimisticValue = el.dataset.optimisticValue;
-        if (optimisticAttr && optimisticValue !== undefined) {
-            this._applyAttrOptimistic(el, hid, optimisticAttr, optimisticValue);
-        }
+            // Check for optimistic class toggle
+            if (config.class) {
+                this._applyClassOptimistic(el, hid, config.class);
+            }
 
-        // Check for parent optimistic class
-        const parentOptimisticClass = el.dataset.optimisticParentClass;
-        if (parentOptimisticClass && el.parentElement) {
-            const parentHid = el.parentElement.dataset.hid || `parent-${hid}`;
-            this._applyClassOptimistic(el.parentElement, parentHid, parentOptimisticClass);
+            // Check for optimistic text
+            if (config.text) {
+                this._applyTextOptimistic(el, hid, config.text);
+            }
+
+            // Check for optimistic attribute
+            if (config.attr && config.value !== undefined) {
+                this._applyAttrOptimistic(el, hid, config.attr, config.value);
+            }
+        } catch (e) {
+            console.warn('[Vango] Invalid optimistic config:', e);
         }
     }
 

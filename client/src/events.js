@@ -13,6 +13,7 @@ export class EventCapture {
         this.handlers = new Map();
         this.debounceTimers = new Map();
         this.scrollThrottled = new Set();
+        this.prefetchedPaths = new Set(); // Track prefetched paths to avoid duplicates
     }
 
     /**
@@ -48,6 +49,9 @@ export class EventCapture {
         // Navigation
         this._on('click', this._handleLinkClick.bind(this));
         window.addEventListener('popstate', this._handlePopState.bind(this));
+
+        // Prefetch on hover for links with data-prefetch attribute
+        this._on('mouseenter', this._handlePrefetch.bind(this), true);
     }
 
     /**
@@ -85,10 +89,20 @@ export class EventCapture {
     }
 
     /**
-     * Find closest element with data-hid that has a specific handler attribute.
+     * Check if element has an event in its data-ve attribute.
+     * Parses data-ve="click,input,change" format per spec Section 5.2.
+     */
+    _hasEvent(el, eventName) {
+        const ve = (el.dataset.ve || '').split(',').map(s => s.trim());
+        return ve.includes(eventName);
+    }
+
+    /**
+     * Find closest element with data-hid that has a specific event in data-ve.
+     * Parses data-ve="click,input,change" format per spec Section 5.2.
      * This handles event bubbling through nested HID elements.
      */
-    _findHidElementWithHandler(target, handlerAttr) {
+    _findHidElementWithEvent(target, eventName) {
         // Handle non-element targets
         if (!target || !target.closest) {
             return null;
@@ -97,7 +111,7 @@ export class EventCapture {
         // Start from the target and traverse up
         let el = target.closest('[data-hid]');
         while (el) {
-            if (el.hasAttribute(handlerAttr)) {
+            if (this._hasEvent(el, eventName)) {
                 return el;
             }
             // Move to parent and find next HID element
@@ -112,8 +126,8 @@ export class EventCapture {
      * Handle click event
      */
     _handleClick(event) {
-        // Find the closest HID element with a click handler, bubbling up through ancestors
-        const el = this._findHidElementWithHandler(event.target, 'data-on-click');
+        // Find the closest HID element with a click event in data-ve, bubbling up through ancestors
+        const el = this._findHidElementWithEvent(event.target, 'click');
         if (!el) return;
 
         event.preventDefault();
@@ -130,7 +144,7 @@ export class EventCapture {
      */
     _handleDblClick(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-dblclick')) return;
+        if (!el || !this._hasEvent(el, 'dblclick')) return;
 
         event.preventDefault();
         this.client.sendEvent(EventType.DBLCLICK, el.dataset.hid);
@@ -141,7 +155,7 @@ export class EventCapture {
      */
     _handleInput(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-input')) return;
+        if (!el || !this._hasEvent(el, 'input')) return;
 
         const hid = el.dataset.hid;
         const debounceMs = parseInt(el.dataset.debounce || '100', 10);
@@ -165,7 +179,7 @@ export class EventCapture {
      */
     _handleChange(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-change')) return;
+        if (!el || !this._hasEvent(el, 'change')) return;
 
         let value;
         if (el.type === 'checkbox') {
@@ -189,7 +203,7 @@ export class EventCapture {
      */
     _handleSubmit(event) {
         const form = event.target.closest('form[data-hid]');
-        if (!form || !form.hasAttribute('data-on-submit')) return;
+        if (!form || !this._hasEvent(form, 'submit')) return;
 
         event.preventDefault();
 
@@ -207,7 +221,7 @@ export class EventCapture {
      */
     _handleFocus(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-focus')) return;
+        if (!el || !this._hasEvent(el, 'focus')) return;
 
         this.client.sendEvent(EventType.FOCUS, el.dataset.hid);
     }
@@ -217,7 +231,7 @@ export class EventCapture {
      */
     _handleBlur(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-blur')) return;
+        if (!el || !this._hasEvent(el, 'blur')) return;
 
         this.client.sendEvent(EventType.BLUR, el.dataset.hid);
     }
@@ -227,7 +241,7 @@ export class EventCapture {
      */
     _handleKeyDown(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-keydown')) return;
+        if (!el || !this._hasEvent(el, 'keydown')) return;
 
         // Check for specific key filter
         const keyFilter = el.dataset.keyFilter;
@@ -256,7 +270,7 @@ export class EventCapture {
      */
     _handleKeyUp(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-keyup')) return;
+        if (!el || !this._hasEvent(el, 'keyup')) return;
 
         this.client.sendEvent(EventType.KEYUP, el.dataset.hid, {
             key: event.key,
@@ -273,7 +287,7 @@ export class EventCapture {
      */
     _handleMouseEnter(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-mouseenter')) return;
+        if (!el || !this._hasEvent(el, 'mouseenter')) return;
 
         this.client.sendEvent(EventType.MOUSEENTER, el.dataset.hid);
     }
@@ -283,7 +297,7 @@ export class EventCapture {
      */
     _handleMouseLeave(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-mouseleave')) return;
+        if (!el || !this._hasEvent(el, 'mouseleave')) return;
 
         this.client.sendEvent(EventType.MOUSELEAVE, el.dataset.hid);
     }
@@ -293,7 +307,7 @@ export class EventCapture {
      */
     _handleScroll(event) {
         const el = this._findHidElement(event.target);
-        if (!el || !el.hasAttribute('data-on-scroll')) return;
+        if (!el || !this._hasEvent(el, 'scroll')) return;
 
         const hid = el.dataset.hid;
         const throttleMs = parseInt(el.dataset.throttle || '100', 10);
@@ -316,20 +330,73 @@ export class EventCapture {
     }
 
     /**
-     * Handle link click for client-side navigation
+     * Handle link click for client-side navigation.
+     *
+     * Per spec Section 3.2 and 9.5.1, do NOT intercept when:
+     * - Element is not an <a> tag
+     * - Any modifier key is held (Ctrl/Meta/Shift/Alt)
+     * - Link has download attribute
+     * - Link has target != "" && target != "_self"
+     * - Link URL is cross-origin
+     * - WebSocket not connected/healthy
+     * - No Vango handler exists (data-vango-link or data-ve="click")
+     *
+     * Otherwise: preventDefault and send NAVIGATE event.
      */
     _handleLinkClick(event) {
         const link = event.target.closest('a[href]');
         if (!link) return;
 
-        // Check if this is an internal link
-        const href = link.getAttribute('href');
-        if (!href || href.startsWith('http') || href.startsWith('//')) {
-            return; // External link, let browser handle
+        // Don't intercept if modifier keys are held (allow open in new tab, etc.)
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+            return;
         }
 
-        if (link.hasAttribute('data-external') || link.target === '_blank') {
-            return; // Explicitly external
+        // Don't intercept download links
+        if (link.hasAttribute('download')) {
+            return;
+        }
+
+        // Don't intercept links with target (except _self)
+        const target = link.getAttribute('target');
+        if (target && target !== '_self') {
+            return;
+        }
+
+        // Check if link is marked for SPA navigation
+        // Supports both data-link (from router.Link) and data-vango-link (from vdom.NavLink)
+        const isVangoLink = link.hasAttribute('data-vango-link') || link.hasAttribute('data-link');
+        const hasClickHandler = this._hasEvent(link, 'click');
+
+        // Only intercept Vango-marked links or links with click handlers
+        if (!isVangoLink && !hasClickHandler) {
+            return; // Let browser handle native navigation
+        }
+
+        // Check if this is an internal link (same origin)
+        const href = link.getAttribute('href');
+        if (!href) return;
+
+        // Check for cross-origin URLs
+        if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('//')) {
+            try {
+                const url = new URL(href, window.location.origin);
+                if (url.origin !== window.location.origin) {
+                    return; // Cross-origin, let browser handle
+                }
+            } catch {
+                return; // Invalid URL, let browser handle
+            }
+        }
+
+        // Don't intercept if explicitly marked external
+        if (link.hasAttribute('data-external')) {
+            return;
+        }
+
+        // Don't intercept if WebSocket is not connected
+        if (!this.client.connected) {
+            return; // Fall back to native navigation
         }
 
         // Prevent default and navigate via WebSocket
@@ -343,10 +410,61 @@ export class EventCapture {
     }
 
     /**
-     * Handle browser back/forward
+     * Handle browser back/forward navigation.
+     * Sends the full path including search params.
      */
     _handlePopState(event) {
-        this.client.sendEvent(EventType.NAVIGATE, 'nav', { path: location.pathname });
+        // Include search params in navigation path
+        const path = location.pathname + location.search;
+        this.client.sendEvent(EventType.NAVIGATE, 'nav', { path });
+    }
+
+    /**
+     * Handle prefetch on hover for links with data-prefetch attribute.
+     * Per spec Section 9.4: "Preloads on hover"
+     *
+     * This sends a prefetch event to the server which can preload the target
+     * page's data before the user clicks, making navigation feel instant.
+     */
+    _handlePrefetch(event) {
+        const link = event.target.closest('a[data-prefetch][href]');
+        if (!link) return;
+
+        const href = link.getAttribute('href');
+        if (!href) return;
+
+        // Skip external links
+        if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('//')) {
+            try {
+                const url = new URL(href, window.location.origin);
+                if (url.origin !== window.location.origin) {
+                    return; // Cross-origin, don't prefetch
+                }
+            } catch {
+                return;
+            }
+        }
+
+        // Skip if already prefetched
+        if (this.prefetchedPaths.has(href)) {
+            return;
+        }
+
+        // Skip if WebSocket not connected
+        if (!this.client.connected) {
+            return;
+        }
+
+        // Mark as prefetched
+        this.prefetchedPaths.add(href);
+
+        // Send prefetch event to server
+        // The server can use this to preload route data
+        this.client.sendEvent(EventType.CUSTOM, 'prefetch', { name: 'prefetch', path: href });
+
+        if (this.client.options.debug) {
+            console.log('[Vango] Prefetching:', href);
+        }
     }
 
     /**

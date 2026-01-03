@@ -20,11 +20,11 @@ func NewSessionStore() *SessionStore {
 	return &SessionStore{}
 }
 
-// GlobalSignal creates a signal shared across all sessions.
+// NewGlobalSignal creates a signal shared across all sessions.
 // This is just a standard vango.Signal but declared globally.
 // It returns a wrapper to match the interface if needed, or just *Signal.
-// For consistency with SharedSignal, we return *Global[T].
-func GlobalSignal[T any](initial T) *Global[T] {
+// For consistency with NewSharedSignal, we return *Global[T].
+func NewGlobalSignal[T any](initial T) *Global[T] {
 	return &Global[T]{
 		Signal: vango.NewSignal(initial),
 	}
@@ -35,9 +35,9 @@ type Global[T any] struct {
 	*vango.Signal[T]
 }
 
-// SharedSignal creates a definition for a session-scoped signal.
+// NewSharedSignal creates a definition for a session-scoped signal.
 // Accessing it will look up or create the signal in the current session context.
-func SharedSignal[T any](initial T) *Shared[T] {
+func NewSharedSignal[T any](initial T) *Shared[T] {
 	return &Shared[T]{
 		id:      nextID(),
 		initial: initial,

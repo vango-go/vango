@@ -257,3 +257,100 @@ func NavLink(path string, children ...any) *VNode {
 	args = append(args, children...)
 	return A(args...)
 }
+
+// =============================================================================
+// Vango Runtime Scripts
+// =============================================================================
+
+// ScriptsOption is a functional option for VangoScripts.
+type ScriptsOption func(*scriptsOptions)
+
+// scriptsOptions holds configuration for VangoScripts.
+type scriptsOptions struct {
+	Debug     bool   // Enable debug mode
+	Path      string // Custom path to client script
+	CSRFToken string // CSRF token to inject
+	Defer     bool   // Use defer attribute (default: true)
+}
+
+// WithDebug enables debug mode for the thin client.
+// Debug mode logs events, patches, and WebSocket messages to console.
+func WithDebug() ScriptsOption {
+	return func(o *scriptsOptions) {
+		o.Debug = true
+	}
+}
+
+// WithScriptPath sets a custom path for the thin client script.
+// Default is "/_vango/client.js".
+func WithScriptPath(path string) ScriptsOption {
+	return func(o *scriptsOptions) {
+		o.Path = path
+	}
+}
+
+// WithCSRFToken injects a CSRF token for the thin client.
+// The token is used for WebSocket handshake validation.
+func WithCSRFToken(token string) ScriptsOption {
+	return func(o *scriptsOptions) {
+		o.CSRFToken = token
+	}
+}
+
+// WithoutDefer removes the defer attribute from the script tag.
+// By default, scripts are loaded with defer for non-blocking loading.
+func WithoutDefer() ScriptsOption {
+	return func(o *scriptsOptions) {
+		o.Defer = false
+	}
+}
+
+// VangoScripts returns the script tag(s) needed to load the Vango thin client.
+// This should be placed in the <head> or at the end of <body> in your layout.
+//
+// Options can customize behavior:
+//   - WithDebug() - enable console logging
+//   - WithScriptPath(path) - custom script location
+//   - WithCSRFToken(token) - inject CSRF token
+//   - WithoutDefer() - load script synchronously
+//
+// Example usage in a layout:
+//
+//	func Layout(ctx vango.Ctx, children ...*vdom.VNode) *vdom.VNode {
+//	    return vdom.Html(
+//	        vdom.Head(
+//	            vdom.Meta(vdom.Charset("utf-8")),
+//	            vdom.VangoScripts(vdom.WithCSRFToken(ctx.Session().CSRFToken())),
+//	        ),
+//	        vdom.Body(children...),
+//	    )
+//	}
+func VangoScripts(opts ...ScriptsOption) *VNode {
+	options := scriptsOptions{
+		Path:  "/_vango/client.js",
+		Defer: true,
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	// Build script attributes
+	attrs := []any{
+		Src(options.Path),
+		attr("data-vango", "true"),
+	}
+
+	if options.Defer {
+		attrs = append(attrs, attr("defer", ""))
+	}
+
+	if options.Debug {
+		attrs = append(attrs, attr("data-debug", "true"))
+	}
+
+	if options.CSRFToken != "" {
+		attrs = append(attrs, attr("data-csrf", options.CSRFToken))
+	}
+
+	return Script(attrs...)
+}

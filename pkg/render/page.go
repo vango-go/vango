@@ -44,6 +44,11 @@ type PageData struct {
 	// Lang is the language attribute for the html element
 	// Defaults to "en" if not specified
 	Lang string
+
+	// Debug enables debug mode for the thin client.
+	// When true, adds data-debug="true" to the client script tag.
+	// Should be false in production.
+	Debug bool
 }
 
 // MetaTag represents a meta element in the document head.
@@ -369,10 +374,17 @@ func (r *Renderer) renderClientScript(w io.Writer, page PageData) error {
 		clientPath = "/_vango/client.js"
 	}
 
-	// Enable debug mode for development
-	if _, err := fmt.Fprintf(w, `  <script src="%s" data-debug="true" defer></script>`+"\n",
-		escapeAttr(clientPath)); err != nil {
-		return err
+	// Build script tag with optional debug attribute
+	if page.Debug {
+		if _, err := fmt.Fprintf(w, `  <script src="%s" data-debug="true" defer></script>`+"\n",
+			escapeAttr(clientPath)); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintf(w, `  <script src="%s" defer></script>`+"\n",
+			escapeAttr(clientPath)); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -398,29 +410,34 @@ func renderHookConfig(w io.Writer, hookConfig HookConfig) error {
 	return nil
 }
 
-// renderOptimisticConfig renders optimistic update configuration as data attributes.
+// renderOptimisticConfig renders optimistic update configuration as a single JSON data attribute.
+// This matches the spec requirement for data-optimistic='{"class":"...","text":"..."}'.
 // This is called internally by renderAttributes when _optimistic prop is present.
 func renderOptimisticConfig(w io.Writer, config OptimisticConfig) error {
+	// Build JSON object with only non-empty fields
+	data := make(map[string]string)
 	if config.Class != "" {
-		if _, err := fmt.Fprintf(w, ` data-optimistic-class="%s"`, escapeAttr(config.Class)); err != nil {
-			return err
-		}
+		data["class"] = config.Class
 	}
-
 	if config.Text != "" {
-		if _, err := fmt.Fprintf(w, ` data-optimistic-text="%s"`, escapeAttr(config.Text)); err != nil {
-			return err
+		data["text"] = config.Text
+	}
+	if config.Attr != "" {
+		data["attr"] = config.Attr
+		if config.Value != "" {
+			data["value"] = config.Value
 		}
 	}
 
-	if config.Attr != "" {
-		if _, err := fmt.Fprintf(w, ` data-optimistic-attr="%s"`, escapeAttr(config.Attr)); err != nil {
-			return err
+	// Only render if we have any configuration
+	if len(data) > 0 {
+		jsonBytes, err := json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("failed to marshal optimistic config: %w", err)
 		}
-		if config.Value != "" {
-			if _, err := fmt.Fprintf(w, ` data-optimistic-value="%s"`, escapeAttr(config.Value)); err != nil {
-				return err
-			}
+		// Use single quotes for the attribute value to allow double quotes in JSON
+		if _, err := fmt.Fprintf(w, ` data-optimistic='%s'`, string(jsonBytes)); err != nil {
+			return err
 		}
 	}
 
