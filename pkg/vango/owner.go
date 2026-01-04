@@ -19,6 +19,8 @@ const (
 	HookResource
 	HookForm
 	HookURLParam
+	HookRef
+	HookContext
 )
 
 // String returns a human-readable name for the hook type.
@@ -36,6 +38,10 @@ func (h HookType) String() string {
 		return "Form"
 	case HookURLParam:
 		return "URLParam"
+	case HookRef:
+		return "Ref"
+	case HookContext:
+		return "Context"
 	default:
 		return "Unknown"
 	}

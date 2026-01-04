@@ -44,7 +44,13 @@ type Resource[T any] struct {
 
 // New creates a new Resource with the given fetcher function.
 // The fetch is triggered immediately.
+//
+// This is a hook-like API and MUST be called unconditionally during render.
+// See §3.1.3 Hook-Order Semantics.
 func New[T any](fetcher func() (T, error)) *Resource[T] {
+	// Track hook call for dev-mode order validation
+	vango.TrackHook(vango.HookResource)
+
 	r := &Resource[T]{
 		fetcher: fetcher,
 		state:   vango.NewSignal(Pending),
@@ -57,14 +63,29 @@ func New[T any](fetcher func() (T, error)) *Resource[T] {
 
 // NewWithKey creates a Resource that automatically refetches when the key changes.
 // The key function is tracked reactively.
+//
+// This is a hook-like API and MUST be called unconditionally during render.
+// See §3.1.3 Hook-Order Semantics.
 func NewWithKey[K comparable, T any](key func() K, fetcher func(K) (T, error)) *Resource[T] {
+	// Track hook call for dev-mode order validation
+	// Note: We track here instead of relying on New() because NewWithKey
+	// is semantically a separate hook type (keyed resource vs simple resource)
+	vango.TrackHook(vango.HookResource)
+
 	// Wrap fetcher to use current key
 	wrappedFetcher := func() (T, error) {
 		k := key() // Track dependency
 		return fetcher(k)
 	}
 
-	r := New(wrappedFetcher)
+	// Create resource without tracking (we already tracked above)
+	r := &Resource[T]{
+		fetcher: wrappedFetcher,
+		state:   vango.NewSignal(Pending),
+		data:    vango.NewSignal(*new(T)),
+		err:     vango.NewSignal[error](nil),
+	}
+	r.Fetch()
 
 	// Setup effect to refetch when key changes
 	vango.CreateEffect(func() vango.Cleanup {

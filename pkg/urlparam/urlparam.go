@@ -142,6 +142,9 @@ type URLParam[T any] struct {
 // Param creates a new URL parameter with the given key and default value.
 // If key is empty, the struct fields are used as keys (for flat encoding).
 //
+// This is a hook-like API and MUST be called unconditionally during render.
+// See §3.1.3 Hook-Order Semantics.
+//
 // Example:
 //
 //	// Simple string param
@@ -157,6 +160,9 @@ type URLParam[T any] struct {
 //	}
 //	filters := urlparam.Param("", Filters{}, urlparam.WithEncoding(urlparam.EncodingFlat))
 func Param[T any](key string, defaultValue T, opts ...URLParamOption) *URLParam[T] {
+	// Track hook call for dev-mode order validation
+	vango.TrackHook(vango.HookURLParam)
+
 	var config urlParamConfig
 	for _, opt := range opts {
 		opt.applyURLParam(&config)

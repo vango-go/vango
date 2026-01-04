@@ -36,7 +36,13 @@ type fieldMeta struct {
 
 // UseForm creates a new Form bound to the given struct type.
 // The initial value is used as the default state and for Reset().
+//
+// This is a hook-like API and MUST be called unconditionally during render.
+// See §3.1.3 Hook-Order Semantics.
 func UseForm[T any](initial T) *Form[T] {
+	// Track hook call for dev-mode order validation
+	vango.TrackHook(vango.HookForm)
+
 	f := &Form[T]{
 		initial:    initial,
 		values:     vango.NewSignal(initial),

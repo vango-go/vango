@@ -247,3 +247,250 @@ func TestOwnerConcurrent(t *testing.T) {
 	// Dispose should work without panicking
 	root.Dispose()
 }
+
+// ============================================================================
+// Hook Order Validation Tests (§3.1.3)
+// ============================================================================
+
+func TestHookOrderTrackingDisabledByDefault(t *testing.T) {
+	// With DebugMode off, tracking should be no-op
+	oldDebugMode := DebugMode
+	DebugMode = false
+	defer func() { DebugMode = oldDebugMode }()
+
+	owner := NewOwner(nil)
+
+	// Should not panic even with different hook orders
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.EndRender()
+
+	owner.StartRender()
+	owner.TrackHook(HookMemo) // Different hook type on re-render
+	owner.EndRender()
+	// No panic expected - tracking is off
+}
+
+func TestHookOrderTrackingFirstRender(t *testing.T) {
+	// Enable debug mode
+	oldDebugMode := DebugMode
+	DebugMode = true
+	defer func() { DebugMode = oldDebugMode }()
+
+	owner := NewOwner(nil)
+
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.TrackHook(HookMemo)
+	owner.TrackHook(HookEffect)
+	owner.EndRender()
+
+	// Hook order should be recorded: [Signal, Memo, Effect]
+	if len(owner.hookOrder) != 3 {
+		t.Errorf("expected 3 hooks recorded, got %d", len(owner.hookOrder))
+	}
+	if owner.hookOrder[0].Type != HookSignal {
+		t.Errorf("expected first hook to be Signal, got %s", owner.hookOrder[0].Type)
+	}
+	if owner.hookOrder[1].Type != HookMemo {
+		t.Errorf("expected second hook to be Memo, got %s", owner.hookOrder[1].Type)
+	}
+	if owner.hookOrder[2].Type != HookEffect {
+		t.Errorf("expected third hook to be Effect, got %s", owner.hookOrder[2].Type)
+	}
+}
+
+func TestHookOrderTrackingSecondRenderSameOrder(t *testing.T) {
+	// Enable debug mode
+	oldDebugMode := DebugMode
+	DebugMode = true
+	defer func() { DebugMode = oldDebugMode }()
+
+	owner := NewOwner(nil)
+
+	// First render
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.TrackHook(HookMemo)
+	owner.EndRender()
+
+	// Second render with same order - should not panic
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.TrackHook(HookMemo)
+	owner.EndRender()
+	// No panic expected
+}
+
+func TestHookOrderTrackingWrongTypePanics(t *testing.T) {
+	// Enable debug mode
+	oldDebugMode := DebugMode
+	DebugMode = true
+	defer func() { DebugMode = oldDebugMode }()
+
+	owner := NewOwner(nil)
+
+	// First render
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.TrackHook(HookMemo)
+	owner.EndRender()
+
+	// Second render with different type at index 1
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("expected panic for hook order change")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Errorf("expected string panic, got %T: %v", r, r)
+		}
+		if !contains(msg, "VANGO E002") {
+			t.Errorf("expected panic message to contain 'VANGO E002', got: %s", msg)
+		}
+	}()
+
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.TrackHook(HookEffect) // Wrong! Was Memo before
+	owner.EndRender()
+}
+
+func TestHookOrderTrackingExtraHookPanics(t *testing.T) {
+	// Enable debug mode
+	oldDebugMode := DebugMode
+	DebugMode = true
+	defer func() { DebugMode = oldDebugMode }()
+
+	owner := NewOwner(nil)
+
+	// First render
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.EndRender()
+
+	// Second render with extra hook
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("expected panic for extra hook")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Errorf("expected string panic, got %T: %v", r, r)
+		}
+		if !contains(msg, "VANGO E002") {
+			t.Errorf("expected panic message to contain 'VANGO E002', got: %s", msg)
+		}
+	}()
+
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.TrackHook(HookMemo) // Extra hook!
+	owner.EndRender()
+}
+
+func TestHookOrderTrackingMissingHookPanics(t *testing.T) {
+	// Enable debug mode
+	oldDebugMode := DebugMode
+	DebugMode = true
+	defer func() { DebugMode = oldDebugMode }()
+
+	owner := NewOwner(nil)
+
+	// First render with 2 hooks
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	owner.TrackHook(HookMemo)
+	owner.EndRender()
+
+	// Second render with only 1 hook - should panic on EndRender
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("expected panic for missing hook")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Errorf("expected string panic, got %T: %v", r, r)
+		}
+		if !contains(msg, "VANGO E002") {
+			t.Errorf("expected panic message to contain 'VANGO E002', got: %s", msg)
+		}
+	}()
+
+	owner.StartRender()
+	owner.TrackHook(HookSignal)
+	// Missing HookMemo!
+	owner.EndRender()
+}
+
+func TestHookTypeString(t *testing.T) {
+	tests := []struct {
+		hook     HookType
+		expected string
+	}{
+		{HookSignal, "Signal"},
+		{HookMemo, "Memo"},
+		{HookEffect, "Effect"},
+		{HookResource, "Resource"},
+		{HookForm, "Form"},
+		{HookURLParam, "URLParam"},
+		{HookRef, "Ref"},
+		{HookContext, "Context"},
+		{HookType(99), "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			if got := tt.hook.String(); got != tt.expected {
+				t.Errorf("HookType(%d).String() = %q, want %q", tt.hook, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestTrackHookPublicAPI(t *testing.T) {
+	// Enable debug mode
+	oldDebugMode := DebugMode
+	DebugMode = true
+	defer func() { DebugMode = oldDebugMode }()
+
+	owner := NewOwner(nil)
+
+	// Set owner context
+	WithOwner(owner, func() {
+		owner.StartRender()
+
+		// Public TrackHook should work
+		TrackHook(HookSignal)
+		TrackHook(HookForm)
+		TrackHook(HookResource)
+
+		owner.EndRender()
+	})
+
+	if len(owner.hookOrder) != 3 {
+		t.Errorf("expected 3 hooks recorded via public API, got %d", len(owner.hookOrder))
+	}
+}
+
+func TestTrackHookNoOwnerNoOp(t *testing.T) {
+	// Public TrackHook should be no-op when no owner is set
+	TrackHook(HookSignal) // Should not panic
+}
+
+// contains checks if s contains substr
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

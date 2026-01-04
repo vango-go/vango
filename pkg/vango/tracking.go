@@ -215,3 +215,21 @@ func WithCtx(c any, fn func()) {
 	defer setCurrentCtx(old)
 	fn()
 }
+
+// TrackHook records a hook call for the current owner.
+// This is used by feature packages (resource, form, urlparam) to participate
+// in hook-order validation during dev mode.
+//
+// External packages should call this at the beginning of their hook constructors:
+//
+//	func UseForm[T any](initial T) *Form[T] {
+//	    vango.TrackHook(vango.HookForm)
+//	    // ... rest of implementation
+//	}
+//
+// If no owner is set (outside of render context), this is a no-op.
+func TrackHook(ht HookType) {
+	if owner := getCurrentOwner(); owner != nil {
+		owner.TrackHook(ht)
+	}
+}
