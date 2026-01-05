@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // NavigateOptions configures navigation behavior.

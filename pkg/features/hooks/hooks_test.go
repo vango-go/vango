@@ -3,7 +3,7 @@ package hooks
 import (
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/render"
+	"github.com/vango-go/vango/pkg/render"
 )
 
 func TestHook(t *testing.T) {

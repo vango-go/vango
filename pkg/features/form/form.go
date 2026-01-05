@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vango-dev/vango/v2/pkg/vango"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vango"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // Form is a type-safe form handler with validation support.

@@ -8,9 +8,9 @@ import (
 	"unicode"
 
 	"github.com/spf13/cobra"
-	"github.com/vango-dev/vango/v2/internal/config"
-	"github.com/vango-dev/vango/v2/internal/errors"
-	"github.com/vango-dev/vango/v2/pkg/router"
+	"github.com/vango-go/vango/internal/config"
+	"github.com/vango-go/vango/internal/errors"
+	"github.com/vango-go/vango/pkg/router"
 )
 
 func genCmd() *cobra.Command {
@@ -1013,7 +1013,7 @@ func generateStoreCode(name string, isGlobal bool) string {
 	return fmt.Sprintf(`package store
 
 import (
-	vstore "github.com/vango-dev/vango/v2/pkg/features/store"
+	vstore "github.com/vango-go/vango/pkg/features/store"
 )
 
 // %sState holds the state for %s.

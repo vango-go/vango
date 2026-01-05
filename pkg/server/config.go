@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/session"
+	"github.com/vango-go/vango/pkg/session"
 )
 
 // SessionConfig holds configuration for individual sessions.

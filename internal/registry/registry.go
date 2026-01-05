@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vango-dev/vango/v2/internal/config"
-	"github.com/vango-dev/vango/v2/internal/errors"
+	"github.com/vango-go/vango/internal/config"
+	"github.com/vango-go/vango/internal/errors"
 )
 
 // Manifest represents the registry manifest.
@@ -375,7 +375,7 @@ func CN(classes ...string) string {
 	// Create base.go
 	baseContent := `package ui
 
-import . "github.com/vango-dev/vango/v2/pkg/vdom"
+import . "github.com/vango-go/vango/pkg/vdom"
 
 // BaseConfig contains common configuration for all components.
 type BaseConfig struct {

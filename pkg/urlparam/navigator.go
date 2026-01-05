@@ -1,6 +1,6 @@
 package urlparam
 
-import "github.com/vango-dev/vango/v2/pkg/protocol"
+import "github.com/vango-go/vango/pkg/protocol"
 
 // NavigatorKey is the context key for the URL navigator.
 // The session sets this on the root owner so URLParam can queue patches.

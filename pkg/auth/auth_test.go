@@ -3,8 +3,8 @@ package auth_test
 import (
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/auth"
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/auth"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // TestUser is a mock user type for testing.

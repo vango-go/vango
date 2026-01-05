@@ -5,7 +5,7 @@ package ui
 import (
 	"fmt"
 
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // ProgressOption configures a Progress component.

@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // TestUser represents a user for testing.

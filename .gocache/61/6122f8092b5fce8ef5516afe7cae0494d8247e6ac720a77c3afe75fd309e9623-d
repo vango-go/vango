@@ -1,9 +1,0 @@
-./attributes.go
-./diff.go
-./doc.go
-./elements.go
-./events.go
-./helpers.go
-./hydration.go
-./patch.go
-./vnode.go

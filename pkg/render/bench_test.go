@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 func BenchmarkRenderSimple(b *testing.B) {

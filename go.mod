@@ -1,4 +1,4 @@
-module github.com/vango-dev/vango/v2
+module github.com/vango-go/vango
 
 go 1.23
 

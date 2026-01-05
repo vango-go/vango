@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/session"
+	"github.com/vango-go/vango/pkg/session"
 )
 
 func testLogger() *slog.Logger {

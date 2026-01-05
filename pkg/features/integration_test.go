@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/features/context"
-	"github.com/vango-dev/vango/v2/pkg/features/form"
-	"github.com/vango-dev/vango/v2/pkg/features/resource"
-	"github.com/vango-dev/vango/v2/pkg/features/store"
-	"github.com/vango-dev/vango/v2/pkg/features/urlstate"
-	"github.com/vango-dev/vango/v2/pkg/vango"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/features/context"
+	"github.com/vango-go/vango/pkg/features/form"
+	"github.com/vango-go/vango/pkg/features/resource"
+	"github.com/vango-go/vango/pkg/features/store"
+	"github.com/vango-go/vango/pkg/features/urlstate"
+	"github.com/vango-go/vango/pkg/vango"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // Integration tests verify that features packages work together correctly.

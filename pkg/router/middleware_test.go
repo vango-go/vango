@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // mockCtx is a minimal implementation for testing

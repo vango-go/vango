@@ -1,6 +1,6 @@
 package toast
 
-import "github.com/vango-dev/vango/v2/pkg/server"
+import "github.com/vango-go/vango/pkg/server"
 
 // EventName is the event name dispatched for toasts.
 // Client-side code should listen for this event.

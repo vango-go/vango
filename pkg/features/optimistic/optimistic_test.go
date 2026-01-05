@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/render"
+	"github.com/vango-go/vango/pkg/render"
 )
 
 // contains is a helper for checking substring presence

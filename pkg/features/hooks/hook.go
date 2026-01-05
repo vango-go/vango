@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/vango-dev/vango/v2/pkg/render"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/render"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // Hook creates a hook attribute for an element.

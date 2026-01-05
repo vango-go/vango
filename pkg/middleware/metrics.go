@@ -6,8 +6,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/vango-dev/vango/v2/pkg/router"
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/router"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // MetricsConfig configures the Prometheus metrics middleware.

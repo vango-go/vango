@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vango-dev/vango/v2/internal/config"
-	"github.com/vango-dev/vango/v2/internal/tailwind"
-	"github.com/vango-dev/vango/v2/pkg/router"
+	"github.com/vango-go/vango/internal/config"
+	"github.com/vango-go/vango/internal/tailwind"
+	"github.com/vango-go/vango/pkg/router"
 )
 
 // ServerOptions configures the development server.

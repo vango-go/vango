@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // ComposeMiddleware builds a handler chain from middleware and a final handler.

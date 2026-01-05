@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vango-dev/vango/v2/internal/errors"
+	"github.com/vango-go/vango/internal/errors"
 )
 
 const (

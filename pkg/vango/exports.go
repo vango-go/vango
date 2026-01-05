@@ -1,6 +1,6 @@
 package vango
 
-import "github.com/vango-dev/vango/v2/pkg/vdom"
+import "github.com/vango-go/vango/pkg/vdom"
 
 // =============================================================================
 // Re-exports for Spec Compliance
@@ -14,8 +14,8 @@ import "github.com/vango-dev/vango/v2/pkg/vdom"
 // The elements themselves are still imported from vdom:
 //
 //     import (
-//         "github.com/vango-dev/vango/v2/pkg/vango"
-//         . "github.com/vango-dev/vango/v2/pkg/vdom"
+//         "github.com/vango-go/vango/pkg/vango"
+//         . "github.com/vango-go/vango/pkg/vdom"
 //     )
 
 // Func wraps a render function as a Component.

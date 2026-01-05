@@ -1,8 +1,8 @@
 package router
 
 import (
-	"github.com/vango-dev/vango/v2/pkg/server"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/server"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // Slot represents the child content passed to a layout.

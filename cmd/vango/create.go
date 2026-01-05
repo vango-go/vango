@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/vango-dev/vango/v2/internal/errors"
-	"github.com/vango-dev/vango/v2/internal/tailwind"
-	"github.com/vango-dev/vango/v2/internal/templates"
+	"github.com/vango-go/vango/internal/errors"
+	"github.com/vango-go/vango/internal/tailwind"
+	"github.com/vango-go/vango/internal/templates"
 )
 
 func createCmd() *cobra.Command {

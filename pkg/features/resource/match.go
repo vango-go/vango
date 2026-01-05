@@ -1,7 +1,7 @@
 package resource
 
 import (
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // Match renders different content based on the resource state.

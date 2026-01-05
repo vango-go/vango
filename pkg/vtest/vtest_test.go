@@ -3,9 +3,9 @@ package vtest_test
 import (
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/auth"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
-	"github.com/vango-dev/vango/v2/pkg/vtest"
+	"github.com/vango-go/vango/pkg/auth"
+	"github.com/vango-go/vango/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vtest"
 )
 
 type TestUser struct {

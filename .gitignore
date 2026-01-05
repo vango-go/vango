@@ -1,0 +1,22 @@
+# Build artifacts
+*.test
+*.exe
+*.out
+/vango
+
+# Go cache
+.gocache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage.out
+*.coverprofile

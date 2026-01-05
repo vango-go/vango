@@ -4,8 +4,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/features/hooks"
-	"github.com/vango-dev/vango/v2/pkg/protocol"
+	"github.com/vango-go/vango/pkg/features/hooks"
+	"github.com/vango-go/vango/pkg/protocol"
 )
 
 // Handler is the internal event handler function type.

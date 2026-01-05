@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 func TestNewResource(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/vango-dev/vango/v2/internal/config"
-	"github.com/vango-dev/vango/v2/internal/dev"
+	"github.com/vango-go/vango/internal/config"
+	"github.com/vango-go/vango/internal/dev"
 )
 
 func devCmd() *cobra.Command {

@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // Link creates an anchor element with client-side navigation.

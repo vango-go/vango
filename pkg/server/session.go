@@ -16,13 +16,13 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/vango-dev/vango/v2/pkg/features/store"
-	"github.com/vango-dev/vango/v2/pkg/protocol"
-	"github.com/vango-dev/vango/v2/pkg/render"
-	"github.com/vango-dev/vango/v2/pkg/session"
-	"github.com/vango-dev/vango/v2/pkg/urlparam"
-	"github.com/vango-dev/vango/v2/pkg/vango"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/features/store"
+	"github.com/vango-go/vango/pkg/protocol"
+	"github.com/vango-go/vango/pkg/render"
+	"github.com/vango-go/vango/pkg/session"
+	"github.com/vango-go/vango/pkg/urlparam"
+	"github.com/vango-go/vango/pkg/vango"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // DebugMode enables extra validation and logging for development.

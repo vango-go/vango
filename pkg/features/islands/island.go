@@ -3,8 +3,8 @@ package islands
 import (
 	"encoding/json"
 
-	"github.com/vango-dev/vango/v2/pkg/vango"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vango"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // JSModule is a path to a JavaScript module.

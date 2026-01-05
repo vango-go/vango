@@ -3,7 +3,7 @@ package protocol
 import (
 	"strings"
 
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // VNodeWire is the wire format for VNodes.

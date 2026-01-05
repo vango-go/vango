@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vango-dev/vango/v2/internal/config"
+	"github.com/vango-go/vango/internal/config"
 )
 
 func TestNew(t *testing.T) {

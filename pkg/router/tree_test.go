@@ -3,8 +3,8 @@ package router
 import (
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/server"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/server"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // dummyPageHandler is a test page handler.

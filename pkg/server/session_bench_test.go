@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // BenchmarkSessionGet benchmarks Session.Get performance.

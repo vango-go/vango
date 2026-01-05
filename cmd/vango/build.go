@@ -8,8 +8,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/vango-dev/vango/v2/internal/build"
-	"github.com/vango-dev/vango/v2/internal/config"
+	"github.com/vango-go/vango/internal/build"
+	"github.com/vango-go/vango/internal/config"
 )
 
 func buildCmd() *cobra.Command {

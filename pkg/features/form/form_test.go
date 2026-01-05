@@ -3,7 +3,7 @@ package form
 import (
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // TestContact is a test form struct.

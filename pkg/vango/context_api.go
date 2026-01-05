@@ -1,7 +1,7 @@
 package vango
 
 import (
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // Context provides dependency injection through the component tree.

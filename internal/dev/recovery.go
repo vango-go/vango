@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vango-dev/vango/v2/pkg/router"
+	"github.com/vango-go/vango/pkg/router"
 )
 
 // ErrorRecovery handles automatic recovery from common build errors.

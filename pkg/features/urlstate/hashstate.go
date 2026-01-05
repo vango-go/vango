@@ -1,7 +1,7 @@
 package urlstate
 
 import (
-	"github.com/vango-dev/vango/v2/pkg/vango"
+	"github.com/vango-go/vango/pkg/vango"
 )
 
 // HashState represents reactive state synchronized with the URL hash.

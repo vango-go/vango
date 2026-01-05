@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"github.com/vango-dev/vango/v2/pkg/router"
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/router"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // RequireAuth is Vango middleware that requires authentication.

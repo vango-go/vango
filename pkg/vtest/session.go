@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/server"
-	"github.com/vango-dev/vango/v2/pkg/session"
+	"github.com/vango-go/vango/pkg/server"
+	"github.com/vango-go/vango/pkg/session"
 )
 
 // Common errors for test session operations.

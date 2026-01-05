@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // FormArrayItem represents an item in a form array.

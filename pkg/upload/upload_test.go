@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/upload"
+	"github.com/vango-go/vango/pkg/upload"
 )
 
 func TestDiskStore_SaveAndClaim(t *testing.T) {

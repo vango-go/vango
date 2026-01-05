@@ -4,7 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/vango-dev/vango/v2/pkg/vango"
+	"github.com/vango-go/vango/pkg/vango"
 )
 
 // SessionKey is the context key for the session store.

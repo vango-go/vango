@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // RendererConfig configures the HTML renderer.

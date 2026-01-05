@@ -3,8 +3,8 @@ package toast_test
 import (
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/server"
-	"github.com/vango-dev/vango/v2/pkg/toast"
+	"github.com/vango-go/vango/pkg/server"
+	"github.com/vango-go/vango/pkg/toast"
 )
 
 // mockCtx implements server.Ctx for testing.

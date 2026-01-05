@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/vango"
+	"github.com/vango-go/vango/pkg/vango"
 )
 
 // URLState represents a reactive state synced with a URL parameter.

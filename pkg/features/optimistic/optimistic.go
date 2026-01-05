@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vango-dev/vango/v2/pkg/render"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/render"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // OptimisticBuilder combines multiple optimistic options into one config.

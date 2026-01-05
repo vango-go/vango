@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vango-dev/vango/v2/internal/config"
-	"github.com/vango-dev/vango/v2/internal/errors"
+	"github.com/vango-go/vango/internal/config"
+	"github.com/vango-go/vango/internal/errors"
 )
 
 // Result contains the build output.

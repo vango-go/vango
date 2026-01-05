@@ -35,10 +35,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/vango-dev/vango/v2/pkg/protocol"
-	"github.com/vango-dev/vango/v2/pkg/server"
-	"github.com/vango-dev/vango/v2/pkg/vango"
-	. "github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/protocol"
+	"github.com/vango-go/vango/pkg/server"
+	"github.com/vango-go/vango/pkg/vango"
+	. "github.com/vango-go/vango/pkg/vdom"
 )
 
 func main() {

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vango-dev/vango/v2/pkg/vango"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vango"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // Stadium Benchmark Suite

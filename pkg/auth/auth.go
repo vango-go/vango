@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"reflect"
 
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // SessionKey is the standard session key for the authenticated user.

@@ -8,8 +8,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/vango-dev/vango/v2/internal/config"
-	"github.com/vango-dev/vango/v2/internal/registry"
+	"github.com/vango-go/vango/internal/config"
+	"github.com/vango-go/vango/internal/registry"
 )
 
 var addPath string

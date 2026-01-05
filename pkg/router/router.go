@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/vango-dev/vango/v2/pkg/server"
+	"github.com/vango-go/vango/pkg/server"
 )
 
 // Router manages route matching and handler dispatch.

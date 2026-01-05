@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/vango-dev/vango/v2/internal/errors"
+	"github.com/vango-go/vango/internal/errors"
 )
 
 // Config contains template configuration.

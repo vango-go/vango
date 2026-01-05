@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // PageData contains all data needed to render a complete HTML page.

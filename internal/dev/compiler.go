@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vango-dev/vango/v2/internal/errors"
+	"github.com/vango-go/vango/internal/errors"
 )
 
 // CompilerConfig configures the Go compiler.

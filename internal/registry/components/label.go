@@ -3,7 +3,7 @@
 package ui
 
 import (
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // LabelOption configures a Label component.

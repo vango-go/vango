@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vango-dev/vango/v2/pkg/auth"
-	"github.com/vango-dev/vango/v2/pkg/render"
-	"github.com/vango-dev/vango/v2/pkg/server"
-	"github.com/vango-dev/vango/v2/pkg/vdom"
+	"github.com/vango-go/vango/pkg/auth"
+	"github.com/vango-go/vango/pkg/render"
+	"github.com/vango-go/vango/pkg/server"
+	"github.com/vango-go/vango/pkg/vdom"
 )
 
 // CtxBuilder allows fluent construction of test contexts.

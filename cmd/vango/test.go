@@ -5,7 +5,7 @@ import (
 	"os/exec"
 
 	"github.com/spf13/cobra"
-	"github.com/vango-dev/vango/v2/internal/config"
+	"github.com/vango-go/vango/internal/config"
 )
 
 func testCmd() *cobra.Command {
