@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vango-dev/vango/v2/internal/errors"
+	"github.com/vango-dev/vango/v2/internal/tailwind"
 	"github.com/vango-dev/vango/v2/internal/templates"
 )
 
@@ -110,6 +112,14 @@ func runCreate(name string, opts createOptions) error {
 		opts.description, err = promptForDescription(opts.description)
 		if err != nil {
 			return err
+		}
+
+		// Only prompt for Tailwind if not already specified via flags
+		if !opts.withTailwind && !opts.full && !opts.minimal {
+			opts.withTailwind, err = promptForTailwind()
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -215,10 +225,8 @@ func runCreate(name string, opts createOptions) error {
 
 	// Show additional setup for optional features
 	if cfg.HasTailwind {
-		fmt.Println("  Tailwind CSS setup:")
-		fmt.Println()
-		fmt.Println("    npm install")
-		fmt.Println("    npm run watch:css")
+		fmt.Println("  Tailwind CSS is enabled and will compile automatically")
+		fmt.Println("  when you run 'vango dev'. No Node.js required!")
 		fmt.Println()
 	}
 
@@ -248,6 +256,22 @@ func promptForDescription(description string) (string, error) {
 		description = "A Vango web application"
 	}
 	return description, nil
+}
+
+func promptForTailwind() (bool, error) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("? Include Tailwind CSS? [Y/n] ")
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+
+	// Default to yes (empty or 'y' or 'yes')
+	if answer == "" || answer == "y" || answer == "yes" {
+		return true, nil
+	}
+	return false, nil
 }
 
 func isValidProjectName(name string) bool {
@@ -298,29 +322,36 @@ func goModTidy(dir string) error {
 }
 
 func setupTailwind(dir, projectName string) error {
-	// Check if npm/npx is available
-	if _, err := exec.LookPath("npx"); err != nil {
-		return fmt.Errorf("npx not found, please install Node.js")
+	// Download the standalone Tailwind binary (no Node.js required)
+	binary := tailwind.NewBinary()
+
+	ctx := context.Background()
+	_, err := binary.EnsureInstalled(ctx, func(msg string) {
+		info("  %s", msg)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to install Tailwind CLI: %w", err)
 	}
 
-	// Initialize package.json if not exists
-	packageJSON := filepath.Join(dir, "package.json")
-	if _, err := os.Stat(packageJSON); os.IsNotExist(err) {
-		content := `{
-  "name": "` + projectName + `",
-  "private": true,
-  "scripts": {
-    "build:css": "npx tailwindcss -i ./app/styles/input.css -o ./public/styles.css --minify",
-    "watch:css": "npx tailwindcss -i ./app/styles/input.css -o ./public/styles.css --watch"
-  },
-  "devDependencies": {
-    "tailwindcss": "^3.4.0"
-  }
-}
-`
-		if err := os.WriteFile(packageJSON, []byte(content), 0644); err != nil {
+	// Create input CSS file if it doesn't exist
+	inputCSS := filepath.Join(dir, "app", "styles", "input.css")
+	if _, err := os.Stat(inputCSS); os.IsNotExist(err) {
+		// Ensure directory exists
+		if err := os.MkdirAll(filepath.Dir(inputCSS), 0755); err != nil {
 			return err
 		}
+
+		content := `@import "tailwindcss";
+`
+		if err := os.WriteFile(inputCSS, []byte(content), 0644); err != nil {
+			return err
+		}
+	}
+
+	// Create output directory if it doesn't exist
+	outputDir := filepath.Join(dir, "public")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
 	}
 
 	return nil

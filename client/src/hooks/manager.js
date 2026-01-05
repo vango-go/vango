@@ -21,6 +21,7 @@ export class HookManager {
     constructor(client) {
         this.client = client;
         this.instances = new Map(); // hid -> { hook, instance, el }
+        this.pendingReverts = new Map(); // hid -> revertFn
 
         // Register standard hooks (Section 8.4 of spec)
         this.hooks = {
@@ -37,6 +38,18 @@ export class HookManager {
             'Dialog': DialogHook,
             'Popover': PopoverHook,
         };
+
+        // Listen for revert events from server
+        document.addEventListener('vango:hook-revert', (e) => {
+            const hid = e.detail?.hid;
+            if (hid && this.pendingReverts.has(hid)) {
+                const revertFn = this.pendingReverts.get(hid);
+                if (typeof revertFn === 'function') {
+                    revertFn();
+                }
+                this.pendingReverts.delete(hid);
+            }
+        });
     }
 
     /**
@@ -108,8 +121,12 @@ export class HookManager {
             }
         }
 
-        // Create push event function
-        const pushEvent = (eventName, data = {}) => {
+        // Create push event function with optional revert callback
+        const pushEvent = (eventName, data = {}, revertFn = null) => {
+            // Store revert callback if provided
+            if (typeof revertFn === 'function') {
+                this.pendingReverts.set(hid, revertFn);
+            }
             this.client.sendHookEvent(hid, eventName, data);
         };
 
@@ -154,7 +171,10 @@ export class HookManager {
     updateConfig(hid, config) {
         const entry = this.instances.get(hid);
         if (entry && entry.instance.updated) {
-            const pushEvent = (eventName, data = {}) => {
+            const pushEvent = (eventName, data = {}, revertFn = null) => {
+                if (typeof revertFn === 'function') {
+                    this.pendingReverts.set(hid, revertFn);
+                }
                 this.client.sendHookEvent(hid, eventName, data);
             };
             entry.instance.updated(entry.el, config, pushEvent);

@@ -481,6 +481,116 @@ func TestTrackHookNoOwnerNoOp(t *testing.T) {
 	TrackHook(HookSignal) // Should not panic
 }
 
+// ============================================================================
+// Hook Slot Tests
+// ============================================================================
+
+func TestHookSlotFirstRenderReturnsNil(t *testing.T) {
+	owner := NewOwner(nil)
+
+	WithOwner(owner, func() {
+		owner.StartRender()
+
+		// First render: UseHookSlot returns nil
+		slot := UseHookSlot()
+		if slot != nil {
+			t.Errorf("expected nil on first render, got %v", slot)
+		}
+
+		// Store a value
+		SetHookSlot("test-value")
+
+		owner.EndRender()
+	})
+}
+
+func TestHookSlotSubsequentRenderReturnsStored(t *testing.T) {
+	owner := NewOwner(nil)
+
+	// First render
+	WithOwner(owner, func() {
+		owner.StartRender()
+		slot := UseHookSlot()
+		if slot != nil {
+			t.Fatal("expected nil on first render")
+		}
+		SetHookSlot("my-hook-value")
+		owner.EndRender()
+	})
+
+	// Second render: should return stored value
+	WithOwner(owner, func() {
+		owner.StartRender()
+		slot := UseHookSlot()
+		if slot != "my-hook-value" {
+			t.Errorf("expected stored value, got %v", slot)
+		}
+		owner.EndRender()
+	})
+}
+
+func TestHookSlotMultipleSlots(t *testing.T) {
+	owner := NewOwner(nil)
+
+	// First render: create multiple slots
+	WithOwner(owner, func() {
+		owner.StartRender()
+
+		slot1 := UseHookSlot()
+		if slot1 != nil {
+			t.Fatal("slot1 should be nil on first render")
+		}
+		SetHookSlot("first")
+
+		slot2 := UseHookSlot()
+		if slot2 != nil {
+			t.Fatal("slot2 should be nil on first render")
+		}
+		SetHookSlot(42)
+
+		slot3 := UseHookSlot()
+		if slot3 != nil {
+			t.Fatal("slot3 should be nil on first render")
+		}
+		SetHookSlot(struct{ Name string }{"test"})
+
+		owner.EndRender()
+	})
+
+	// Second render: all slots should return their values
+	WithOwner(owner, func() {
+		owner.StartRender()
+
+		slot1 := UseHookSlot()
+		if slot1 != "first" {
+			t.Errorf("slot1 = %v, want 'first'", slot1)
+		}
+
+		slot2 := UseHookSlot()
+		if slot2 != 42 {
+			t.Errorf("slot2 = %v, want 42", slot2)
+		}
+
+		slot3 := UseHookSlot()
+		if s, ok := slot3.(struct{ Name string }); !ok || s.Name != "test" {
+			t.Errorf("slot3 = %v, want struct{Name:test}", slot3)
+		}
+
+		owner.EndRender()
+	})
+}
+
+func TestHookSlotNoOwnerReturnsNil(t *testing.T) {
+	// Outside render context, UseHookSlot should return nil
+	slot := UseHookSlot()
+	if slot != nil {
+		t.Errorf("expected nil when no owner, got %v", slot)
+	}
+
+	// SetHookSlot should be a no-op
+	SetHookSlot("value") // Should not panic
+}
+
 // contains checks if s contains substr
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))

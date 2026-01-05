@@ -228,7 +228,27 @@ func wrapHandler(value any) Handler {
 	case func(hooks.HookEvent):
 		return func(e *Event) {
 			if data, ok := e.Payload.(*protocol.HookEventData); ok {
-				h(hooks.HookEvent{Name: data.Name, Data: data.Data})
+				hookEvent := hooks.HookEvent{Name: data.Name, Data: data.Data}
+
+				// Inject context for Revert() to work
+				hookEvent.SetContext(e.HID, func(name string, payload any) {
+					// Create dispatch patch to send custom event to client
+					var detail string
+					if payload != nil {
+						if s, ok := payload.(string); ok {
+							detail = s
+						} else {
+							// JSON-encode the payload
+							if encoded, err := encodeJSON(payload); err == nil {
+								detail = encoded
+							}
+						}
+					}
+					patch := protocol.NewDispatchPatch("", name, detail)
+					e.Session.SendPatches([]protocol.Patch{patch})
+				})
+
+				h(hookEvent)
 			}
 		}
 

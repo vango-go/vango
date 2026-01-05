@@ -29,6 +29,9 @@ type Resource[T any] struct {
 	data    *vango.Signal[T]
 	err     *vango.Signal[error]
 
+	// Runtime context for Dispatch (captured at creation time)
+	ctx vango.Ctx
+
 	// Options
 	staleTime  time.Duration
 	retryCount int
@@ -43,7 +46,8 @@ type Resource[T any] struct {
 }
 
 // New creates a new Resource with the given fetcher function.
-// The fetch is triggered immediately.
+// The initial fetch is scheduled via Effect (not during render) to avoid
+// signal writes during the render phase.
 //
 // This is a hook-like API and MUST be called unconditionally during render.
 // See §3.1.3 Hook-Order Semantics.
@@ -51,13 +55,35 @@ func New[T any](fetcher func() (T, error)) *Resource[T] {
 	// Track hook call for dev-mode order validation
 	vango.TrackHook(vango.HookResource)
 
+	// Use hook slot for stable identity across renders
+	slot := vango.UseHookSlot()
+	if slot != nil {
+		// Subsequent render: return existing instance
+		return slot.(*Resource[T])
+	}
+
+	// First render: create new instance
+	// Capture runtime context for Dispatch calls from goroutines
+	ctx := vango.UseCtx()
+
 	r := &Resource[T]{
 		fetcher: fetcher,
 		state:   vango.NewSignal(Pending),
 		data:    vango.NewSignal(*new(T)),
 		err:     vango.NewSignal[error](nil),
+		ctx:     ctx,
 	}
-	r.Fetch()
+
+	// Store in hook slot for subsequent renders
+	vango.SetHookSlot(r)
+
+	// Schedule initial fetch via Effect (not during render)
+	// This avoids signal writes during the render phase
+	vango.CreateEffect(func() vango.Cleanup {
+		r.Fetch()
+		return nil
+	})
+
 	return r
 }
 
@@ -72,22 +98,36 @@ func NewWithKey[K comparable, T any](key func() K, fetcher func(K) (T, error)) *
 	// is semantically a separate hook type (keyed resource vs simple resource)
 	vango.TrackHook(vango.HookResource)
 
+	// Use hook slot for stable identity across renders
+	slot := vango.UseHookSlot()
+	if slot != nil {
+		// Subsequent render: return existing instance
+		return slot.(*Resource[T])
+	}
+
+	// First render: create new instance
+	// Capture runtime context for Dispatch calls from goroutines
+	ctx := vango.UseCtx()
+
 	// Wrap fetcher to use current key
 	wrappedFetcher := func() (T, error) {
 		k := key() // Track dependency
 		return fetcher(k)
 	}
 
-	// Create resource without tracking (we already tracked above)
 	r := &Resource[T]{
 		fetcher: wrappedFetcher,
 		state:   vango.NewSignal(Pending),
 		data:    vango.NewSignal(*new(T)),
 		err:     vango.NewSignal[error](nil),
+		ctx:     ctx,
 	}
-	r.Fetch()
 
-	// Setup effect to refetch when key changes
+	// Store in hook slot for subsequent renders
+	vango.SetHookSlot(r)
+
+	// Setup effect to fetch initially and refetch when key changes
+	// Using Effect ensures no signal writes during render
 	vango.CreateEffect(func() vango.Cleanup {
 		key() // Track dependency
 		r.Fetch()
@@ -96,13 +136,6 @@ func NewWithKey[K comparable, T any](key func() K, fetcher func(K) (T, error)) *
 
 	return r
 }
-
-// Note: I need to verify how to use Effects in Vango.
-// vango/owner.go mentioned `effects`.
-// I'll stick to basic Resource for now and implement NewWithKey later if needed, or just implement it with manual tracking expectation.
-// Actually, `NewWithKey` is in the spec:
-// "ResourceWithKey (re-fetches when key changes)"
-// It implies using an effect.
 
 // State methods
 
@@ -155,14 +188,23 @@ func (r *Resource[T]) Fetch() {
 }
 
 // Refetch forces a data fetch, bypassing cache.
+// All signal writes are dispatched via ctx.Dispatch to ensure thread safety.
 func (r *Resource[T]) Refetch() {
 	r.mu.Lock()
 	r.fetchID++
 	currentID := r.fetchID
 	r.mu.Unlock()
 
-	r.state.Set(Loading)
-	r.err.Set(nil)
+	// Set Loading state via Dispatch (even this is a write from potentially any goroutine!)
+	setLoading := func() {
+		r.state.Set(Loading)
+		r.err.Set(nil)
+	}
+	if r.ctx != nil {
+		r.ctx.Dispatch(setLoading)
+	} else {
+		setLoading()
+	}
 
 	go func() {
 		// Retry logic loop
@@ -199,18 +241,27 @@ func (r *Resource[T]) Refetch() {
 		r.lastFetch = time.Now()
 		r.mu.Unlock()
 
-		if err != nil {
-			r.err.Set(err)
-			r.state.Set(Error)
-			if r.onError != nil {
-				r.onError(err)
+		// Update signals via Dispatch for thread safety
+		updateSignals := func() {
+			if err != nil {
+				r.err.Set(err)
+				r.state.Set(Error)
+				if r.onError != nil {
+					r.onError(err)
+				}
+			} else {
+				r.data.Set(result)
+				r.state.Set(Ready)
+				if r.onSuccess != nil {
+					r.onSuccess(result)
+				}
 			}
+		}
+
+		if r.ctx != nil {
+			r.ctx.Dispatch(updateSignals)
 		} else {
-			r.data.Set(result)
-			r.state.Set(Ready)
-			if r.onSuccess != nil {
-				r.onSuccess(result)
-			}
+			updateSignals()
 		}
 	}()
 }

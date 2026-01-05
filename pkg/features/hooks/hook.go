@@ -1,35 +1,39 @@
 package hooks
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 
+	"github.com/vango-dev/vango/v2/pkg/render"
 	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
 
-// Hook creates a hook attribute for element.
-// The config map is serialized to JSON and sent to the client.
+// Hook creates a hook attribute for an element.
+// The config is passed to the client-side hook on mount.
+// Config can be a struct, map, or any JSON-serializable value.
 func Hook(name string, config any) vdom.Attr {
-	// We serialize the config immediately to ensure it's valid JSON.
-	// In a real implementation, this might be handled by the renderer,
-	// but here we pack it into the attribute value.
-	// Format: "HookName:{\"config\":\"values\"}"
-
-	b, _ := json.Marshal(config)
-	value := fmt.Sprintf("%s:%s", name, string(b))
-
 	return vdom.Attr{
-		Key:   "v-hook",
-		Value: value,
+		Key: "_hook",
+		Value: render.HookConfig{
+			Name:   name,
+			Config: config,
+		},
 	}
 }
 
 // OnEvent creates an event handler attribute for a hook event.
-func OnEvent(name string, handler func(HookEvent)) vdom.EventHandler {
-	return vdom.EventHandler{
-		Event:   name,
-		Handler: handler,
+// The handler is wrapped to filter by the specific event name,
+// allowing multiple hook event handlers on the same element.
+func OnEvent(name string, handler func(HookEvent)) vdom.Attr {
+	// Wrap handler to filter by event name
+	wrapped := func(e HookEvent) {
+		if e.Name == name {
+			handler(e)
+		}
+	}
+	return vdom.Attr{
+		Key:   "onhook",
+		Value: wrapped,
 	}
 }
 
@@ -37,6 +41,17 @@ func OnEvent(name string, handler func(HookEvent)) vdom.EventHandler {
 type HookEvent struct {
 	Name string
 	Data map[string]any
+
+	// Internal fields for Revert() support - set by session before invoking handler
+	hid  string
+	emit func(name string, data any)
+}
+
+// SetContext injects the HID and emit function for Revert() support.
+// This is called internally by the session before invoking the handler.
+func (e *HookEvent) SetContext(hid string, emit func(string, any)) {
+	e.hid = hid
+	e.emit = emit
 }
 
 // Accessors
@@ -112,10 +127,16 @@ func (e HookEvent) Raw(key string) any {
 }
 
 // Revert requests the client to revert the optimistic change.
-// This is typically handled by sending a command back to the client.
+// This sends a "vango:hook-revert" event to the client with the target HID.
+// The client's HookManager listens for this event and calls the revert callback
+// that was provided when the hook event was sent.
+//
+// This requires the hook to have registered a revert callback via pushEvent.
+// Standard hooks (Sortable, Draggable) provide revert callbacks automatically.
 func (e HookEvent) Revert() {
-	// In the server-first model, reverting means invalidating the optimistic state
-	// or sending a specific command.
-	// For this implementation, we can't easily signal back without context.
-	// We'll leave it as a placeholder or dependent on how handlers are invoked.
+	if e.emit != nil {
+		e.emit("vango:hook-revert", map[string]any{
+			"hid": e.hid,
+		})
+	}
 }

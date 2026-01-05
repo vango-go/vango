@@ -26,6 +26,13 @@ type Ctx interface {
 	// Example:
 	//     row := db.QueryRowContext(ctx.StdContext(), "SELECT * FROM users WHERE id = $1", userID)
 	StdContext() context.Context
+
+	// StormBudget returns the storm budget checker for this session.
+	// Used by primitives (Action, Resource, GoLatest) to check rate limits.
+	// Returns nil if storm budgets are not configured.
+	//
+	// See SPEC_ADDENDUM.md §A.4 for storm budget configuration.
+	StormBudget() StormBudgetChecker
 }
 
 // UseCtx returns the current runtime context for the active session tick.

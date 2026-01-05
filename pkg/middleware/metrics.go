@@ -90,6 +90,11 @@ type metrics struct {
 	sessionMemory    prometheus.Histogram
 	wsErrors         *prometheus.CounterVec
 	reconnectsTotal  prometheus.Counter // Phase 13 audit: added per spec
+
+	// Phase 5: Session Resilience metrics
+	resumesTotal        prometheus.Counter     // Successful session resumes
+	resumeFailuresTotal *prometheus.CounterVec // Failed resume attempts by reason
+	evictionsTotal      prometheus.Counter     // LRU session evictions
 }
 
 // globalMetrics is the singleton metrics instance.
@@ -176,6 +181,31 @@ func initMetrics(config MetricsConfig) *metrics {
 			Subsystem:   config.Subsystem,
 			Name:        "reconnects_total",
 			Help:        "Total number of session reconnections",
+			ConstLabels: config.ConstLabels,
+		}),
+
+		// Phase 5: Session Resilience metrics
+		resumesTotal: factory.NewCounter(prometheus.CounterOpts{
+			Namespace:   config.Namespace,
+			Subsystem:   config.Subsystem,
+			Name:        "session_resumes_total",
+			Help:        "Total successful session resumes",
+			ConstLabels: config.ConstLabels,
+		}),
+
+		resumeFailuresTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Namespace:   config.Namespace,
+			Subsystem:   config.Subsystem,
+			Name:        "session_resume_failures_total",
+			Help:        "Total failed session resume attempts",
+			ConstLabels: config.ConstLabels,
+		}, []string{"reason"}),
+
+		evictionsTotal: factory.NewCounter(prometheus.CounterOpts{
+			Namespace:   config.Namespace,
+			Subsystem:   config.Subsystem,
+			Name:        "session_evictions_total",
+			Help:        "Total LRU session evictions",
 			ConstLabels: config.ConstLabels,
 		}),
 	}
@@ -352,6 +382,27 @@ func RecordReconnect() {
 	}
 }
 
+// RecordResume records a successful session resume.
+func RecordResume() {
+	if globalMetrics != nil {
+		globalMetrics.resumesTotal.Inc()
+	}
+}
+
+// RecordResumeFailed records a failed resume attempt.
+func RecordResumeFailed(reason string) {
+	if globalMetrics != nil {
+		globalMetrics.resumeFailuresTotal.WithLabelValues(reason).Inc()
+	}
+}
+
+// RecordEviction records an LRU session eviction.
+func RecordEviction() {
+	if globalMetrics != nil {
+		globalMetrics.evictionsTotal.Inc()
+	}
+}
+
 // =============================================================================
 // Metrics Collector
 // =============================================================================
@@ -368,6 +419,11 @@ type Collector struct {
 	sessionMemory    prometheus.Histogram
 	wsErrors         *prometheus.CounterVec
 	reconnectsTotal  prometheus.Counter
+
+	// Phase 5: Session Resilience metrics
+	resumesTotal        prometheus.Counter
+	resumeFailuresTotal *prometheus.CounterVec
+	evictionsTotal      prometheus.Counter
 }
 
 // GetMetrics returns the global metrics collector.
@@ -386,5 +442,10 @@ func GetMetrics() *Collector {
 		sessionMemory:    globalMetrics.sessionMemory,
 		wsErrors:         globalMetrics.wsErrors,
 		reconnectsTotal:  globalMetrics.reconnectsTotal,
+
+		// Phase 5: Session Resilience metrics
+		resumesTotal:        globalMetrics.resumesTotal,
+		resumeFailuresTotal: globalMetrics.resumeFailuresTotal,
+		evictionsTotal:      globalMetrics.evictionsTotal,
 	}
 }

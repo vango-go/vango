@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vango-dev/vango/v2/pkg/protocol"
+	"github.com/vango-dev/vango/v2/pkg/vango"
 )
 
 // ReadLoop continuously reads messages from the WebSocket connection.
@@ -205,6 +206,11 @@ func (s *Session) EventLoop() {
 
 // executeDispatch runs a dispatched function with proper cleanup.
 // It handles panic recovery, runs pending effects, and re-renders dirty components.
+//
+// IMPORTANT: Wraps execution with vango.WithCtx so that UseCtx() is valid
+// inside dispatched callbacks. This is required by SPEC_ADDENDUM.md:90 which
+// states that UseCtx() MUST be valid during callbacks invoked on the session
+// loop via ctx.Dispatch(...).
 func (s *Session) executeDispatch(fn func()) {
 	// Panic recovery
 	defer func() {
@@ -216,13 +222,19 @@ func (s *Session) executeDispatch(fn func()) {
 		}
 	}()
 
-	// Execute the dispatched function
-	fn()
+	// Create context so UseCtx() works in dispatched callbacks
+	ctx := s.createRenderContext()
 
-	// Run pending effects (scheduled by signal updates)
-	s.owner.RunPendingEffects()
+	// Execute with context set, matching handleEvent pattern
+	vango.WithCtx(ctx, func() {
+		// Execute the dispatched function
+		fn()
 
-	// Re-render dirty components
+		// Run pending effects (scheduled by signal updates)
+		s.owner.RunPendingEffects()
+	})
+
+	// Re-render dirty components (outside WithCtx, same as handleEvent)
 	s.renderDirty()
 }
 
@@ -235,11 +247,14 @@ func (s *Session) Start() {
 }
 
 // Resume resumes a session after reconnect.
+// It swaps the WebSocket connection, resets sequence numbers, and reinitializes
+// channels if the session was previously closed. Call NeedsRestart() after
+// Resume() to check if Start() should be called to restart goroutines.
 func (s *Session) Resume(conn *websocket.Conn, lastSeq uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Update connection
+	// Swap connection
 	oldConn := s.conn
 	s.conn = conn
 
@@ -254,14 +269,41 @@ func (s *Session) Resume(conn *websocket.Conn, lastSeq uint64) {
 	// Reset closed flag if it was set
 	s.closed.Store(false)
 
-	// Reinitialize done channel if closed
+	// Check if goroutines need restarting (done channel closed)
+	needsRestart := false
 	select {
 	case <-s.done:
+		// Done was closed, need to reinitialize channels
 		s.done = make(chan struct{})
+		s.events = make(chan *Event, s.config.MaxEventQueue)
+		s.renderCh = make(chan struct{}, 1)
+		s.dispatchCh = make(chan func(), s.config.MaxEventQueue)
+		needsRestart = true
 	default:
+		// Goroutines still running, just swapped connection
 	}
 
-	s.logger.Info("session resumed", "last_seq", lastSeq)
+	// Reset send sequence for fresh patches after RebuildHandlers()
+	s.sendSeq.Store(0)
+	// Track client's last received sequence
+	s.recvSeq.Store(lastSeq)
+
+	s.logger.Info("session resumed",
+		"last_seq", lastSeq,
+		"needs_restart", needsRestart)
+}
+
+// NeedsRestart returns true if session goroutines need to be restarted.
+// This should be checked after Resume() to decide whether to call Start().
+// If the session's done channel was closed, goroutines have exited and
+// need to be restarted for the session to function.
+func (s *Session) NeedsRestart() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // SendPatches is a public wrapper for sendPatches.

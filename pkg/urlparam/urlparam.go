@@ -114,6 +114,8 @@ func (o encodingOption) applyURLParam(c *urlParamConfig) {
 }
 
 // WithEncoding sets the encoding for complex types.
+// Spec shows: vango.Encoding(vango.URLEncodingFlat)
+// Due to import cycles, the actual call is: urlparam.WithEncoding(urlparam.EncodingFlat)
 //
 // Example:
 //
@@ -145,6 +147,9 @@ type URLParam[T any] struct {
 // This is a hook-like API and MUST be called unconditionally during render.
 // See §3.1.3 Hook-Order Semantics.
 //
+// On first render, Param hydrates from initial URL params if available.
+// On subsequent renders, returns the same URLParam instance (stable identity).
+//
 // Example:
 //
 //	// Simple string param
@@ -163,18 +168,53 @@ func Param[T any](key string, defaultValue T, opts ...URLParamOption) *URLParam[
 	// Track hook call for dev-mode order validation
 	vango.TrackHook(vango.HookURLParam)
 
+	// Use hook slot for stable identity across renders
+	slot := vango.UseHookSlot()
+	if slot != nil {
+		// Subsequent render: return existing instance
+		return slot.(*URLParam[T])
+	}
+
+	// First render: create new instance
 	var config urlParamConfig
 	for _, opt := range opts {
 		opt.applyURLParam(&config)
 	}
 
-	return &URLParam[T]{
+	// Determine initial value from URL or default
+	// This is NOT a reactive write - we compute initial value before signal creation
+	initial := defaultValue
+	if initialCtx := vango.GetContext(InitialParamsKey); initialCtx != nil {
+		if state, ok := initialCtx.(*InitialURLState); ok {
+			if params := state.Consume(); params != nil {
+				// Try to parse the initial value from URL params
+				temp := &URLParam[T]{key: key, config: config}
+				if parsed, err := temp.deserialize(params); err == nil {
+					initial = parsed
+				}
+			}
+		}
+	}
+
+	u := &URLParam[T]{
 		key:      key,
-		value:    defaultValue,
+		value:    initial,
 		defaults: defaultValue,
 		config:   config,
-		signal:   vango.NewSignal(defaultValue),
+		signal:   vango.NewSignal(initial), // Uses computed initial, no Set() call
 	}
+
+	// Wire navigator from context for URL updates
+	if navCtx := vango.GetContext(NavigatorKey); navCtx != nil {
+		if nav, ok := navCtx.(*Navigator); ok {
+			u.SetNavigator(nav.Navigate)
+		}
+	}
+
+	// Store in hook slot for subsequent renders
+	vango.SetHookSlot(u)
+
+	return u
 }
 
 // Get returns the current value.

@@ -39,6 +39,7 @@ const ControlType = {
     PONG: 0x02,
     RESYNC: 0x03,
     CLOSE: 0x04,
+    RESYNC_FULL: 0x12, // Server sends full HTML to replace body
 };
 
 /**
@@ -218,6 +219,9 @@ export class VangoClient {
             case ControlType.RESYNC:
                 this._handleResync();
                 break;
+            case ControlType.RESYNC_FULL:
+                this._handleResyncFull(buffer.slice(1));
+                break;
             case ControlType.CLOSE:
                 // Server requesting close
                 this.wsManager.close();
@@ -233,6 +237,43 @@ export class VangoClient {
             console.log('[Vango] Resync requested, reloading page');
         }
         location.reload();
+    }
+
+    /**
+     * Handle ResyncFull - replace body content with server-sent HTML
+     * Used during session resume to ensure client DOM matches server state
+     */
+    _handleResyncFull(buffer) {
+        if (buffer.length === 0) return;
+
+        // Decode HTML string (varint length-prefixed)
+        const { value: html } = this.codec.decodeString(buffer, 0);
+
+        if (this.options.debug) {
+            console.log('[Vango] ResyncFull received, replacing body content');
+        }
+
+        // Create template to parse HTML
+        const template = document.createElement('template');
+        template.innerHTML = html;
+
+        // Clear existing node map
+        this.nodeMap.clear();
+
+        // Destroy existing hooks before replacing DOM
+        this.hooks.destroyAll();
+
+        // Replace body children
+        document.body.innerHTML = '';
+        while (template.content.firstChild) {
+            document.body.appendChild(template.content.firstChild);
+        }
+
+        // Rebuild node map from new DOM
+        this._buildNodeMap();
+
+        // Reinitialize hooks on new elements
+        this.hooks.initializeFromDOM();
     }
 
     /**

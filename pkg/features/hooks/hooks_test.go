@@ -1,9 +1,9 @@
 package hooks
 
 import (
-	"encoding/json"
-	"strings"
 	"testing"
+
+	"github.com/vango-dev/vango/v2/pkg/render"
 )
 
 func TestHook(t *testing.T) {
@@ -14,46 +14,52 @@ func TestHook(t *testing.T) {
 
 	attr := Hook("MyHook", config)
 
-	if attr.Key != "v-hook" {
-		t.Errorf("Expected attr key 'v-hook', got '%s'", attr.Key)
+	if attr.Key != "_hook" {
+		t.Errorf("Expected attr key '_hook', got '%s'", attr.Key)
 	}
 
-	// Value should roughly be "MyHook:{\"baz\":123,\"foo\":\"bar\"}"
-	// JSON keys order is not guaranteed, so we check parts.
-	val := attr.Value.(string)
-	if !strings.HasPrefix(val, "MyHook:") {
-		t.Errorf("Expected prefix 'MyHook:', got '%s'", val)
+	// Value should be render.HookConfig
+	hookConfig, ok := attr.Value.(render.HookConfig)
+	if !ok {
+		t.Fatalf("Expected value to be render.HookConfig, got %T", attr.Value)
 	}
 
-	// Check JSON part
-	jsonPart := strings.TrimPrefix(val, "MyHook:")
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(jsonPart), &decoded); err != nil {
-		t.Errorf("Failed to unmarshal JSON part: %v", err)
+	if hookConfig.Name != "MyHook" {
+		t.Errorf("Expected Name 'MyHook', got '%s'", hookConfig.Name)
 	}
 
-	if decoded["foo"] != "bar" {
-		t.Errorf("Expected foo=bar, got %v", decoded["foo"])
+	// Config should be the original map passed in
+	configMap, ok := hookConfig.Config.(map[string]any)
+	if !ok {
+		t.Fatalf("Expected Config to be map[string]any, got %T", hookConfig.Config)
 	}
-	if f, ok := decoded["baz"].(float64); ok { // JSON unmarshals numbers as float64
-		if f != 123 {
-			t.Errorf("Expected baz=123, got %v", f)
-		}
-	} else {
-		t.Errorf("Expected baz to be float64, got %T", decoded["baz"])
+
+	if configMap["foo"] != "bar" {
+		t.Errorf("Expected foo=bar, got %v", configMap["foo"])
+	}
+	if configMap["baz"] != 123 {
+		t.Errorf("Expected baz=123, got %v", configMap["baz"])
 	}
 }
 
 func TestHookEmptyConfig(t *testing.T) {
 	attr := Hook("EmptyHook", nil)
 
-	if attr.Key != "v-hook" {
-		t.Errorf("Expected attr key 'v-hook', got '%s'", attr.Key)
+	if attr.Key != "_hook" {
+		t.Errorf("Expected attr key '_hook', got '%s'", attr.Key)
 	}
 
-	val := attr.Value.(string)
-	if !strings.HasPrefix(val, "EmptyHook:") {
-		t.Errorf("Expected prefix 'EmptyHook:', got '%s'", val)
+	hookConfig, ok := attr.Value.(render.HookConfig)
+	if !ok {
+		t.Fatalf("Expected value to be render.HookConfig, got %T", attr.Value)
+	}
+
+	if hookConfig.Name != "EmptyHook" {
+		t.Errorf("Expected Name 'EmptyHook', got '%s'", hookConfig.Name)
+	}
+
+	if hookConfig.Config != nil {
+		t.Errorf("Expected Config to be nil, got %v", hookConfig.Config)
 	}
 }
 
@@ -66,16 +72,19 @@ func TestHookWithNestedConfig(t *testing.T) {
 	}
 
 	attr := Hook("NestedHook", config)
-	val := attr.Value.(string)
 
-	if !strings.Contains(val, "NestedHook:") {
-		t.Error("Expected NestedHook prefix")
+	hookConfig, ok := attr.Value.(render.HookConfig)
+	if !ok {
+		t.Fatalf("Expected value to be render.HookConfig, got %T", attr.Value)
 	}
 
-	jsonPart := strings.TrimPrefix(val, "NestedHook:")
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(jsonPart), &decoded); err != nil {
-		t.Errorf("Failed to unmarshal nested JSON: %v", err)
+	if hookConfig.Name != "NestedHook" {
+		t.Errorf("Expected Name 'NestedHook', got '%s'", hookConfig.Name)
+	}
+
+	// Config should preserve the nested structure
+	if hookConfig.Config == nil {
+		t.Fatal("Expected Config to be non-nil")
 	}
 }
 
@@ -83,27 +92,38 @@ func TestOnEvent(t *testing.T) {
 	called := false
 	handler := func(e HookEvent) {
 		called = true
-		if e.Name != "" {
-			// Just verify we can access the event
+		if e.Name != "customEvent" {
+			t.Errorf("Expected event name 'customEvent', got '%s'", e.Name)
 		}
 	}
 
-	eventHandler := OnEvent("customEvent", handler)
+	attr := OnEvent("customEvent", handler)
 
-	if eventHandler.Event != "customEvent" {
-		t.Errorf("Expected event 'customEvent', got '%s'", eventHandler.Event)
+	// OnEvent now returns vdom.Attr with key "onhook"
+	if attr.Key != "onhook" {
+		t.Errorf("Expected key 'onhook', got '%s'", attr.Key)
 	}
 
-	if eventHandler.Handler == nil {
-		t.Error("Expected handler to be set")
+	if attr.Value == nil {
+		t.Error("Expected value to be set")
 	}
 
-	// Call the handler to verify it works
-	if fn, ok := eventHandler.Handler.(func(HookEvent)); ok {
-		fn(HookEvent{Name: "test"})
+	// The value is a wrapped handler that filters by event name
+	if wrappedHandler, ok := attr.Value.(func(HookEvent)); ok {
+		// Calling with matching event name should invoke the handler
+		wrappedHandler(HookEvent{Name: "customEvent", Data: map[string]any{}})
 		if !called {
-			t.Error("Handler should have been called")
+			t.Error("Handler should have been called for matching event name")
 		}
+
+		// Reset and call with non-matching event name
+		called = false
+		wrappedHandler(HookEvent{Name: "otherEvent", Data: map[string]any{}})
+		if called {
+			t.Error("Handler should NOT have been called for non-matching event name")
+		}
+	} else {
+		t.Errorf("Expected value to be func(HookEvent), got %T", attr.Value)
 	}
 }
 

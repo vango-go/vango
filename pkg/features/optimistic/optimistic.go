@@ -4,8 +4,83 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vango-dev/vango/v2/pkg/render"
 	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
+
+// OptimisticBuilder combines multiple optimistic options into one config.
+// Use the Optimistic() function to create a builder, then chain methods.
+//
+// Example:
+//
+//	Button(
+//	    Text("Submit"),
+//	    OnClick(handleSubmit),
+//	    Optimistic().
+//	        Class("submitting", true).
+//	        Text("Submitting...").
+//	        Build(),
+//	)
+type OptimisticBuilder struct {
+	class string // "classname:action" format
+	text  string
+	attr  string
+	value string
+}
+
+// Optimistic creates a new builder for chaining optimistic updates.
+func Optimistic() *OptimisticBuilder {
+	return &OptimisticBuilder{}
+}
+
+// Class adds a class modification to the builder.
+func (b *OptimisticBuilder) Class(class string, add bool) *OptimisticBuilder {
+	action := "remove"
+	if add {
+		action = "add"
+	}
+	b.class = fmt.Sprintf("%s:%s", class, action)
+	return b
+}
+
+// ClassToggle adds a class toggle to the builder.
+func (b *OptimisticBuilder) ClassToggle(class string) *OptimisticBuilder {
+	b.class = fmt.Sprintf("%s:toggle", class)
+	return b
+}
+
+// Text sets the optimistic text replacement.
+func (b *OptimisticBuilder) Text(text string) *OptimisticBuilder {
+	b.text = text
+	return b
+}
+
+// Attr sets an attribute modification.
+func (b *OptimisticBuilder) Attr(name, value string) *OptimisticBuilder {
+	b.attr = name
+	b.value = value
+	return b
+}
+
+// AttrRemove sets an attribute for removal.
+func (b *OptimisticBuilder) AttrRemove(name string) *OptimisticBuilder {
+	b.attr = name
+	b.value = "" // Empty value signals removal
+	return b
+}
+
+// Build returns a vdom.Attr with _optimistic prop containing OptimisticConfig.
+func (b *OptimisticBuilder) Build() vdom.Attr {
+	return vdom.Attr{
+		Key: "_optimistic",
+		Value: render.OptimisticConfig{
+			Class: b.class,
+			Text:  b.text,
+			Attr:  b.attr,
+			Value: b.value,
+		},
+	}
+}
 
 // Action represents the type of optimistic change.
 type Action string
@@ -26,7 +101,7 @@ const (
 //	Button(
 //	    Class("like-btn"),
 //	    OnClick(handleLike),
-//	    OptimisticClass("liked", true),  // Add "liked" class on click
+//	    optimistic.Class("liked", true),  // Add "liked" class on click
 //	)
 func Class(class string, addNotRemove bool) vdom.Attr {
 	action := ActionRemove
@@ -34,8 +109,10 @@ func Class(class string, addNotRemove bool) vdom.Attr {
 		action = ActionAdd
 	}
 	return vdom.Attr{
-		Key:   "data-optimistic-class",
-		Value: fmt.Sprintf("%s:%s", class, action),
+		Key: "_optimistic",
+		Value: render.OptimisticConfig{
+			Class: fmt.Sprintf("%s:%s", class, action),
+		},
 	}
 }
 
@@ -47,12 +124,14 @@ func Class(class string, addNotRemove bool) vdom.Attr {
 //	Button(
 //	    Class("menu-toggle"),
 //	    OnClick(handleToggle),
-//	    OptimisticClassToggle("active"),
+//	    optimistic.ClassToggle("active"),
 //	)
 func ClassToggle(class string) vdom.Attr {
 	return vdom.Attr{
-		Key:   "data-optimistic-class",
-		Value: fmt.Sprintf("%s:%s", class, ActionToggle),
+		Key: "_optimistic",
+		Value: render.OptimisticConfig{
+			Class: fmt.Sprintf("%s:%s", class, ActionToggle),
+		},
 	}
 }
 
@@ -65,12 +144,14 @@ func ClassToggle(class string) vdom.Attr {
 //	Button(
 //	    Text("Save"),
 //	    OnClick(handleSave),
-//	    OptimisticText("Saving..."),
+//	    optimistic.Text("Saving..."),
 //	)
 func Text(newText string) vdom.Attr {
 	return vdom.Attr{
-		Key:   "data-optimistic-text",
-		Value: newText,
+		Key: "_optimistic",
+		Value: render.OptimisticConfig{
+			Text: newText,
+		},
 	}
 }
 
@@ -83,12 +164,15 @@ func Text(newText string) vdom.Attr {
 //	    Type("checkbox"),
 //	    Checked(isChecked),
 //	    OnChange(handleChange),
-//	    OptimisticAttr("checked", "true"),
+//	    optimistic.Attr("checked", "true"),
 //	)
-func Attr(name, value string) vdom.Attr {
+func Attr(name, attrValue string) vdom.Attr {
 	return vdom.Attr{
-		Key:   "data-optimistic-attr",
-		Value: fmt.Sprintf("%s:%s", name, value),
+		Key: "_optimistic",
+		Value: render.OptimisticConfig{
+			Attr:  name,
+			Value: attrValue,
+		},
 	}
 }
 
@@ -100,12 +184,15 @@ func Attr(name, value string) vdom.Attr {
 //	Button(
 //	    Disabled(true),
 //	    OnClick(handleEnable),
-//	    OptimisticAttrRemove("disabled"),
+//	    optimistic.AttrRemove("disabled"),
 //	)
 func AttrRemove(name string) vdom.Attr {
 	return vdom.Attr{
-		Key:   "data-optimistic-attr-remove",
-		Value: name,
+		Key: "_optimistic",
+		Value: render.OptimisticConfig{
+			Attr:  name,
+			Value: "", // Empty value signals removal
+		},
 	}
 }
 

@@ -356,8 +356,27 @@ func (f *Form[T]) IsTouched(field string) bool {
 	return touched[field]
 }
 
+// cloneVNode creates a shallow copy of a VNode with a new Props map.
+// This prevents mutating the original node when adding form bindings.
+func cloneVNode(n *vdom.VNode) *vdom.VNode {
+	if n == nil {
+		return nil
+	}
+	clone := *n
+	if n.Props != nil {
+		clone.Props = make(vdom.Props, len(n.Props))
+		for k, v := range n.Props {
+			clone.Props[k] = v
+		}
+	}
+	return &clone
+}
+
 // Field wraps an input element with value binding and error display.
 // It automatically binds the input value to the form field and shows errors.
+//
+// The input's oninput and onblur handlers are chained (not replaced) if they exist.
+// Handler signature is func(string) for the input value.
 func (f *Form[T]) Field(name string, input *vdom.VNode, validators ...Validator) *vdom.VNode {
 	// Register additional validators if provided
 	if len(validators) > 0 {
@@ -371,29 +390,62 @@ func (f *Form[T]) Field(name string, input *vdom.VNode, validators ...Validator)
 	errors := f.FieldErrors(name)
 	hasError := len(errors) > 0
 
-	// Clone input with value binding
-	if input.Props == nil {
-		input.Props = make(vdom.Props)
+	// Clone input to avoid mutating the original
+	cloned := cloneVNode(input)
+	if cloned.Props == nil {
+		cloned.Props = make(vdom.Props)
 	}
 
 	// Set value and name
-	input.Props["value"] = value
-	input.Props["name"] = name
+	cloned.Props["value"] = value
+	cloned.Props["name"] = name
+
+	// Add oninput handler - chain with existing if present
+	// Handler signature: func(string)
+	existingOnInput, _ := cloned.Props["oninput"].(func(string))
+	cloned.Props["oninput"] = func(val string) {
+		f.Set(name, val)
+		f.dirty.Update(func(m map[string]bool) map[string]bool {
+			newMap := make(map[string]bool, len(m)+1)
+			for k, v := range m {
+				newMap[k] = v
+			}
+			newMap[name] = true
+			return newMap
+		})
+		if existingOnInput != nil {
+			existingOnInput(val)
+		}
+	}
+
+	// Add onblur handler - mark touched and validate
+	existingOnBlur, _ := cloned.Props["onblur"].(func())
+	cloned.Props["onblur"] = func() {
+		f.touched.Update(func(m map[string]bool) map[string]bool {
+			newMap := make(map[string]bool, len(m)+1)
+			for k, v := range m {
+				newMap[k] = v
+			}
+			newMap[name] = true
+			return newMap
+		})
+		f.ValidateField(name)
+		if existingOnBlur != nil {
+			existingOnBlur()
+		}
+	}
 
 	// Add error class if needed
 	if hasError {
-		existingClass, _ := input.Props["class"].(string)
+		existingClass, _ := cloned.Props["class"].(string)
 		if existingClass != "" {
-			input.Props["class"] = existingClass + " field-error"
+			cloned.Props["class"] = existingClass + " field-error"
 		} else {
-			input.Props["class"] = "field-error"
+			cloned.Props["class"] = "field-error"
 		}
 	}
 
 	// Build the wrapper with error display
-	children := make([]any, 0, 2)
-	children = append(children, input)
-
 	if hasError {
 		errorNodes := make([]*vdom.VNode, 0, len(errors))
 		for _, err := range errors {
@@ -402,15 +454,19 @@ func (f *Form[T]) Field(name string, input *vdom.VNode, validators ...Validator)
 				vdom.Text(err),
 			))
 		}
-		children = append(children, vdom.Div(
-			vdom.Class("field-errors"),
-			errorNodes,
-		))
+		return vdom.Div(
+			vdom.Class("field"),
+			cloned,
+			vdom.Div(
+				vdom.Class("field-errors"),
+				errorNodes,
+			),
+		)
 	}
 
 	return vdom.Div(
 		vdom.Class("field"),
-		children,
+		cloned,
 	)
 }
 

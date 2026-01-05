@@ -399,9 +399,9 @@ func TestFormFieldWithError(t *testing.T) {
 		t.Fatal("Field returned nil")
 	}
 
-	// Input should have error class added
-	if input.Props["class"] != "input field-error" {
-		t.Errorf("Expected class 'input field-error', got '%v'", input.Props["class"])
+	// Original input should NOT be mutated (we clone it)
+	if input.Props["class"] != "input" {
+		t.Errorf("Original input was mutated: expected class 'input', got '%v'", input.Props["class"])
 	}
 
 	// Field wrapper should be a div with class "field"
@@ -410,6 +410,15 @@ func TestFormFieldWithError(t *testing.T) {
 	}
 	if field.Props["class"] != "field" {
 		t.Errorf("Expected class 'field', got '%v'", field.Props["class"])
+	}
+
+	// The cloned input inside the wrapper should have the error class
+	if len(field.Children) == 0 {
+		t.Fatal("Field wrapper has no children")
+	}
+	clonedInput := field.Children[0]
+	if clonedInput.Props["class"] != "input field-error" {
+		t.Errorf("Cloned input should have error class: expected 'input field-error', got '%v'", clonedInput.Props["class"])
 	}
 }
 
@@ -778,10 +787,19 @@ func TestFormArrayItemField(t *testing.T) {
 			t.Error("FormArrayItem.Field returned nil")
 		}
 
-		// Path should be like "items.0.product_id"
+		// Original input should NOT be mutated (we clone it)
+		if input.Props != nil && input.Props["name"] != nil {
+			t.Errorf("Original input was mutated: name = %v, want nil", input.Props["name"])
+		}
+
+		// The cloned input inside the wrapper should have the name set
+		if len(field.Children) == 0 {
+			t.Error("Field wrapper has no children")
+		}
+		clonedInput := field.Children[0]
 		expectedName := "items.0.product_id"
-		if input.Props["name"] != expectedName {
-			t.Errorf("Input name = %v, want %s", input.Props["name"], expectedName)
+		if clonedInput.Props["name"] != expectedName {
+			t.Errorf("Cloned input name = %v, want %s", clonedInput.Props["name"], expectedName)
 		}
 
 		return field

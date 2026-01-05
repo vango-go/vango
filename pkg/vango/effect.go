@@ -33,6 +33,22 @@ type Effect struct {
 
 	// disposed indicates the effect has been disposed.
 	disposed atomic.Bool
+
+	// ==========================================================================
+	// Phase 16: Effect-local call-site state for helpers like GoLatest
+	// ==========================================================================
+
+	// callSiteData stores per-call-site state within this effect.
+	// Keyed by call-site index (incrementing counter during each effect run).
+	// Used by GoLatest to maintain state across effect reruns.
+	callSiteData map[int]any
+
+	// allowWrites indicates if this effect has the AllowWrites option.
+	// When true, signal writes during the effect body don't trigger warnings.
+	allowWrites bool
+
+	// txName is the transaction name for this effect (for observability).
+	txName string
 }
 
 // MarkDirty marks the effect as needing to re-run.
@@ -81,13 +97,44 @@ func (e *Effect) run() {
 	e.sourcesMu.Unlock()
 
 	// Track new sources during execution
-	old := setCurrentListener(e)
+	oldListener := setCurrentListener(e)
+
+	// Set effect-local tracking context (Phase 16)
+	// This enables GoLatest and other helpers to access per-call-site state
+	oldEffect := setCurrentEffect(e)
+	resetEffectCallSiteIdx()
+	oldInBody := setInEffectBody(true)
+	oldAllowWrites := setEffectAllowWrites(e.allowWrites)
 
 	// Run the effect function
 	e.cleanup = e.fn()
 
+	// Restore tracking context (effect body is done)
+	setEffectAllowWrites(oldAllowWrites)
+	setInEffectBody(oldInBody)
+	setCurrentEffect(oldEffect)
+
 	// Restore previous listener
-	setCurrentListener(old)
+	setCurrentListener(oldListener)
+}
+
+// GetCallSiteData retrieves stored state for a specific call-site index.
+// Returns nil if no state has been stored for this call-site.
+// Used by effect helpers like GoLatest to maintain state across effect reruns.
+func (e *Effect) GetCallSiteData(idx int) any {
+	if e.callSiteData == nil {
+		return nil
+	}
+	return e.callSiteData[idx]
+}
+
+// SetCallSiteData stores state for a specific call-site index.
+// Used by effect helpers like GoLatest to maintain state across effect reruns.
+func (e *Effect) SetCallSiteData(idx int, data any) {
+	if e.callSiteData == nil {
+		e.callSiteData = make(map[int]any)
+	}
+	e.callSiteData[idx] = data
 }
 
 // addSource adds a source dependency.
@@ -126,10 +173,55 @@ func (e *Effect) dispose() {
 	e.sourcesMu.Unlock()
 }
 
+// EffectOption is an option for configuring an Effect.
+type EffectOption interface {
+	isEffectOption()
+	applyEffect(e *Effect)
+}
+
+type effectOptionFunc func(*Effect)
+
+func (f effectOptionFunc) isEffectOption()         {}
+func (f effectOptionFunc) applyEffect(e *Effect) { f(e) }
+
+// AllowWrites marks an effect as intentionally performing signal writes.
+// Without this option, signal writes during the effect body will trigger
+// a warning (StrictEffectWarn) or panic (StrictEffectPanic).
+//
+// Most patterns don't need this - writes inside ctx.Dispatch callbacks
+// (as with Interval, Subscribe, GoLatest) are not effect-time writes.
+//
+// Use this only for rare cases like synchronous initialization:
+//
+//	vango.CreateEffect(func() vango.Cleanup {
+//	    syncedValue.Set(legacySystem.ReadCurrentSync())
+//	    return nil
+//	}, vango.AllowWrites())
+//
+// See SPEC_ADDENDUM.md §A.3.
+func AllowWrites() EffectOption {
+	return effectOptionFunc(func(e *Effect) {
+		e.allowWrites = true
+	})
+}
+
+// EffectTxName sets the transaction name for the effect.
+// This name appears in warnings and DevTools entries for this effect.
+// It does NOT propagate to helper transactions (Interval/Subscribe/GoLatest).
+func EffectTxName(name string) EffectOption {
+	return effectOptionFunc(func(e *Effect) {
+		e.txName = name
+	})
+}
+
 // CreateEffect creates and runs a new effect within the current owner context.
 // The effect function runs immediately and re-runs when any signal or memo
 // it reads changes. If the function returns a Cleanup, it will be called
 // before the effect re-runs or when the effect is disposed.
+//
+// Options:
+//   - AllowWrites() - Allow signal writes during effect body without warning
+//   - EffectTxName(name) - Set transaction name for observability
 //
 // Example:
 //
@@ -137,7 +229,7 @@ func (e *Effect) dispose() {
 //	    fmt.Println("Count is:", count.Get())
 //	    return func() { fmt.Println("Cleanup") }
 //	})
-func CreateEffect(fn func() Cleanup) *Effect {
+func CreateEffect(fn func() Cleanup, opts ...EffectOption) *Effect {
 	owner := getCurrentOwner()
 
 	// Track hook call for dev-mode order validation
@@ -149,6 +241,11 @@ func CreateEffect(fn func() Cleanup) *Effect {
 		id:    nextID(),
 		fn:    fn,
 		owner: owner,
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt.applyEffect(e)
 	}
 
 	if owner != nil {

@@ -21,6 +21,7 @@ const (
 	HookURLParam
 	HookRef
 	HookContext
+	HookAction // Phase 16: Action API
 )
 
 // String returns a human-readable name for the hook type.
@@ -42,6 +43,8 @@ func (h HookType) String() string {
 		return "Ref"
 	case HookContext:
 		return "Context"
+	case HookAction:
+		return "Action"
 	default:
 		return "Unknown"
 	}
@@ -93,6 +96,12 @@ type Owner struct {
 	hookOrder   []hookRecord // Expected order from first render
 	hookIndex   int          // Current index during render
 	renderCount int          // 0 = first render, 1+ = subsequent
+
+	// Hook slot storage for stable identity across renders.
+	// This is always active (not just in DebugMode) because hooks like
+	// URLParam and Resource need stable identity for correctness.
+	hookSlots   []any // Stored hook state values (one per hook)
+	hookSlotIdx int   // Current slot index during render
 }
 
 // NewOwner creates a new Owner with the given parent.
@@ -259,12 +268,16 @@ func (o *Owner) Dispose() {
 // =============================================================================
 
 // StartRender is called at the beginning of a component render.
-// In debug mode, it resets the hook index for order validation.
+// It resets the hook slot index for stable identity, and in debug mode,
+// also resets the hook order validation index.
 func (o *Owner) StartRender() {
-	if !DebugMode {
-		return
+	// Always reset slot index for stable hook identity
+	o.hookSlotIdx = 0
+
+	// Debug mode: also reset order validation index
+	if DebugMode {
+		o.hookIndex = 0
 	}
-	o.hookIndex = 0
 }
 
 // EndRender is called at the end of a component render.
@@ -306,4 +319,43 @@ func (o *Owner) TrackHook(ht HookType) {
 		}
 	}
 	o.hookIndex++
+}
+
+// =============================================================================
+// Hook Slot Storage for Stable Identity
+// =============================================================================
+
+// UseHookSlot returns the stored value for the current hook slot,
+// or stores and returns the initial value on first render.
+// This provides stable identity for hooks (like URLParam, Resource) across renders.
+//
+// Usage pattern:
+//
+//	func SomeHook[T any]() *T {
+//	    slot := owner.UseHookSlot(nil)
+//	    if slot != nil {
+//	        return slot.(*T)  // Subsequent render: return stored instance
+//	    }
+//	    instance := &T{...}  // First render: create new instance
+//	    owner.SetHookSlot(instance)
+//	    return instance
+//	}
+func (o *Owner) UseHookSlot() any {
+	idx := o.hookSlotIdx
+	o.hookSlotIdx++
+
+	if idx < len(o.hookSlots) {
+		// Subsequent render: return stored value
+		return o.hookSlots[idx]
+	}
+
+	// First render: no slot yet, return nil
+	// Caller should create the value and call SetHookSlot
+	return nil
+}
+
+// SetHookSlot stores a value in the current hook slot.
+// Must be called after UseHookSlot returns nil (first render).
+func (o *Owner) SetHookSlot(value any) {
+	o.hookSlots = append(o.hookSlots, value)
 }

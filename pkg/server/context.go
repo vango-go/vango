@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	"github.com/vango-dev/vango/v2/pkg/protocol"
+	"github.com/vango-dev/vango/v2/pkg/vango"
 )
 
 // encodeJSON encodes a value to JSON string.
@@ -228,6 +229,17 @@ type Ctx interface {
 	// AddPatchCount increments the patch count for this request.
 	// Called internally by the render system.
 	AddPatchCount(count int)
+
+	// ==========================================================================
+	// Storm Budgets (Phase 16)
+	// ==========================================================================
+
+	// StormBudget returns the storm budget checker for this session.
+	// Used by primitives (Action, Resource, GoLatest) to check rate limits.
+	// Returns nil if storm budgets are not configured.
+	//
+	// See SPEC_ADDENDUM.md §A.4 for storm budget configuration.
+	StormBudget() vango.StormBudgetChecker
 }
 
 // ctx is the concrete implementation of Ctx.
@@ -575,6 +587,19 @@ func (c *ctx) PatchCount() int {
 // AddPatchCount increments the patch count for this request.
 func (c *ctx) AddPatchCount(count int) {
 	c.patchCount += count
+}
+
+// =============================================================================
+// Storm Budgets (Phase 16)
+// =============================================================================
+
+// StormBudget returns the storm budget checker for this session.
+// Returns nil if no session or storm budgets not configured.
+func (c *ctx) StormBudget() vango.StormBudgetChecker {
+	if c.session == nil {
+		return nil
+	}
+	return c.session.StormBudget()
 }
 
 // =============================================================================

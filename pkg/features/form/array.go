@@ -21,6 +21,7 @@ type formArrayGetter interface {
 	Set(field string, value any)
 	FieldErrors(field string) []string
 	HasError(field string) bool
+	RemoveAt(field string, index int)
 }
 
 // Field wraps an input for an array item field.
@@ -34,12 +35,13 @@ func (i FormArrayItem) Field(name string, input *vdom.VNode, validators ...Valid
 // Returns a function suitable for use with OnClick.
 func (i FormArrayItem) Remove() func() {
 	return func() {
-		// Get parent path (remove the index)
+		// Get parent path (remove the index part, e.g., "Items.0" -> "Items")
 		lastDot := strings.LastIndex(i.path, ".")
 		if lastDot < 0 {
 			return
 		}
-		// Note: The actual removal is handled by Form.RemoveAt
+		parentPath := i.path[:lastDot]
+		i.form.RemoveAt(parentPath, i.index)
 	}
 }
 
@@ -199,29 +201,38 @@ func (f *Form[T]) ArrayLen(field string) int {
 }
 
 // fieldWithPath creates a field wrapper for a specific path.
+// It clones the input VNode and adds oninput/onblur handlers for value binding.
 func fieldWithPath(form formArrayGetter, fullPath string, input *vdom.VNode) *vdom.VNode {
 	value := form.Get(fullPath)
 	errors := form.FieldErrors(fullPath)
 	hasError := len(errors) > 0
 
-	if input.Props == nil {
-		input.Props = make(vdom.Props)
+	// Clone input to avoid mutating the original
+	cloned := cloneVNode(input)
+	if cloned.Props == nil {
+		cloned.Props = make(vdom.Props)
 	}
 
-	input.Props["value"] = value
-	input.Props["name"] = fullPath
+	cloned.Props["value"] = value
+	cloned.Props["name"] = fullPath
 
-	if hasError {
-		existingClass, _ := input.Props["class"].(string)
-		if existingClass != "" {
-			input.Props["class"] = existingClass + " field-error"
-		} else {
-			input.Props["class"] = "field-error"
+	// Add oninput handler - chain with existing if present
+	existingOnInput, _ := cloned.Props["oninput"].(func(string))
+	cloned.Props["oninput"] = func(val string) {
+		form.Set(fullPath, val)
+		if existingOnInput != nil {
+			existingOnInput(val)
 		}
 	}
 
-	children := make([]any, 0, 2)
-	children = append(children, input)
+	if hasError {
+		existingClass, _ := cloned.Props["class"].(string)
+		if existingClass != "" {
+			cloned.Props["class"] = existingClass + " field-error"
+		} else {
+			cloned.Props["class"] = "field-error"
+		}
+	}
 
 	if hasError {
 		errorNodes := make([]*vdom.VNode, 0, len(errors))
@@ -231,15 +242,19 @@ func fieldWithPath(form formArrayGetter, fullPath string, input *vdom.VNode) *vd
 				vdom.Text(err),
 			))
 		}
-		children = append(children, vdom.Div(
-			vdom.Class("field-errors"),
-			errorNodes,
-		))
+		return vdom.Div(
+			vdom.Class("field"),
+			cloned,
+			vdom.Div(
+				vdom.Class("field-errors"),
+				errorNodes,
+			),
+		)
 	}
 
 	return vdom.Div(
 		vdom.Class("field"),
-		children,
+		cloned,
 	)
 }
 

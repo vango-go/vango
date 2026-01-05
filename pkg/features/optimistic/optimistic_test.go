@@ -3,6 +3,8 @@ package optimistic
 import (
 	"strings"
 	"testing"
+
+	"github.com/vango-dev/vango/v2/pkg/render"
 )
 
 // contains is a helper for checking substring presence
@@ -15,40 +17,40 @@ func TestClass(t *testing.T) {
 		name         string
 		class        string
 		addNotRemove bool
-		wantKey      string
-		wantValue    string
+		wantClass    string // Expected Class field in OptimisticConfig
 	}{
 		{
 			name:         "add class",
 			class:        "liked",
 			addNotRemove: true,
-			wantKey:      "data-optimistic-class",
-			wantValue:    "liked:add",
+			wantClass:    "liked:add",
 		},
 		{
 			name:         "remove class",
 			class:        "liked",
 			addNotRemove: false,
-			wantKey:      "data-optimistic-class",
-			wantValue:    "liked:remove",
+			wantClass:    "liked:remove",
 		},
 		{
 			name:         "add class with hyphen",
 			class:        "is-active",
 			addNotRemove: true,
-			wantKey:      "data-optimistic-class",
-			wantValue:    "is-active:add",
+			wantClass:    "is-active:add",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			attr := Class(tt.class, tt.addNotRemove)
-			if attr.Key != tt.wantKey {
-				t.Errorf("Class() key = %q, want %q", attr.Key, tt.wantKey)
+			if attr.Key != "_optimistic" {
+				t.Errorf("Class() key = %q, want %q", attr.Key, "_optimistic")
 			}
-			if attr.Value != tt.wantValue {
-				t.Errorf("Class() value = %q, want %q", attr.Value, tt.wantValue)
+			config, ok := attr.Value.(render.OptimisticConfig)
+			if !ok {
+				t.Fatalf("Class() value is not render.OptimisticConfig, got %T", attr.Value)
+			}
+			if config.Class != tt.wantClass {
+				t.Errorf("Class() config.Class = %q, want %q", config.Class, tt.wantClass)
 			}
 		})
 	}
@@ -56,50 +58,58 @@ func TestClass(t *testing.T) {
 
 func TestClassToggle(t *testing.T) {
 	attr := ClassToggle("active")
-	if attr.Key != "data-optimistic-class" {
-		t.Errorf("ClassToggle() key = %q, want %q", attr.Key, "data-optimistic-class")
+	if attr.Key != "_optimistic" {
+		t.Errorf("ClassToggle() key = %q, want %q", attr.Key, "_optimistic")
 	}
-	if attr.Value != "active:toggle" {
-		t.Errorf("ClassToggle() value = %q, want %q", attr.Value, "active:toggle")
+	config, ok := attr.Value.(render.OptimisticConfig)
+	if !ok {
+		t.Fatalf("ClassToggle() value is not render.OptimisticConfig, got %T", attr.Value)
+	}
+	if config.Class != "active:toggle" {
+		t.Errorf("ClassToggle() config.Class = %q, want %q", config.Class, "active:toggle")
 	}
 }
 
 func TestText(t *testing.T) {
 	tests := []struct {
-		name      string
-		text      string
-		wantValue string
+		name     string
+		text     string
+		wantText string
 	}{
 		{
-			name:      "simple text",
-			text:      "Saving...",
-			wantValue: "Saving...",
+			name:     "simple text",
+			text:     "Saving...",
+			wantText: "Saving...",
 		},
 		{
-			name:      "number text",
-			text:      "42",
-			wantValue: "42",
+			name:     "number text",
+			text:     "42",
+			wantText: "42",
 		},
 		{
-			name:      "empty text",
-			text:      "",
-			wantValue: "",
+			name:     "empty text",
+			text:     "",
+			wantText: "",
 		},
 		{
-			name:      "text with special chars",
-			text:      "Hello <World>",
-			wantValue: "Hello <World>",
+			name:     "text with special chars",
+			text:     "Hello <World>",
+			wantText: "Hello <World>",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			attr := Text(tt.text)
-			if attr.Key != "data-optimistic-text" {
-				t.Errorf("Text() key = %q, want %q", attr.Key, "data-optimistic-text")
+			if attr.Key != "_optimistic" {
+				t.Errorf("Text() key = %q, want %q", attr.Key, "_optimistic")
 			}
-			if attr.Value != tt.wantValue {
-				t.Errorf("Text() value = %q, want %q", attr.Value, tt.wantValue)
+			config, ok := attr.Value.(render.OptimisticConfig)
+			if !ok {
+				t.Fatalf("Text() value is not render.OptimisticConfig, got %T", attr.Value)
+			}
+			if config.Text != tt.wantText {
+				t.Errorf("Text() config.Text = %q, want %q", config.Text, tt.wantText)
 			}
 		})
 	}
@@ -107,39 +117,50 @@ func TestText(t *testing.T) {
 
 func TestAttr(t *testing.T) {
 	tests := []struct {
-		name      string
-		attrName  string
-		attrValue string
-		wantValue string
+		name          string
+		attrName      string
+		attrValue     string
+		wantAttrName  string
+		wantAttrValue string
 	}{
 		{
-			name:      "checked attribute",
-			attrName:  "checked",
-			attrValue: "true",
-			wantValue: "checked:true",
+			name:          "checked attribute",
+			attrName:      "checked",
+			attrValue:     "true",
+			wantAttrName:  "checked",
+			wantAttrValue: "true",
 		},
 		{
-			name:      "aria attribute",
-			attrName:  "aria-expanded",
-			attrValue: "true",
-			wantValue: "aria-expanded:true",
+			name:          "aria attribute",
+			attrName:      "aria-expanded",
+			attrValue:     "true",
+			wantAttrName:  "aria-expanded",
+			wantAttrValue: "true",
 		},
 		{
-			name:      "data attribute",
-			attrName:  "data-state",
-			attrValue: "active",
-			wantValue: "data-state:active",
+			name:          "data attribute",
+			attrName:      "data-state",
+			attrValue:     "active",
+			wantAttrName:  "data-state",
+			wantAttrValue: "active",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			attr := Attr(tt.attrName, tt.attrValue)
-			if attr.Key != "data-optimistic-attr" {
-				t.Errorf("Attr() key = %q, want %q", attr.Key, "data-optimistic-attr")
+			if attr.Key != "_optimistic" {
+				t.Errorf("Attr() key = %q, want %q", attr.Key, "_optimistic")
 			}
-			if attr.Value != tt.wantValue {
-				t.Errorf("Attr() value = %q, want %q", attr.Value, tt.wantValue)
+			config, ok := attr.Value.(render.OptimisticConfig)
+			if !ok {
+				t.Fatalf("Attr() value is not render.OptimisticConfig, got %T", attr.Value)
+			}
+			if config.Attr != tt.wantAttrName {
+				t.Errorf("Attr() config.Attr = %q, want %q", config.Attr, tt.wantAttrName)
+			}
+			if config.Value != tt.wantAttrValue {
+				t.Errorf("Attr() config.Value = %q, want %q", config.Value, tt.wantAttrValue)
 			}
 		})
 	}
@@ -147,11 +168,18 @@ func TestAttr(t *testing.T) {
 
 func TestAttrRemove(t *testing.T) {
 	attr := AttrRemove("disabled")
-	if attr.Key != "data-optimistic-attr-remove" {
-		t.Errorf("AttrRemove() key = %q, want %q", attr.Key, "data-optimistic-attr-remove")
+	if attr.Key != "_optimistic" {
+		t.Errorf("AttrRemove() key = %q, want %q", attr.Key, "_optimistic")
 	}
-	if attr.Value != "disabled" {
-		t.Errorf("AttrRemove() value = %q, want %q", attr.Value, "disabled")
+	config, ok := attr.Value.(render.OptimisticConfig)
+	if !ok {
+		t.Fatalf("AttrRemove() value is not render.OptimisticConfig, got %T", attr.Value)
+	}
+	if config.Attr != "disabled" {
+		t.Errorf("AttrRemove() config.Attr = %q, want %q", config.Attr, "disabled")
+	}
+	if config.Value != "" {
+		t.Errorf("AttrRemove() config.Value = %q, want empty string", config.Value)
 	}
 }
 

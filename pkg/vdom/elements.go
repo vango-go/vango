@@ -47,7 +47,22 @@ func createElement(tag string, args []any) *VNode {
 						node.Key = s
 					}
 				}
-				node.Props[v.Key] = v.Value
+				// Special handling for onhook - merge multiple handlers
+				if v.Key == "onhook" {
+					if existing := node.Props["onhook"]; existing != nil {
+						// Merge with existing handlers
+						if existingSlice, ok := existing.([]any); ok {
+							node.Props["onhook"] = append(existingSlice, v.Value)
+						} else {
+							// Existing is a single handler, convert to slice
+							node.Props["onhook"] = []any{existing, v.Value}
+						}
+					} else {
+						node.Props[v.Key] = v.Value
+					}
+				} else {
+					node.Props[v.Key] = v.Value
+				}
 			}
 
 		case []Attr:
@@ -59,7 +74,20 @@ func createElement(tag string, args []any) *VNode {
 							node.Key = s
 						}
 					}
-					node.Props[attr.Key] = attr.Value
+					// Special handling for onhook - merge multiple handlers
+					if attr.Key == "onhook" {
+						if existing := node.Props["onhook"]; existing != nil {
+							if existingSlice, ok := existing.([]any); ok {
+								node.Props["onhook"] = append(existingSlice, attr.Value)
+							} else {
+								node.Props["onhook"] = []any{existing, attr.Value}
+							}
+						} else {
+							node.Props[attr.Key] = attr.Value
+						}
+					} else {
+						node.Props[attr.Key] = attr.Value
+					}
 				}
 			}
 

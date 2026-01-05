@@ -252,23 +252,78 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check for session resume
-	// NOTE: After a page refresh, SSR renders a new page with different HIDs/handlers.
-	// If we resume the old session, its handler map is stale and won't match.
-	// For now, we disable session resume to ensure fresh handlers on each page load.
-	// A production fix would remount the component on resume.
-	// TODO: Implement proper session resume with component remount
+	// ═══════════════════════════════════════════════════════════════════════════
+	// SESSION RESUME (Phase 5)
+	// Check if client has an existing session to resume. Uses soft remount
+	// (RebuildHandlers) to preserve signal state while regenerating HIDs.
+	// ═══════════════════════════════════════════════════════════════════════════
 	var session *Session
-	if false && hello.SessionID != "" { // Disabled: stale handlers cause click failures
+	var isResume bool
+
+	if hello.SessionID != "" {
+		// Try active sessions first
 		session = s.sessions.Get(hello.SessionID)
-		if session != nil {
-			// Resume existing session
-			session.Resume(conn, uint64(hello.LastSeq))
-			s.sendServerHello(conn, session)
-			session.Start()
-			return
+		if session != nil && !session.IsClosed() {
+			isResume = true
+		} else if s.sessions.HasPersistence() {
+			// Try persistence store (server restart scenario)
+			if restored, ok := s.sessions.OnSessionReconnect(hello.SessionID); ok {
+				session = restored
+				isResume = true
+			}
+		}
+
+		// Validate resume window
+		if isResume && session != nil {
+			if time.Since(session.LastActive) > s.sessions.ResumeWindow() {
+				s.logger.Info("session resume rejected: expired",
+					"session_id", hello.SessionID,
+					"last_active", session.LastActive)
+				session.Close()
+				s.sessions.Close(session.ID)
+				session = nil
+				isResume = false
+				// Metrics: RecordResumeFailed("expired") can be called via hooks
+			}
 		}
 	}
+
+	if isResume && session != nil {
+		// Resume existing session with soft remount
+		session.Resume(conn, uint64(hello.LastSeq))
+
+		// Rebuild handlers (soft remount - preserves signal state)
+		if err := session.RebuildHandlers(); err != nil {
+			s.logger.Error("rebuild handlers failed", "error", err)
+			s.sendHandshakeError(conn, protocol.HandshakeInternalError)
+			conn.Close()
+			// Metrics: RecordResumeFailed("rebuild_error") can be called via hooks
+			return
+		}
+
+		s.sendServerHello(conn, session)
+
+		// Send ResyncFull to ensure client DOM matches (fallback for HID mismatch)
+		if err := session.SendResyncFull(); err != nil {
+			s.logger.Warn("resync full failed", "error", err)
+			// Not fatal - may still work if HIDs align
+		}
+
+		// Only restart goroutines if they were stopped
+		if session.NeedsRestart() {
+			session.Start()
+		}
+
+		// Metrics: RecordResume() and RecordSessionReattach() can be called via hooks
+		s.logger.Info("session resumed",
+			"session_id", session.ID,
+			"user_id", session.UserID)
+		return
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// NEW SESSION
+	// ═══════════════════════════════════════════════════════════════════════════
 
 	// Authenticate if auth function is set
 	var userID string

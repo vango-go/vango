@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"sort"
 	"sync"
@@ -9,7 +10,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/vango-dev/vango/v2/pkg/features/store"
 	"github.com/vango-dev/vango/v2/pkg/session"
+	"github.com/vango-dev/vango/v2/pkg/urlparam"
+	"github.com/vango-dev/vango/v2/pkg/vango"
+	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
 
 // SessionManager manages all active sessions.
@@ -558,6 +563,7 @@ func (sm *SessionManager) serializeSessionForPersistence(sess *Session) []byte {
 }
 
 // restoreSessionFromPersistence creates a Session from persisted bytes.
+// This creates a fully initialized session that can be resumed.
 func (sm *SessionManager) restoreSessionFromPersistence(sessionID string, data []byte) *Session {
 	ss, err := session.Deserialize(data)
 	if err != nil {
@@ -567,18 +573,67 @@ func (sm *SessionManager) restoreSessionFromPersistence(sessionID string, data [
 		return nil
 	}
 
-	// Create a new session with restored state
+	// Create fully initialized session
 	sess := &Session{
 		ID:           ss.ID,
 		UserID:       ss.UserID,
 		CreatedAt:    ss.CreatedAt,
 		LastActive:   time.Now(),
 		CurrentRoute: ss.Route,
-		config:       sm.config,
-		logger:       sm.logger.With("session_id", ss.ID),
+
+		// Initialize component tracking (populated on RebuildHandlers)
+		allComponents: make(map[*ComponentInstance]struct{}),
+		handlers:      make(map[string]Handler),
+		components:    make(map[string]*ComponentInstance),
+
+		// Create fresh owner and HID generator
+		owner:  vango.NewOwner(nil),
+		hidGen: vdom.NewHIDGenerator(),
+
+		// Initialize channels
+		events:     make(chan *Event, sm.config.MaxEventQueue),
+		renderCh:   make(chan struct{}, 1),
+		dispatchCh: make(chan func(), sm.config.MaxEventQueue),
+		done:       make(chan struct{}),
+
+		config: sm.config,
+		logger: sm.logger.With("session_id", ss.ID),
+		data:   make(map[string]any),
 	}
 
+	// Initialize session-scoped store for SharedSignal support
+	sess.owner.SetValue(store.SessionKey, store.NewSessionStore())
+
+	// Initialize URL navigator for URLParam support
+	navigator := urlparam.NewNavigator(sess.queueURLPatch)
+	sess.owner.SetValue(urlparam.NavigatorKey, navigator)
+
+	// Restore session data values
+	if ss.Values != nil {
+		values := make(map[string]any, len(ss.Values))
+		for k, v := range ss.Values {
+			var val any
+			if err := json.Unmarshal(v, &val); err == nil {
+				values[k] = val
+			}
+		}
+		sess.RestoreData(values)
+	}
+
+	sm.logger.Debug("session restored from persistence",
+		"session_id", sess.ID,
+		"user_id", sess.UserID)
+
 	return sess
+}
+
+// ResumeWindow returns the configured resume window duration.
+// This is how long detached sessions remain resumable.
+func (sm *SessionManager) ResumeWindow() time.Duration {
+	if sm.resumeWindow == 0 {
+		return 5 * time.Minute // Default
+	}
+	return sm.resumeWindow
 }
 
 // PersistenceManager returns the underlying persistence manager for advanced use.

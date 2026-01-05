@@ -1,8 +1,10 @@
 package standard
 
 import (
-	"strings"
+	"encoding/json"
 	"testing"
+
+	"github.com/vango-dev/vango/v2/pkg/render"
 )
 
 func TestSortable(t *testing.T) {
@@ -16,24 +18,34 @@ func TestSortable(t *testing.T) {
 
 	attr := Sortable(config)
 
-	if attr.Key != "v-hook" {
-		t.Errorf("Expected key 'v-hook', got '%s'", attr.Key)
+	if attr.Key != "_hook" {
+		t.Errorf("Expected key '_hook', got '%s'", attr.Key)
 	}
 
-	val := attr.Value.(string)
-	if !strings.HasPrefix(val, "Sortable:") {
-		t.Errorf("Expected prefix 'Sortable:', got '%s'", val)
+	hookConfig, ok := attr.Value.(render.HookConfig)
+	if !ok {
+		t.Fatalf("Expected value to be render.HookConfig, got %T", attr.Value)
 	}
 
-	// Verify it contains expected config values
-	if !strings.Contains(val, "items") {
-		t.Error("Expected value to contain group name 'items'")
+	if hookConfig.Name != "Sortable" {
+		t.Errorf("Expected Name 'Sortable', got '%s'", hookConfig.Name)
 	}
-	if !strings.Contains(val, "150") {
-		t.Error("Expected value to contain animation value '150'")
+
+	// Marshal and check the config contains expected values
+	configJSON, err := json.Marshal(hookConfig.Config)
+	if err != nil {
+		t.Fatalf("Failed to marshal config: %v", err)
 	}
-	if !strings.Contains(val, "ghost") {
-		t.Error("Expected value to contain ghostClass 'ghost'")
+
+	configStr := string(configJSON)
+	if !contains(configStr, "items") {
+		t.Error("Expected config to contain group name 'items'")
+	}
+	if !contains(configStr, "150") {
+		t.Error("Expected config to contain animation value '150'")
+	}
+	if !contains(configStr, "ghost") {
+		t.Error("Expected config to contain ghostClass 'ghost'")
 	}
 }
 
@@ -41,13 +53,17 @@ func TestSortableDefaults(t *testing.T) {
 	// Empty config should still work
 	attr := Sortable(SortableConfig{})
 
-	if attr.Key != "v-hook" {
-		t.Errorf("Expected key 'v-hook', got '%s'", attr.Key)
+	if attr.Key != "_hook" {
+		t.Errorf("Expected key '_hook', got '%s'", attr.Key)
 	}
 
-	val := attr.Value.(string)
-	if !strings.HasPrefix(val, "Sortable:") {
-		t.Error("Expected Sortable prefix")
+	hookConfig, ok := attr.Value.(render.HookConfig)
+	if !ok {
+		t.Fatalf("Expected value to be render.HookConfig, got %T", attr.Value)
+	}
+
+	if hookConfig.Name != "Sortable" {
+		t.Errorf("Expected Name 'Sortable', got '%s'", hookConfig.Name)
 	}
 }
 
@@ -60,24 +76,34 @@ func TestDraggable(t *testing.T) {
 
 	attr := Draggable(config)
 
-	if attr.Key != "v-hook" {
-		t.Errorf("Expected key 'v-hook', got '%s'", attr.Key)
+	if attr.Key != "_hook" {
+		t.Errorf("Expected key '_hook', got '%s'", attr.Key)
 	}
 
-	val := attr.Value.(string)
-	if !strings.HasPrefix(val, "Draggable:") {
-		t.Errorf("Expected prefix 'Draggable:', got '%s'", val)
+	hookConfig, ok := attr.Value.(render.HookConfig)
+	if !ok {
+		t.Fatalf("Expected value to be render.HookConfig, got %T", attr.Value)
 	}
 
-	// Verify config values
-	if !strings.Contains(val, `"x"`) {
-		t.Error("Expected value to contain axis 'x'")
+	if hookConfig.Name != "Draggable" {
+		t.Errorf("Expected Name 'Draggable', got '%s'", hookConfig.Name)
 	}
-	if !strings.Contains(val, ".drag-handle") {
-		t.Error("Expected value to contain handle")
+
+	// Marshal and check config values
+	configJSON, err := json.Marshal(hookConfig.Config)
+	if err != nil {
+		t.Fatalf("Failed to marshal config: %v", err)
 	}
-	if !strings.Contains(val, "true") {
-		t.Error("Expected value to contain revert true")
+
+	configStr := string(configJSON)
+	if !contains(configStr, `"x"`) {
+		t.Error("Expected config to contain axis 'x'")
+	}
+	if !contains(configStr, ".drag-handle") {
+		t.Error("Expected config to contain handle")
+	}
+	if !contains(configStr, "true") {
+		t.Error("Expected config to contain revert true")
 	}
 }
 
@@ -87,10 +113,11 @@ func TestDraggableAxisY(t *testing.T) {
 	}
 
 	attr := Draggable(config)
-	val := attr.Value.(string)
+	hookConfig := attr.Value.(render.HookConfig)
 
-	if !strings.Contains(val, `"y"`) {
-		t.Error("Expected value to contain axis 'y'")
+	configJSON, _ := json.Marshal(hookConfig.Config)
+	if !contains(string(configJSON), `"y"`) {
+		t.Error("Expected config to contain axis 'y'")
 	}
 }
 
@@ -100,10 +127,11 @@ func TestDraggableBoth(t *testing.T) {
 	}
 
 	attr := Draggable(config)
-	val := attr.Value.(string)
+	hookConfig := attr.Value.(render.HookConfig)
 
-	if !strings.Contains(val, `"both"`) {
-		t.Error("Expected value to contain axis 'both'")
+	configJSON, _ := json.Marshal(hookConfig.Config)
+	if !contains(string(configJSON), `"both"`) {
+		t.Error("Expected config to contain axis 'both'")
 	}
 }
 
@@ -117,27 +145,37 @@ func TestTooltip(t *testing.T) {
 
 	attr := Tooltip(config)
 
-	if attr.Key != "v-hook" {
-		t.Errorf("Expected key 'v-hook', got '%s'", attr.Key)
+	if attr.Key != "_hook" {
+		t.Errorf("Expected key '_hook', got '%s'", attr.Key)
 	}
 
-	val := attr.Value.(string)
-	if !strings.HasPrefix(val, "Tooltip:") {
-		t.Errorf("Expected prefix 'Tooltip:', got '%s'", val)
+	hookConfig, ok := attr.Value.(render.HookConfig)
+	if !ok {
+		t.Fatalf("Expected value to be render.HookConfig, got %T", attr.Value)
 	}
 
-	// Verify config values
-	if !strings.Contains(val, "Hello World") {
-		t.Error("Expected value to contain content")
+	if hookConfig.Name != "Tooltip" {
+		t.Errorf("Expected Name 'Tooltip', got '%s'", hookConfig.Name)
 	}
-	if !strings.Contains(val, "top") {
-		t.Error("Expected value to contain placement 'top'")
+
+	// Marshal and check config values
+	configJSON, err := json.Marshal(hookConfig.Config)
+	if err != nil {
+		t.Fatalf("Failed to marshal config: %v", err)
 	}
-	if !strings.Contains(val, "300") {
-		t.Error("Expected value to contain delay")
+
+	configStr := string(configJSON)
+	if !contains(configStr, "Hello World") {
+		t.Error("Expected config to contain content")
 	}
-	if !strings.Contains(val, "hover") {
-		t.Error("Expected value to contain trigger")
+	if !contains(configStr, "top") {
+		t.Error("Expected config to contain placement 'top'")
+	}
+	if !contains(configStr, "300") {
+		t.Error("Expected config to contain delay")
+	}
+	if !contains(configStr, "hover") {
+		t.Error("Expected config to contain trigger")
 	}
 }
 
@@ -152,10 +190,11 @@ func TestTooltipPlacements(t *testing.T) {
 			}
 
 			attr := Tooltip(config)
-			val := attr.Value.(string)
+			hookConfig := attr.Value.(render.HookConfig)
 
-			if !strings.Contains(val, placement) {
-				t.Errorf("Expected value to contain placement '%s'", placement)
+			configJSON, _ := json.Marshal(hookConfig.Config)
+			if !contains(string(configJSON), placement) {
+				t.Errorf("Expected config to contain placement '%s'", placement)
 			}
 		})
 	}
@@ -172,10 +211,11 @@ func TestTooltipTriggers(t *testing.T) {
 			}
 
 			attr := Tooltip(config)
-			val := attr.Value.(string)
+			hookConfig := attr.Value.(render.HookConfig)
 
-			if !strings.Contains(val, trigger) {
-				t.Errorf("Expected value to contain trigger '%s'", trigger)
+			configJSON, _ := json.Marshal(hookConfig.Config)
+			if !contains(string(configJSON), trigger) {
+				t.Errorf("Expected config to contain trigger '%s'", trigger)
 			}
 		})
 	}
@@ -189,18 +229,23 @@ func TestDropdown(t *testing.T) {
 
 	attr := Dropdown(config)
 
-	if attr.Key != "v-hook" {
-		t.Errorf("Expected key 'v-hook', got '%s'", attr.Key)
+	if attr.Key != "_hook" {
+		t.Errorf("Expected key '_hook', got '%s'", attr.Key)
 	}
 
-	val := attr.Value.(string)
-	if !strings.HasPrefix(val, "Dropdown:") {
-		t.Errorf("Expected prefix 'Dropdown:', got '%s'", val)
+	hookConfig, ok := attr.Value.(render.HookConfig)
+	if !ok {
+		t.Fatalf("Expected value to be render.HookConfig, got %T", attr.Value)
 	}
 
+	if hookConfig.Name != "Dropdown" {
+		t.Errorf("Expected Name 'Dropdown', got '%s'", hookConfig.Name)
+	}
+
+	configJSON, _ := json.Marshal(hookConfig.Config)
 	// Both should be true
-	if !strings.Contains(val, "true") {
-		t.Error("Expected value to contain true for close options")
+	if !contains(string(configJSON), "true") {
+		t.Error("Expected config to contain true for close options")
 	}
 }
 
@@ -211,11 +256,12 @@ func TestDropdownFalseOptions(t *testing.T) {
 	}
 
 	attr := Dropdown(config)
-	val := attr.Value.(string)
+	hookConfig := attr.Value.(render.HookConfig)
 
+	configJSON, _ := json.Marshal(hookConfig.Config)
 	// Both should be false
-	if !strings.Contains(val, "false") {
-		t.Error("Expected value to contain false for close options")
+	if !contains(string(configJSON), "false") {
+		t.Error("Expected config to contain false for close options")
 	}
 }
 
@@ -226,11 +272,13 @@ func TestDropdownMixedOptions(t *testing.T) {
 	}
 
 	attr := Dropdown(config)
-	val := attr.Value.(string)
+	hookConfig := attr.Value.(render.HookConfig)
 
+	configJSON, _ := json.Marshal(hookConfig.Config)
+	configStr := string(configJSON)
 	// Should contain both true and false
-	if !strings.Contains(val, "true") || !strings.Contains(val, "false") {
-		t.Error("Expected value to contain both true and false")
+	if !contains(configStr, "true") || !contains(configStr, "false") {
+		t.Error("Expected config to contain both true and false")
 	}
 }
 
@@ -254,4 +302,19 @@ func TestAllHooksReturnValidAttr(t *testing.T) {
 			}
 		})
 	}
+}
+
+// contains is a helper to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && containsRune(s, substr)))
+}
+
+func containsRune(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

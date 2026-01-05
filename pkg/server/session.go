@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -15,8 +16,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/vango-dev/vango/v2/pkg/features/store"
 	"github.com/vango-dev/vango/v2/pkg/protocol"
+	"github.com/vango-dev/vango/v2/pkg/render"
 	"github.com/vango-dev/vango/v2/pkg/session"
+	"github.com/vango-dev/vango/v2/pkg/urlparam"
 	"github.com/vango-dev/vango/v2/pkg/vango"
 	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
@@ -101,6 +105,14 @@ type Session struct {
 	// Use Get/Set/Delete to access. Protected by dataMu.
 	data   map[string]any
 	dataMu sync.RWMutex
+
+	// URL patch buffering (Phase 12: URLParam 2.0)
+	// URL patches are queued here and sent along with DOM patches.
+	pendingURLPatches []protocol.Patch
+	urlPatchMu        sync.Mutex
+
+	// Storm budget tracker (Phase 16)
+	stormBudget *vango.StormBudgetTracker
 }
 
 // generateSessionID generates a cryptographically random session ID.
@@ -135,7 +147,18 @@ func newSession(conn *websocket.Conn, userID string, config *SessionConfig, logg
 		done:          make(chan struct{}),
 		config:        config,
 		logger:        logger.With("session_id", id),
+		stormBudget:   createStormBudgetTracker(config.StormBudget),
 	}
+
+	// Initialize session-scoped store for SharedSignal support.
+	// This enables store.Shared[T] signals to work without manual context setup.
+	s.owner.SetValue(store.SessionKey, store.NewSessionStore())
+
+	// Initialize URL navigator for URLParam support.
+	// URLParam.Set() will queue patches via queueURLPatch, which are then
+	// sent along with DOM patches in renderDirty().
+	navigator := urlparam.NewNavigator(s.queueURLPatch)
+	s.owner.SetValue(urlparam.NavigatorKey, navigator)
 
 	return s
 }
@@ -185,7 +208,37 @@ func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance)
 				continue
 			}
 
-			// Case 1: Standard on* handlers (onclick, oninput, etc.)
+			// Case 1: onhook handlers (from hooks.OnEvent, can be single or slice)
+			if key == "onhook" {
+				handlerKey := node.HID + "_onhook"
+
+				// Handle both single handler and slice of handlers
+				var handlers []Handler
+				if slice, ok := value.([]any); ok {
+					// Multiple merged handlers
+					for _, h := range slice {
+						handlers = append(handlers, wrapHandler(h))
+					}
+				} else {
+					// Single handler
+					handlers = append(handlers, wrapHandler(value))
+				}
+
+				// Create a combined handler that calls all wrapped handlers
+				combinedHandler := func(e *Event) {
+					for _, h := range handlers {
+						h(e)
+					}
+				}
+				s.handlers[handlerKey] = combinedHandler
+
+				if DebugMode {
+					fmt.Printf("[HANDLER] Registered onhook on %s (%s) -> key=%s (%d handlers)\n", node.HID, node.Tag, handlerKey, len(handlers))
+				}
+				continue
+			}
+
+			// Case 2: Standard on* handlers (onclick, oninput, etc.)
 			if strings.HasPrefix(key, "on") {
 				handler := wrapHandler(value)
 				// Use compound key: HID_eventType (e.g., "h1_onclick")
@@ -198,7 +251,7 @@ func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance)
 				continue
 			}
 
-			// Case 2: EventHandler struct (from hooks.OnEvent for custom hook events)
+			// Case 3: EventHandler struct (DEPRECATED - legacy support for vdom.EventHandler)
 			if eh, ok := value.(vdom.EventHandler); ok {
 				handler := wrapHandler(eh.Handler)
 				// Hook events use key: HID_hook_eventName (e.g., "h1_hook_reorder")
@@ -244,9 +297,10 @@ func (s *Session) handleEvent(event *Event) {
 
 	// Build handler key based on event type
 	var handlerKey string
-	if hookData, ok := event.Payload.(*protocol.HookEventData); ok {
-		// Hook events keyed by: HID_hook_eventName
-		handlerKey = event.HID + "_hook_" + hookData.Name
+	if _, ok := event.Payload.(*protocol.HookEventData); ok {
+		// Hook events use new unified key: HID_onhook
+		// The wrapped handlers filter by event name internally
+		handlerKey = event.HID + "_onhook"
 	} else {
 		// Standard events keyed by: HID_oneventtype (e.g., "h1_onclick")
 		eventType := "on" + strings.ToLower(event.Type.String())
@@ -330,14 +384,11 @@ func (s *Session) renderDirty() {
 		s.root.ClearDirty()
 	}
 
-	if len(dirty) == 0 {
-		if DebugMode {
-			fmt.Println("[DEBUG] renderDirty: no dirty components")
-		}
-		return
+	if DebugMode && len(dirty) == 0 {
+		fmt.Println("[DEBUG] renderDirty: no dirty components")
 	}
 
-	if DebugMode {
+	if DebugMode && len(dirty) > 0 {
 		fmt.Printf("[DEBUG] renderDirty: %d dirty components\n", len(dirty))
 	}
 
@@ -351,12 +402,15 @@ func (s *Session) renderDirty() {
 		allPatches = append(allPatches, patches...)
 	}
 
-	// Send all patches
+	// Drain any pending URL patches
+	urlPatches := s.drainURLPatches()
+
+	// Send all patches (DOM + URL)
 	if DebugMode {
-		fmt.Printf("[DEBUG] renderDirty: sending %d total patches\n", len(allPatches))
+		fmt.Printf("[DEBUG] renderDirty: sending %d DOM patches, %d URL patches\n", len(allPatches), len(urlPatches))
 	}
-	if len(allPatches) > 0 {
-		s.sendPatches(allPatches)
+	if len(allPatches) > 0 || len(urlPatches) > 0 {
+		s.sendPatchesWithURL(allPatches, urlPatches)
 	}
 }
 
@@ -416,6 +470,230 @@ func (s *Session) clearComponentHandlers(comp *ComponentInstance) {
 	}
 }
 
+// =============================================================================
+// Session Resume: Soft Remount (Phase 5)
+// =============================================================================
+
+// RebuildHandlers clears and rebuilds the handler map with fresh HIDs.
+// This is called on session resume to match SSR-rendered DOM.
+//
+// Unlike a full remount, this preserves:
+//   - Owner (signals stay alive with their values)
+//   - Component instances (state preserved)
+//
+// It regenerates:
+//   - HID assignments (reset to h1, h2... matching SSR)
+//   - Handler map (rebuilt from fresh render)
+//   - Component ownership map
+func (s *Session) RebuildHandlers() error {
+	if s.root == nil {
+		return fmt.Errorf("no root component to rebuild")
+	}
+
+	// 1. Clear handlers and component mappings (NOT owner!)
+	s.handlers = make(map[string]Handler)
+	s.components = make(map[string]*ComponentInstance)
+
+	// 2. Reset HID generator to 0 (will produce h1, h2... matching SSR)
+	s.hidGen.Reset()
+
+	// 3. Re-render existing component tree (signals still alive, so same values)
+	tree := s.rerenderTree(s.root)
+
+	// 4. Assign fresh HIDs
+	vdom.AssignHIDs(tree, s.hidGen)
+
+	// 5. Collect handlers from fresh render (use existing instances)
+	s.collectHandlersPreserving(tree, s.root)
+
+	// 6. Store new tree
+	s.currentTree = tree
+	s.root.HID = tree.HID
+	s.root.SetLastTree(tree)
+
+	s.logger.Info("handlers rebuilt",
+		"handlers", len(s.handlers),
+		"components", len(s.components),
+		"hid_counter", s.hidGen.Current())
+
+	return nil
+}
+
+// rerenderTree recursively re-renders all components in the tree.
+// This uses existing component instances (preserving their state).
+func (s *Session) rerenderTree(instance *ComponentInstance) *vdom.VNode {
+	tree := instance.Render()
+
+	// Recursively handle child components in the rendered tree
+	s.rerenderChildren(tree, instance)
+
+	return tree
+}
+
+// rerenderChildren walks the tree and re-renders child component instances.
+// When it finds a KindComponent node, it looks up the existing child instance
+// and renders it instead of creating a new one.
+func (s *Session) rerenderChildren(node *vdom.VNode, parent *ComponentInstance) {
+	if node == nil {
+		return
+	}
+
+	for i, child := range node.Children {
+		if child.Kind == vdom.KindComponent && child.Comp != nil {
+			// Find existing child instance that matches this component
+			var existingChild *ComponentInstance
+			for _, existing := range parent.Children {
+				// Match by component type (pointer equality or interface match)
+				if existing.Component == child.Comp {
+					existingChild = existing
+					break
+				}
+			}
+
+			if existingChild != nil {
+				// Re-render existing instance (preserving its state)
+				rendered := s.rerenderTree(existingChild)
+				node.Children[i] = rendered
+			} else {
+				// No existing instance found - this is a new component
+				// For soft remount, we should ideally skip this or handle gracefully
+				// For now, log a warning and render it fresh
+				s.logger.Warn("no existing child instance found during rebuild",
+					"parent", parent.InstanceID,
+					"component_type", fmt.Sprintf("%T", child.Comp))
+
+				// Create new instance for the new component
+				childInstance := newComponentInstance(child.Comp, parent, s)
+				parent.AddChild(childInstance)
+				s.registerComponent(childInstance)
+				rendered := s.rerenderTree(childInstance)
+				node.Children[i] = rendered
+			}
+		} else {
+			// Recurse into regular elements
+			s.rerenderChildren(child, parent)
+		}
+	}
+}
+
+// collectHandlersPreserving walks the tree and collects handlers,
+// using existing component instances instead of creating new ones.
+// This is similar to collectHandlers but for the resume path.
+func (s *Session) collectHandlersPreserving(node *vdom.VNode, instance *ComponentInstance) {
+	if node == nil {
+		return
+	}
+
+	// If this node has an HID, check for event handlers
+	if node.HID != "" {
+		// Track that this component owns this HID (for cleanup and lookup)
+		s.components[node.HID] = instance
+
+		for key, value := range node.Props {
+			if value == nil {
+				continue
+			}
+
+			// Case 1: onhook handlers (from hooks.OnEvent)
+			if key == "onhook" {
+				handlerKey := node.HID + "_onhook"
+
+				var handlers []Handler
+				if slice, ok := value.([]any); ok {
+					for _, h := range slice {
+						handlers = append(handlers, wrapHandler(h))
+					}
+				} else {
+					handlers = append(handlers, wrapHandler(value))
+				}
+
+				combinedHandler := func(e *Event) {
+					for _, h := range handlers {
+						h(e)
+					}
+				}
+				s.handlers[handlerKey] = combinedHandler
+				continue
+			}
+
+			// Case 2: Standard on* handlers (onclick, oninput, etc.)
+			if strings.HasPrefix(key, "on") {
+				handler := wrapHandler(value)
+				eventType := strings.ToLower(key)
+				handlerKey := node.HID + "_" + eventType
+				s.handlers[handlerKey] = handler
+				continue
+			}
+
+			// Case 3: EventHandler struct (DEPRECATED - legacy support)
+			if eh, ok := value.(vdom.EventHandler); ok {
+				handler := wrapHandler(eh.Handler)
+				handlerKey := node.HID + "_hook_" + eh.Event
+				s.handlers[handlerKey] = handler
+			}
+		}
+	}
+
+	// Recurse to children - but don't create new component instances
+	for _, child := range node.Children {
+		// For component nodes, we need to find the right instance
+		if child.Kind == vdom.KindComponent && child.Comp != nil {
+			// Find the child instance that owns this subtree
+			for _, childInstance := range instance.Children {
+				if childInstance.Component == child.Comp {
+					// Collect handlers from the child's last rendered tree
+					if childInstance.LastTree() != nil {
+						s.collectHandlersPreserving(childInstance.LastTree(), childInstance)
+					}
+					break
+				}
+			}
+		} else {
+			s.collectHandlersPreserving(child, instance)
+		}
+	}
+}
+
+// SendResyncFull sends the full HTML tree to the client.
+// This is used as a fallback when HIDs may not align between SSR and remount.
+// The client will replace its entire body content with this HTML.
+func (s *Session) SendResyncFull() error {
+	if s.currentTree == nil {
+		return errors.New("no tree to send")
+	}
+
+	// Render tree to HTML using the render package
+	// The tree already has HIDs assigned from RebuildHandlers()
+	renderer := render.NewRenderer(render.RendererConfig{})
+	html, err := renderer.RenderToString(s.currentTree)
+	if err != nil {
+		return fmt.Errorf("render tree to HTML: %w", err)
+	}
+
+	// Send via ResyncFull control message (protocol type 0x12)
+	ct, rr := protocol.NewResyncFull(html)
+	payload := protocol.EncodeControl(ct, rr)
+	frame := protocol.NewFrame(protocol.FrameControl, payload)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed.Load() || s.conn == nil {
+		return ErrSessionClosed
+	}
+
+	s.conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+	if err := s.conn.WriteMessage(websocket.BinaryMessage, frame.Encode()); err != nil {
+		return fmt.Errorf("write resync full: %w", err)
+	}
+
+	s.logger.Debug("sent ResyncFull",
+		"html_size", len(html),
+		"frame_size", len(frame.Encode()))
+
+	return nil
+}
+
 // scheduleRender is called when a component marks itself dirty.
 // For now this is a no-op since renderDirty() iterates all components
 // checking their dirty flags. In the future, this could be optimized
@@ -432,6 +710,12 @@ func (s *Session) scheduleRender(comp *ComponentInstance) {
 
 // sendPatches encodes and sends patches to the client.
 func (s *Session) sendPatches(vdomPatches []vdom.Patch) {
+	s.sendPatchesWithURL(vdomPatches, nil)
+}
+
+// sendPatchesWithURL encodes and sends DOM and URL patches to the client.
+// URL patches (if any) are appended after DOM patches in the same frame.
+func (s *Session) sendPatchesWithURL(vdomPatches []vdom.Patch, urlPatches []protocol.Patch) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -450,6 +734,11 @@ func (s *Session) sendPatches(vdomPatches []vdom.Patch) {
 
 	// Convert vdom patches to protocol patches
 	protocolPatches := s.convertPatches(vdomPatches)
+
+	// Append any URL patches
+	if len(urlPatches) > 0 {
+		protocolPatches = append(protocolPatches, urlPatches...)
+	}
 
 	// Create patches frame
 	pf := &protocol.PatchesFrame{
@@ -681,6 +970,39 @@ func (s *Session) UpdateLastActive() {
 	s.LastActive = time.Now()
 }
 
+// =============================================================================
+// URLParam Support (Phase 12: URLParam 2.0)
+// =============================================================================
+
+// queueURLPatch adds a URL patch to the pending buffer.
+// URL patches are sent along with DOM patches in renderDirty().
+// This is called by the Navigator when URLParam.Set() is invoked.
+func (s *Session) queueURLPatch(patch protocol.Patch) {
+	s.urlPatchMu.Lock()
+	defer s.urlPatchMu.Unlock()
+	s.pendingURLPatches = append(s.pendingURLPatches, patch)
+}
+
+// drainURLPatches returns and clears the pending URL patches.
+// This is called by sendPatches to include URL updates with DOM patches.
+func (s *Session) drainURLPatches() []protocol.Patch {
+	s.urlPatchMu.Lock()
+	defer s.urlPatchMu.Unlock()
+	patches := s.pendingURLPatches
+	s.pendingURLPatches = nil
+	return patches
+}
+
+// SetInitialURL sets the initial URL parameters from the client handshake.
+// This is called when processing the initial handshake message from the client.
+// The URLParam hook will consume these parameters once on first render.
+func (s *Session) SetInitialURL(path string, params map[string]string) {
+	s.owner.SetValue(urlparam.InitialParamsKey, &urlparam.InitialURLState{
+		Path:   path,
+		Params: params,
+	})
+}
+
 // Stats returns session statistics.
 func (s *Session) Stats() SessionStats {
 	return SessionStats{
@@ -863,6 +1185,32 @@ func (s *Session) GetInt(key string) int {
 	default:
 		return 0
 	}
+}
+
+// =============================================================================
+// Storm Budgets (Phase 16)
+// =============================================================================
+
+// createStormBudgetTracker creates a storm budget tracker from server config.
+// Returns nil if no storm budget config is provided.
+func createStormBudgetTracker(cfg *StormBudgetConfig) *vango.StormBudgetTracker {
+	if cfg == nil {
+		return nil
+	}
+	return vango.NewStormBudgetTracker(&vango.StormBudgetConfig{
+		MaxResourceStartsPerSecond: cfg.MaxResourceStartsPerSecond,
+		MaxActionStartsPerSecond:   cfg.MaxActionStartsPerSecond,
+		MaxGoLatestStartsPerSecond: cfg.MaxGoLatestStartsPerSecond,
+		MaxEffectRunsPerTick:       cfg.MaxEffectRunsPerTick,
+		WindowDuration:             cfg.WindowDuration,
+		OnExceeded:                 vango.BudgetExceededMode(cfg.OnExceeded),
+	})
+}
+
+// StormBudget returns the storm budget checker for this session.
+// Returns nil if storm budgets are not configured.
+func (s *Session) StormBudget() vango.StormBudgetChecker {
+	return s.stormBudget
 }
 
 // Has returns whether a key exists in session data.

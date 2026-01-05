@@ -56,6 +56,75 @@ type SessionConfig struct {
 	// EnableOptimistic enables optimistic updates on the client.
 	// Default: true.
 	EnableOptimistic bool
+
+	// ==========================================================================
+	// Phase 16: Storm Budgets
+	// ==========================================================================
+
+	// StormBudget configures rate limits for effect primitives to prevent
+	// amplification bugs (e.g., effect triggers resource refetch triggers effect).
+	// See SPEC_ADDENDUM.md §A.4.
+	StormBudget *StormBudgetConfig
+}
+
+// BudgetExceededMode determines behavior when a storm budget is exceeded.
+type BudgetExceededMode int
+
+const (
+	// BudgetThrottle drops excess operations silently (default).
+	// Operations that exceed the budget are not executed.
+	BudgetThrottle BudgetExceededMode = iota
+
+	// BudgetTripBreaker pauses effect execution until cleared.
+	// Like a circuit breaker, stops all effect processing until reset.
+	BudgetTripBreaker
+)
+
+// StormBudgetConfig configures rate limits for effect primitives.
+// These limits help prevent amplification bugs where effects cascade into
+// more effects, potentially causing performance issues or infinite loops.
+type StormBudgetConfig struct {
+	// MaxResourceStartsPerSecond limits how many Resource fetches can start per second.
+	// 0 means no limit.
+	// Default: 50.
+	MaxResourceStartsPerSecond int
+
+	// MaxActionStartsPerSecond limits how many Action runs can start per second.
+	// 0 means no limit.
+	// Default: 100.
+	MaxActionStartsPerSecond int
+
+	// MaxGoLatestStartsPerSecond limits how many GoLatest work items can start per second.
+	// 0 means no limit.
+	// Default: 50.
+	MaxGoLatestStartsPerSecond int
+
+	// MaxEffectRunsPerTick limits effect runs within a single event/dispatch tick.
+	// Helps catch infinite loops where effects trigger effects.
+	// 0 means no limit.
+	// Default: 1000.
+	MaxEffectRunsPerTick int
+
+	// WindowDuration is the sliding window for per-second limits.
+	// Default: 1 second.
+	WindowDuration time.Duration
+
+	// OnExceeded determines what happens when a budget is exceeded.
+	// Default: BudgetThrottle (drop excess operations).
+	OnExceeded BudgetExceededMode
+}
+
+// DefaultStormBudgetConfig returns a StormBudgetConfig with sensible defaults.
+// These defaults are conservative but should handle most applications.
+func DefaultStormBudgetConfig() *StormBudgetConfig {
+	return &StormBudgetConfig{
+		MaxResourceStartsPerSecond: 50,
+		MaxActionStartsPerSecond:   100,
+		MaxGoLatestStartsPerSecond: 50,
+		MaxEffectRunsPerTick:       1000,
+		WindowDuration:             time.Second,
+		OnExceeded:                 BudgetThrottle,
+	}
 }
 
 // DefaultSessionConfig returns a SessionConfig with sensible defaults.
@@ -71,6 +140,7 @@ func DefaultSessionConfig() *SessionConfig {
 		MaxEventQueue:     256,
 		EnableCompression: true,
 		EnableOptimistic:  true,
+		StormBudget:       DefaultStormBudgetConfig(),
 	}
 }
 
@@ -80,6 +150,10 @@ func (c *SessionConfig) Clone() *SessionConfig {
 		return nil
 	}
 	clone := *c
+	if c.StormBudget != nil {
+		budgetClone := *c.StormBudget
+		clone.StormBudget = &budgetClone
+	}
 	return &clone
 }
 

@@ -121,8 +121,15 @@ func (r *Renderer) renderElement(w io.Writer, node *vdom.VNode, depth int) error
 
 	// Check if this element needs a hydration ID
 	if r.needsHID(node) {
-		hid := r.nextHID()
-		node.HID = hid
+		var hid string
+		if node.HID != "" {
+			// Preserve existing HID (set by vdom.AssignHIDs during RebuildHandlers)
+			hid = node.HID
+		} else {
+			// Generate new HID (SSR path)
+			hid = r.nextHID()
+			node.HID = hid
+		}
 		if _, err := fmt.Fprintf(w, ` data-hid="%s"`, hid); err != nil {
 			return err
 		}
@@ -234,6 +241,16 @@ func (r *Renderer) renderAttributes(w io.Writer, node *vdom.VNode) error {
 		if key == "_hook" {
 			if hookConfig, ok := value.(HookConfig); ok {
 				if err := renderHookConfig(w, hookConfig); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		// Handle v-hook attribute (DEPRECATED - backward compat for one release)
+		if key == "v-hook" {
+			if strValue, ok := value.(string); ok {
+				if err := renderVHook(w, strValue); err != nil {
 					return err
 				}
 			}

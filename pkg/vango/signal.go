@@ -171,6 +171,9 @@ func (s *Signal[T]) Peek() T {
 // Set updates the signal's value and notifies subscribers if the value changed.
 // Uses the signal's equality function to determine if the value changed.
 func (s *Signal[T]) Set(value T) {
+	// Check for effect-time write (Phase 16: Effect Enforcement)
+	checkEffectTimeWrite("Set")
+
 	s.mu.Lock()
 	changed := !s.equals(s.value, value)
 	if changed {
@@ -186,6 +189,9 @@ func (s *Signal[T]) Set(value T) {
 // Update atomically reads and updates the signal's value.
 // The function receives the current value and returns the new value.
 func (s *Signal[T]) Update(fn func(T) T) {
+	// Check for effect-time write (Phase 16: Effect Enforcement)
+	checkEffectTimeWrite("Update")
+
 	s.mu.Lock()
 	oldValue := s.value
 	newValue := fn(oldValue)

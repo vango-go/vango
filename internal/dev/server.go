@@ -8,14 +8,13 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/vango-dev/vango/v2/internal/config"
-	"github.com/vango-dev/vango/v2/internal/errors"
+	"github.com/vango-dev/vango/v2/internal/tailwind"
 	"github.com/vango-dev/vango/v2/pkg/router"
 )
 
@@ -44,7 +43,7 @@ type Server struct {
 	compiler      *Compiler
 	watcher       *Watcher
 	reloadServer  *ReloadServer
-	tailwind      *TailwindRunner
+	tailwind      *tailwind.Runner
 	errorRecovery *ErrorRecovery
 	httpServer    *http.Server
 	appProxy      *httputil.ReverseProxy
@@ -85,14 +84,10 @@ func NewServer(options ServerOptions) *Server {
 	reloadServer := NewReloadServer()
 
 	// Create tailwind runner if enabled
-	var tailwind *TailwindRunner
+	var tw *tailwind.Runner
 	if cfg.HasTailwind() {
-		tailwind = NewTailwindRunner(TailwindConfig{
-			ConfigPath: cfg.TailwindConfigPath(),
-			InputPath:  cfg.Tailwind.Input,
-			OutputPath: cfg.Tailwind.Output,
-			ProjectDir: projectDir,
-		})
+		binary := tailwind.NewBinary()
+		tw = tailwind.NewRunner(binary, projectDir)
 	}
 
 	// App will run on port + 1
@@ -108,7 +103,7 @@ func NewServer(options ServerOptions) *Server {
 		compiler:      compiler,
 		watcher:       watcher,
 		reloadServer:  reloadServer,
-		tailwind:      tailwind,
+		tailwind:      tw,
 		errorRecovery: errorRecovery,
 		appPort:       appPort,
 	}
@@ -137,7 +132,18 @@ func (s *Server) Start(ctx context.Context) error {
 	// Start tailwind if enabled
 	if s.tailwind != nil {
 		s.log("Starting Tailwind CSS...")
-		if err := s.tailwind.Start(ctx); err != nil {
+		cfg := tailwind.RunnerConfig{
+			InputPath:  s.config.Tailwind.Input,
+			OutputPath: s.config.Tailwind.Output,
+			Watch:      true,
+		}
+		if cfg.InputPath == "" {
+			cfg.InputPath = "app/styles/input.css"
+		}
+		if cfg.OutputPath == "" {
+			cfg.OutputPath = "public/styles.css"
+		}
+		if err := s.tailwind.StartWatch(ctx, cfg); err != nil {
 			s.logError("Tailwind error: %v", err)
 		}
 	}
@@ -468,91 +474,3 @@ func (s *Server) logError(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "[%s] %s%s%s\n", timestamp, "\033[31m", fmt.Sprintf(format, args...), "\033[0m")
 }
 
-// TailwindConfig configures the Tailwind runner.
-type TailwindConfig struct {
-	ConfigPath string
-	InputPath  string
-	OutputPath string
-	ProjectDir string
-}
-
-// TailwindRunner manages Tailwind CSS compilation.
-type TailwindRunner struct {
-	config  TailwindConfig
-	cmd     *exec.Cmd
-	mu      sync.Mutex
-	running bool
-}
-
-// NewTailwindRunner creates a new Tailwind runner.
-func NewTailwindRunner(config TailwindConfig) *TailwindRunner {
-	if config.InputPath == "" {
-		config.InputPath = "app/styles/input.css"
-	}
-	if config.OutputPath == "" {
-		config.OutputPath = "public/styles.css"
-	}
-	return &TailwindRunner{config: config}
-}
-
-// Start starts the Tailwind watcher.
-func (t *TailwindRunner) Start(ctx context.Context) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.running {
-		return nil
-	}
-
-	// Check if npx is available
-	if _, err := exec.LookPath("npx"); err != nil {
-		return errors.New("E123").
-			WithDetail("npx is required for Tailwind CSS").
-			WithSuggestion("Install Node.js from https://nodejs.org")
-	}
-
-	// Run tailwindcss in watch mode
-	args := []string{
-		"tailwindcss",
-		"-i", t.config.InputPath,
-		"-o", t.config.OutputPath,
-		"--watch",
-	}
-
-	if t.config.ConfigPath != "" {
-		args = append(args, "-c", t.config.ConfigPath)
-	}
-
-	t.cmd = exec.CommandContext(ctx, "npx", args...)
-	t.cmd.Dir = t.config.ProjectDir
-	t.cmd.Stdout = os.Stdout
-	t.cmd.Stderr = os.Stderr
-
-	if err := t.cmd.Start(); err != nil {
-		return err
-	}
-
-	t.running = true
-	return nil
-}
-
-// Stop stops the Tailwind watcher.
-func (t *TailwindRunner) Stop() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if !t.running || t.cmd == nil {
-		return
-	}
-
-	t.cmd.Process.Kill()
-	t.cmd.Wait()
-	t.running = false
-}
-
-// IsRunning returns whether Tailwind is running.
-func (t *TailwindRunner) IsRunning() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.running
-}

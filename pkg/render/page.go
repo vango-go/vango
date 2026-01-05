@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/vango-dev/vango/v2/pkg/vdom"
 )
@@ -82,8 +83,8 @@ type ScriptTag struct {
 
 // HookConfig contains configuration for a client-side hook.
 type HookConfig struct {
-	Name   string         // Hook name (e.g., "Sortable", "Tooltip")
-	Config map[string]any // Hook-specific configuration
+	Name   string // Hook name (e.g., "Sortable", "Tooltip")
+	Config any    // Hook-specific configuration (struct or map, marshaled to JSON)
 }
 
 // OptimisticConfig contains configuration for optimistic updates.
@@ -390,6 +391,29 @@ func (r *Renderer) renderClientScript(w io.Writer, page PageData) error {
 	return nil
 }
 
+// renderVHook renders a v-hook attribute to data-hook/data-hook-config.
+// This is for backward compatibility with the old v-hook="HookName:{json}" format.
+// DEPRECATED: Use _hook prop with HookConfig instead.
+func renderVHook(w io.Writer, value string) error {
+	// Parse "HookName:{json}" format
+	idx := strings.Index(value, ":")
+	if idx == -1 {
+		return fmt.Errorf("invalid v-hook format: %s", value)
+	}
+	name := value[:idx]
+	configJSON := value[idx+1:]
+
+	if _, err := fmt.Fprintf(w, ` data-hook="%s"`, escapeAttr(name)); err != nil {
+		return err
+	}
+	if configJSON != "{}" && configJSON != "null" {
+		if _, err := fmt.Fprintf(w, ` data-hook-config='%s'`, configJSON); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // renderHookConfig renders hook configuration as data attributes.
 // This is called internally by renderAttributes when _hook prop is present.
 func renderHookConfig(w io.Writer, hookConfig HookConfig) error {
@@ -397,13 +421,17 @@ func renderHookConfig(w io.Writer, hookConfig HookConfig) error {
 		return err
 	}
 
-	if len(hookConfig.Config) > 0 {
+	if hookConfig.Config != nil {
 		configJSON, err := json.Marshal(hookConfig.Config)
 		if err != nil {
 			return fmt.Errorf("failed to marshal hook config: %w", err)
 		}
-		if _, err := fmt.Fprintf(w, ` data-hook-config='%s'`, string(configJSON)); err != nil {
-			return err
+		// Only render if config is not empty object or null
+		configStr := string(configJSON)
+		if configStr != "{}" && configStr != "null" {
+			if _, err := fmt.Fprintf(w, ` data-hook-config='%s'`, configStr); err != nil {
+				return err
+			}
 		}
 	}
 
