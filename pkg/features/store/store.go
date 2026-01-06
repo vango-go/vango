@@ -1,3 +1,17 @@
+// Package store provides session-scoped and global signal storage.
+//
+// Deprecated: Use vango.NewSharedSignal and vango.NewGlobalSignal instead.
+// This package is retained for backward compatibility.
+//
+// Migration:
+//
+//	// Old:
+//	import "github.com/vango-go/vango/pkg/features/store"
+//	var Cart = store.NewSharedSignal([]Item{})
+//
+//	// New:
+//	import "github.com/vango-go/vango/pkg/vango"
+//	var Cart = vango.NewSharedSignal([]Item{})
 package store
 
 import (
@@ -8,9 +22,12 @@ import (
 )
 
 // SessionKey is the context key for the session store.
+//
+// Deprecated: Use vango.SessionSignalStoreKey instead.
 var SessionKey = &struct{ name string }{"SessionStore"}
 
 // SessionStore holds session-scoped signals.
+// It implements vango.SessionSignalStore for compatibility with the vango package.
 type SessionStore struct {
 	signals sync.Map // map[uint64]any
 }
@@ -20,10 +37,29 @@ func NewSessionStore() *SessionStore {
 	return &SessionStore{}
 }
 
+// GetOrCreateSignal implements vango.SessionSignalStore.
+// This allows SessionStore to be used with vango.NewSharedSignal.
+func (s *SessionStore) GetOrCreateSignal(id uint64, createFn func() any) any {
+	// Try to load existing
+	if val, ok := s.signals.Load(id); ok {
+		return val
+	}
+
+	// Create new and try to store
+	newVal := createFn()
+	actual, _ := s.signals.LoadOrStore(id, newVal)
+	return actual
+}
+
 // NewGlobalSignal creates a signal shared across all sessions.
-// This is just a standard vango.Signal but declared globally.
-// It returns a wrapper to match the interface if needed, or just *Signal.
-// For consistency with NewSharedSignal, we return *Global[T].
+//
+// Deprecated: Use vango.NewGlobalSignal instead.
+//
+//	// Old:
+//	var Status = store.NewGlobalSignal("online")
+//
+//	// New:
+//	var Status = vango.NewGlobalSignal("online")
 func NewGlobalSignal[T any](initial T) *Global[T] {
 	return &Global[T]{
 		Signal: vango.NewSignal(initial),
@@ -31,12 +67,22 @@ func NewGlobalSignal[T any](initial T) *Global[T] {
 }
 
 // Global wraps a vango.Signal for global state.
+//
+// Deprecated: Use vango.GlobalSignal instead.
 type Global[T any] struct {
 	*vango.Signal[T]
 }
 
 // NewSharedSignal creates a definition for a session-scoped signal.
 // Accessing it will look up or create the signal in the current session context.
+//
+// Deprecated: Use vango.NewSharedSignal instead.
+//
+//	// Old:
+//	var Cart = store.NewSharedSignal([]Item{})
+//
+//	// New:
+//	var Cart = vango.NewSharedSignal([]Item{})
 func NewSharedSignal[T any](initial T) *Shared[T] {
 	return &Shared[T]{
 		id:      nextID(),
@@ -45,6 +91,8 @@ func NewSharedSignal[T any](initial T) *Shared[T] {
 }
 
 // Shared represents a session-scoped signal definition.
+//
+// Deprecated: Use vango.SharedSignalDef instead.
 type Shared[T any] struct {
 	id      uint64
 	initial T
@@ -86,29 +134,33 @@ func (s *Shared[T]) Update(fn func(T) T) {
 
 // getSignal retrieves or creates the underlying vango.Signal for the current session.
 func (s *Shared[T]) getSignal() *vango.Signal[T] {
+	// Try store.SessionKey first (legacy), then vango.SessionSignalStoreKey
 	ctxVal := vango.GetContext(SessionKey)
+	if ctxVal == nil {
+		ctxVal = vango.GetContext(vango.SessionSignalStoreKey)
+	}
 	if ctxVal == nil {
 		return nil
 	}
 
-	store, ok := ctxVal.(*SessionStore)
-	if !ok {
+	// Support both SessionStore and vango.SessionSignalStore interfaces
+	var store vango.SessionSignalStore
+	switch v := ctxVal.(type) {
+	case *SessionStore:
+		store = v
+	case vango.SessionSignalStore:
+		store = v
+	default:
 		return nil
 	}
 
-	// Double-checked locking optimization is hard with sync.Map,
-	// but LoadOrStore is atomic.
-
-	// Check if exists
-	if val, ok := store.signals.Load(s.id); ok {
-		return val.(*vango.Signal[T])
+	createFn := func() any {
+		return vango.NewSignal(s.initial)
 	}
 
-	// Create new
-	newSig := vango.NewSignal(s.initial)
-	actual, loaded := store.signals.LoadOrStore(s.id, newSig)
-	if loaded {
-		return actual.(*vango.Signal[T])
+	sigVal := store.GetOrCreateSignal(s.id, createFn)
+	if sigVal == nil {
+		return nil
 	}
-	return newSig
+	return sigVal.(*vango.Signal[T])
 }

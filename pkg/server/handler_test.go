@@ -350,6 +350,9 @@ func TestWrapHandlerWithString(t *testing.T) {
 }
 
 func TestWrapHandlerUnknownType(t *testing.T) {
+	// Set production mode to test no-op behavior (dev mode panics)
+	t.Setenv("VANGO_ENV", "production")
+
 	fn := func(x int, y int) int { return x + y }
 
 	handler := wrapHandler(fn)
@@ -361,7 +364,25 @@ func TestWrapHandlerUnknownType(t *testing.T) {
 	handler(&Event{})
 }
 
+func TestWrapHandlerUnknownType_DevModePanics(t *testing.T) {
+	// In development mode, unknown handler types should panic for fail-fast
+	t.Setenv("VANGO_ENV", "development")
+
+	fn := func(x int, y int) int { return x + y }
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic in development mode for unknown handler type")
+		}
+	}()
+
+	wrapHandler(fn)
+}
+
 func TestWrapHandlerNil(t *testing.T) {
+	// Set production mode to test no-op behavior (dev mode panics)
+	t.Setenv("VANGO_ENV", "production")
+
 	handler := wrapHandler(nil)
 	// nil input returns no-op handler
 	if handler == nil {

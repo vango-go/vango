@@ -1,12 +1,31 @@
 package vango
 
 // SliceSignal wraps Signal[[]T] with convenience methods for slice operations.
+//
+// Deprecated: Use NewSignal[[]T] instead. Signal[T] now has AppendItem(), PrependItem(),
+// InsertAt(), RemoveAt(), SetAt(), UpdateAt(), RemoveWhere(), UpdateWhere(), Filter(),
+// Clear(), and Len() methods directly available.
+//
+// Note: SliceSignal[T] provides type-safe methods (e.g., Append(item T)) while the
+// Signal[T] methods use any (e.g., AppendItem(item any)). Use SliceSignal[T] if you
+// prefer compile-time type safety over the unified API.
+//
+//	// Old:
+//	items := vango.NewSliceSignal([]Item{})
+//	items.Append(newItem)
+//
+//	// New:
+//	items := vango.NewSignal([]Item{})
+//	items.AppendItem(newItem)  // Note: uses 'any' parameter
 type SliceSignal[T any] struct {
 	*Signal[[]T]
 }
 
 // NewSliceSignal creates a new SliceSignal with the given initial value.
 // If initial is nil, creates an empty slice.
+//
+// Deprecated: Use NewSignal[[]T] instead. Signal[T] now has slice convenience methods.
+// SliceSignal[T] is retained for type-safe slice operations if preferred.
 func NewSliceSignal[T any](initial []T) *SliceSignal[T] {
 	if initial == nil {
 		initial = []T{}

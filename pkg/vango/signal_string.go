@@ -1,11 +1,25 @@
 package vango
 
 // StringSignal wraps Signal[string] with convenience methods for string operations.
+//
+// Deprecated: Use NewSignal[string] instead. Signal[T] now has Append(), Prepend(),
+// Clear(), and Len() methods directly available.
+//
+//	// Old:
+//	text := vango.NewStringSignal("")
+//	text.Append("hello")
+//
+//	// New:
+//	text := vango.NewSignal("")
+//	text.Append("hello")
 type StringSignal struct {
 	*Signal[string]
 }
 
 // NewStringSignal creates a new StringSignal with the given initial value.
+//
+// Deprecated: Use NewSignal[string] instead. Signal[T] now has Append(), Prepend(),
+// Clear(), and Len() methods directly available.
 func NewStringSignal(initial string) *StringSignal {
 	return &StringSignal{NewSignal(initial)}
 }

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/vango-go/vango/pkg/vango"
 	"github.com/vango-go/vango/pkg/vdom"
 )
 
@@ -323,10 +325,16 @@ func (r *Renderer) renderAttributes(w io.Writer, node *vdom.VNode) error {
 	// Add data-ve attribute with comma-separated events (spec Section 5.2)
 	// Format: data-ve="click,input,change" instead of separate data-on-* attributes
 	var events []string
+	var modifierAttrs []string // Collect modifier data attributes
 	for _, key := range keys {
 		if strings.HasPrefix(key, "on") && isEventHandler(node.Props[key]) {
 			eventName := strings.ToLower(key[2:]) // onClick -> click
 			events = append(events, eventName)
+
+			// Check for ModifiedHandler and emit modifier data attributes
+			if mh, ok := node.Props[key].(vango.ModifiedHandler); ok {
+				modifierAttrs = append(modifierAttrs, getModifierAttrs(eventName, mh)...)
+			}
 		}
 	}
 	if len(events) > 0 {
@@ -337,7 +345,51 @@ func (r *Renderer) renderAttributes(w io.Writer, node *vdom.VNode) error {
 		}
 	}
 
+	// Render modifier attributes
+	// Sort for deterministic output
+	sort.Strings(modifierAttrs)
+	for _, attr := range modifierAttrs {
+		if _, err := w.Write([]byte(attr)); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// getModifierAttrs returns data attribute strings for a ModifiedHandler.
+// Per spec section 3.9.3, lines 1299-1365.
+func getModifierAttrs(eventName string, mh vango.ModifiedHandler) []string {
+	var attrs []string
+
+	if mh.PreventDefault {
+		attrs = append(attrs, fmt.Sprintf(` data-pd-%s="true"`, eventName))
+	}
+	if mh.StopPropagation {
+		attrs = append(attrs, fmt.Sprintf(` data-sp-%s="true"`, eventName))
+	}
+	if mh.Self {
+		attrs = append(attrs, fmt.Sprintf(` data-self-%s="true"`, eventName))
+	}
+	if mh.Once {
+		attrs = append(attrs, fmt.Sprintf(` data-once-%s="true"`, eventName))
+	}
+	if mh.Passive {
+		attrs = append(attrs, fmt.Sprintf(` data-passive-%s="true"`, eventName))
+	}
+	if mh.Capture {
+		attrs = append(attrs, fmt.Sprintf(` data-capture-%s="true"`, eventName))
+	}
+	if mh.Debounce > 0 {
+		ms := mh.Debounce.Milliseconds()
+		attrs = append(attrs, fmt.Sprintf(` data-debounce-%s="%s"`, eventName, strconv.FormatInt(ms, 10)))
+	}
+	if mh.Throttle > 0 {
+		ms := mh.Throttle.Milliseconds()
+		attrs = append(attrs, fmt.Sprintf(` data-throttle-%s="%s"`, eventName, strconv.FormatInt(ms, 10)))
+	}
+
+	return attrs
 }
 
 // needsHID returns true if the element needs a hydration ID.
@@ -389,6 +441,8 @@ func isEventHandler(value any) bool {
 	case func(any):
 		return true
 	case vdom.EventHandler:
+		return true
+	case vango.ModifiedHandler:
 		return true
 	default:
 		// Use reflection to check for function types

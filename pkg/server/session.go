@@ -152,7 +152,10 @@ func newSession(conn *websocket.Conn, userID string, config *SessionConfig, logg
 
 	// Initialize session-scoped store for SharedSignal support.
 	// This enables store.Shared[T] signals to work without manual context setup.
-	s.owner.SetValue(store.SessionKey, store.NewSessionStore())
+	sessionStore := store.NewSessionStore()
+	s.owner.SetValue(store.SessionKey, sessionStore)
+	// Also set vango.SessionSignalStoreKey for vango.NewSharedSignal support.
+	s.owner.SetValue(vango.SessionSignalStoreKey, sessionStore)
 
 	// Initialize URL navigator for URLParam support.
 	// URLParam.Set() will queue patches via queueURLPatch, which are then

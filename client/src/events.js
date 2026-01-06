@@ -98,6 +98,114 @@ export class EventCapture {
     }
 
     /**
+     * Get modifier options for an event on an element.
+     * Reads data-pd-{event}, data-sp-{event}, data-self-{event}, etc.
+     * Per spec section 3.9.3, lines 1299-1365.
+     */
+    _getModifiers(el, eventName) {
+        return {
+            preventDefault: el.dataset[`pd${this._capitalize(eventName)}`] === 'true',
+            stopPropagation: el.dataset[`sp${this._capitalize(eventName)}`] === 'true',
+            self: el.dataset[`self${this._capitalize(eventName)}`] === 'true',
+            once: el.dataset[`once${this._capitalize(eventName)}`] === 'true',
+            passive: el.dataset[`passive${this._capitalize(eventName)}`] === 'true',
+            capture: el.dataset[`capture${this._capitalize(eventName)}`] === 'true',
+            debounce: parseInt(el.dataset[`debounce${this._capitalize(eventName)}`] || el.dataset.debounce || '0', 10),
+            throttle: parseInt(el.dataset[`throttle${this._capitalize(eventName)}`] || el.dataset.throttle || '0', 10),
+        };
+    }
+
+    /**
+     * Capitalize first letter for dataset property access (click -> Click)
+     */
+    _capitalize(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    /**
+     * Apply modifiers to an event.
+     * Returns false if the event should not be processed.
+     * Returns the modifiers object for additional checks by handlers.
+     */
+    _applyModifiers(event, el, eventName) {
+        const mods = this._getModifiers(el, eventName);
+
+        // Self modifier - only fire if target is the exact element
+        if (mods.self && event.target !== el) {
+            return false;
+        }
+
+        // Passive modifier - per spec section 3.9.3 lines 1329-1332:
+        // "Passive handlers cannot call preventDefault"
+        // We enforce this by NOT calling preventDefault when passive is set,
+        // even if the handler or other modifiers would normally call it.
+        // Note: With event delegation, we cannot truly register as passive at the
+        // browser level per-element, but we enforce the semantic constraint.
+        if (mods.passive) {
+            // Store original preventDefault to block it
+            const originalPreventDefault = event.preventDefault.bind(event);
+            event.preventDefault = () => {
+                console.warn('[Vango] preventDefault() called on passive handler - ignored');
+            };
+            // Restore after microtask to not affect other handlers
+            queueMicrotask(() => {
+                event.preventDefault = originalPreventDefault;
+            });
+        } else if (mods.preventDefault) {
+            // PreventDefault modifier - only if not passive
+            event.preventDefault();
+        }
+
+        // StopPropagation modifier
+        if (mods.stopPropagation) {
+            event.stopPropagation();
+        }
+
+        // Once modifier - remove event from data-ve after first trigger
+        if (mods.once) {
+            const ve = (el.dataset.ve || '').split(',').map(s => s.trim());
+            const filtered = ve.filter(e => e !== eventName);
+            if (filtered.length > 0) {
+                el.dataset.ve = filtered.join(',');
+            } else {
+                delete el.dataset.ve;
+            }
+        }
+
+        // Capture modifier note: With event delegation at the document level,
+        // true per-element capture phase handling is not possible. The capture
+        // flag is available for documentation/future use, but currently some
+        // events (focus, blur, scroll, mouseenter, mouseleave) are always
+        // captured, while others (click, input, keydown) bubble.
+
+        return true;
+    }
+
+    /**
+     * Get debounce delay for an event on an element.
+     */
+    _getDebounce(el, eventName) {
+        const mods = this._getModifiers(el, eventName);
+        // Fall back to default for input events
+        if (eventName === 'input' && mods.debounce === 0) {
+            return 100;
+        }
+        return mods.debounce;
+    }
+
+    /**
+     * Get throttle delay for an event on an element.
+     */
+    _getThrottle(el, eventName) {
+        const mods = this._getModifiers(el, eventName);
+        // Fall back to default for scroll events
+        if (eventName === 'scroll' && mods.throttle === 0) {
+            return 100;
+        }
+        return mods.throttle;
+    }
+
+    /**
      * Find closest element with data-hid that has a specific event in data-ve.
      * Parses data-ve="click,input,change" format per spec Section 5.2.
      * This handles event bubbling through nested HID elements.
@@ -130,7 +238,16 @@ export class EventCapture {
         const el = this._findHidElementWithEvent(event.target, 'click');
         if (!el) return;
 
-        event.preventDefault();
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'click')) {
+            return;
+        }
+
+        // Default preventDefault for click events (unless passive)
+        const mods = this._getModifiers(el, 'click');
+        if (!mods.preventDefault && !mods.passive) {
+            event.preventDefault();
+        }
 
         // Apply optimistic updates if configured
         this.client.optimistic.applyOptimistic(el, 'click');
@@ -146,7 +263,17 @@ export class EventCapture {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'dblclick')) return;
 
-        event.preventDefault();
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'dblclick')) {
+            return;
+        }
+
+        // Default preventDefault for dblclick events (unless passive)
+        const mods = this._getModifiers(el, 'dblclick');
+        if (!mods.preventDefault && !mods.passive) {
+            event.preventDefault();
+        }
+
         this.client.sendEvent(EventType.DBLCLICK, el.dataset.hid);
     }
 
@@ -157,12 +284,23 @@ export class EventCapture {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'input')) return;
 
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'input')) {
+            return;
+        }
+
         const hid = el.dataset.hid;
-        const debounceMs = parseInt(el.dataset.debounce || '100', 10);
+        const debounceMs = this._getDebounce(el, 'input');
 
         // Clear existing timer
         if (this.debounceTimers.has(hid)) {
             clearTimeout(this.debounceTimers.get(hid));
+        }
+
+        // If debounce is 0, send immediately
+        if (debounceMs === 0) {
+            this.client.sendEvent(EventType.INPUT, hid, { value: el.value });
+            return;
         }
 
         // Set new timer
@@ -180,6 +318,11 @@ export class EventCapture {
     _handleChange(event) {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'change')) return;
+
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'change')) {
+            return;
+        }
 
         let value;
         if (el.type === 'checkbox') {
@@ -223,6 +366,11 @@ export class EventCapture {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'focus')) return;
 
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'focus')) {
+            return;
+        }
+
         this.client.sendEvent(EventType.FOCUS, el.dataset.hid);
     }
 
@@ -232,6 +380,11 @@ export class EventCapture {
     _handleBlur(event) {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'blur')) return;
+
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'blur')) {
+            return;
+        }
 
         this.client.sendEvent(EventType.BLUR, el.dataset.hid);
     }
@@ -243,16 +396,15 @@ export class EventCapture {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'keydown')) return;
 
-        // Check for specific key filter
+        // Check for specific key filter (legacy support)
         const keyFilter = el.dataset.keyFilter;
         if (keyFilter && !this._matchesKeyFilter(event, keyFilter)) {
             return;
         }
 
-        // Some key combinations should not prevent default
-        const shouldPrevent = el.dataset.preventDefault !== 'false';
-        if (shouldPrevent) {
-            event.preventDefault();
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'keydown')) {
+            return;
         }
 
         this.client.sendEvent(EventType.KEYDOWN, el.dataset.hid, {
@@ -262,6 +414,8 @@ export class EventCapture {
             shiftKey: event.shiftKey,
             altKey: event.altKey,
             metaKey: event.metaKey,
+            repeat: event.repeat,
+            location: event.location,
         });
     }
 
@@ -272,6 +426,11 @@ export class EventCapture {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'keyup')) return;
 
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'keyup')) {
+            return;
+        }
+
         this.client.sendEvent(EventType.KEYUP, el.dataset.hid, {
             key: event.key,
             code: event.code,
@@ -279,6 +438,8 @@ export class EventCapture {
             shiftKey: event.shiftKey,
             altKey: event.altKey,
             metaKey: event.metaKey,
+            repeat: event.repeat,
+            location: event.location,
         });
     }
 
@@ -288,6 +449,11 @@ export class EventCapture {
     _handleMouseEnter(event) {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'mouseenter')) return;
+
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'mouseenter')) {
+            return;
+        }
 
         this.client.sendEvent(EventType.MOUSEENTER, el.dataset.hid);
     }
@@ -299,6 +465,11 @@ export class EventCapture {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'mouseleave')) return;
 
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'mouseleave')) {
+            return;
+        }
+
         this.client.sendEvent(EventType.MOUSELEAVE, el.dataset.hid);
     }
 
@@ -309,19 +480,25 @@ export class EventCapture {
         const el = this._findHidElement(event.target);
         if (!el || !this._hasEvent(el, 'scroll')) return;
 
-        const hid = el.dataset.hid;
-        const throttleMs = parseInt(el.dataset.throttle || '100', 10);
-
-        // Simple throttle
-        if (this.scrollThrottled.has(hid)) {
+        // Apply modifiers (may skip if Self modifier fails)
+        if (!this._applyModifiers(event, el, 'scroll')) {
             return;
         }
 
-        this.scrollThrottled.add(hid);
+        const hid = el.dataset.hid;
+        const throttleMs = this._getThrottle(el, 'scroll');
 
-        setTimeout(() => {
-            this.scrollThrottled.delete(hid);
-        }, throttleMs);
+        // Simple throttle (skip if throttle is 0 for immediate dispatch)
+        if (throttleMs > 0 && this.scrollThrottled.has(hid)) {
+            return;
+        }
+
+        if (throttleMs > 0) {
+            this.scrollThrottled.add(hid);
+            setTimeout(() => {
+                this.scrollThrottled.delete(hid);
+            }, throttleMs);
+        }
 
         this.client.sendEvent(EventType.SCROLL, hid, {
             scrollTop: el.scrollTop,

@@ -10,7 +10,7 @@ type EventType uint8
 
 // Event type constants.
 const (
-	// Mouse events (0x01-0x07)
+	// Mouse events (0x01-0x08)
 	EventClick      EventType = 0x01
 	EventDblClick   EventType = 0x02
 	EventMouseDown  EventType = 0x03
@@ -18,6 +18,7 @@ const (
 	EventMouseMove  EventType = 0x05
 	EventMouseEnter EventType = 0x06
 	EventMouseLeave EventType = 0x07
+	EventWheel      EventType = 0x08 // Mouse wheel event
 
 	// Form events (0x10-0x14)
 	EventInput  EventType = 0x10
@@ -44,6 +45,18 @@ const (
 	EventDragStart EventType = 0x50
 	EventDragEnd   EventType = 0x51
 	EventDrop      EventType = 0x52
+
+	// Animation events (0x53-0x56)
+	EventAnimationStart     EventType = 0x53
+	EventAnimationEnd       EventType = 0x54
+	EventAnimationIteration EventType = 0x55
+	EventAnimationCancel    EventType = 0x56
+
+	// Transition events (0x57-0x5A)
+	EventTransitionStart  EventType = 0x57
+	EventTransitionEnd    EventType = 0x58
+	EventTransitionRun    EventType = 0x59
+	EventTransitionCancel EventType = 0x5A
 
 	// Special events (0x60+)
 	EventHook     EventType = 0x60 // Client hook event
@@ -100,6 +113,24 @@ func (et EventType) String() string {
 		return "DragEnd"
 	case EventDrop:
 		return "Drop"
+	case EventWheel:
+		return "Wheel"
+	case EventAnimationStart:
+		return "AnimationStart"
+	case EventAnimationEnd:
+		return "AnimationEnd"
+	case EventAnimationIteration:
+		return "AnimationIteration"
+	case EventAnimationCancel:
+		return "AnimationCancel"
+	case EventTransitionStart:
+		return "TransitionStart"
+	case EventTransitionEnd:
+		return "TransitionEnd"
+	case EventTransitionRun:
+		return "TransitionRun"
+	case EventTransitionCancel:
+		return "TransitionCancel"
 	case EventHook:
 		return "Hook"
 	case EventNavigate:
@@ -131,15 +162,41 @@ func (m Modifiers) Has(mod Modifiers) bool {
 // KeyboardEventData contains keyboard event data.
 type KeyboardEventData struct {
 	Key       string
+	Code      string    // Physical key code (e.g., "KeyA", "Enter")
 	Modifiers Modifiers
+	Repeat    bool      // True if key is held down (auto-repeat)
+	Location  uint8     // 0=standard, 1=left, 2=right, 3=numpad
 }
 
 // MouseEventData contains mouse event data.
 type MouseEventData struct {
 	ClientX   int
 	ClientY   int
+	PageX     int       // Position relative to document
+	PageY     int
+	OffsetX   int       // Position relative to target element
+	OffsetY   int
 	Button    uint8
+	Buttons   uint8     // Bitmask of currently pressed buttons
 	Modifiers Modifiers
+}
+
+// WheelEventData contains mouse wheel event data.
+type WheelEventData struct {
+	DeltaX    float64
+	DeltaY    float64
+	DeltaZ    float64
+	DeltaMode uint8     // 0=pixels, 1=lines, 2=pages
+	ClientX   int
+	ClientY   int
+	Modifiers Modifiers
+}
+
+// InputEventData contains input event data with full details.
+type InputEventData struct {
+	Value     string
+	InputType string    // e.g., "insertText", "deleteContentBackward"
+	Data      string    // Inserted text (if any)
 }
 
 // ScrollEventData contains scroll event data.
@@ -164,11 +221,29 @@ type TouchPoint struct {
 	ID      int
 	ClientX int
 	ClientY int
+	PageX   int // Position relative to document
+	PageY   int
 }
 
 // TouchEventData contains touch event data.
 type TouchEventData struct {
-	Touches []TouchPoint
+	Touches        []TouchPoint // All current touches
+	TargetTouches  []TouchPoint // Touches on this element
+	ChangedTouches []TouchPoint // Touches that changed in this event
+}
+
+// AnimationEventData contains CSS animation event data.
+type AnimationEventData struct {
+	AnimationName string
+	ElapsedTime   float64
+	PseudoElement string
+}
+
+// TransitionEventData contains CSS transition event data.
+type TransitionEventData struct {
+	PropertyName  string
+	ElapsedTime   float64
+	PseudoElement string
 }
 
 // HookValueType identifies the type of a hook data value.
@@ -259,10 +334,16 @@ func EncodeEventTo(enc *Encoder, e *Event) {
 		data, ok := e.Payload.(*KeyboardEventData)
 		if !ok || data == nil {
 			enc.WriteString("")
+			enc.WriteString("")
+			enc.WriteByte(0)
+			enc.WriteBool(false)
 			enc.WriteByte(0)
 		} else {
 			enc.WriteString(data.Key)
+			enc.WriteString(data.Code)
 			enc.WriteByte(byte(data.Modifiers))
+			enc.WriteBool(data.Repeat)
+			enc.WriteByte(data.Location)
 		}
 
 	case EventMouseDown, EventMouseUp, EventMouseMove:
@@ -270,12 +351,42 @@ func EncodeEventTo(enc *Encoder, e *Event) {
 		if !ok || data == nil {
 			enc.WriteSvarint(0)
 			enc.WriteSvarint(0)
+			enc.WriteSvarint(0)
+			enc.WriteSvarint(0)
+			enc.WriteSvarint(0)
+			enc.WriteSvarint(0)
+			enc.WriteByte(0)
 			enc.WriteByte(0)
 			enc.WriteByte(0)
 		} else {
 			enc.WriteSvarint(int64(data.ClientX))
 			enc.WriteSvarint(int64(data.ClientY))
+			enc.WriteSvarint(int64(data.PageX))
+			enc.WriteSvarint(int64(data.PageY))
+			enc.WriteSvarint(int64(data.OffsetX))
+			enc.WriteSvarint(int64(data.OffsetY))
 			enc.WriteByte(data.Button)
+			enc.WriteByte(data.Buttons)
+			enc.WriteByte(byte(data.Modifiers))
+		}
+
+	case EventWheel:
+		data, ok := e.Payload.(*WheelEventData)
+		if !ok || data == nil {
+			enc.WriteFloat64(0)
+			enc.WriteFloat64(0)
+			enc.WriteFloat64(0)
+			enc.WriteByte(0)
+			enc.WriteSvarint(0)
+			enc.WriteSvarint(0)
+			enc.WriteByte(0)
+		} else {
+			enc.WriteFloat64(data.DeltaX)
+			enc.WriteFloat64(data.DeltaY)
+			enc.WriteFloat64(data.DeltaZ)
+			enc.WriteByte(data.DeltaMode)
+			enc.WriteSvarint(int64(data.ClientX))
+			enc.WriteSvarint(int64(data.ClientY))
 			enc.WriteByte(byte(data.Modifiers))
 		}
 
@@ -303,26 +414,77 @@ func EncodeEventTo(enc *Encoder, e *Event) {
 		data, ok := e.Payload.(*TouchEventData)
 		if !ok || data == nil {
 			enc.WriteUvarint(0)
+			enc.WriteUvarint(0)
+			enc.WriteUvarint(0)
 		} else {
+			// Encode Touches
 			enc.WriteUvarint(uint64(len(data.Touches)))
 			for _, t := range data.Touches {
 				enc.WriteSvarint(int64(t.ID))
 				enc.WriteSvarint(int64(t.ClientX))
 				enc.WriteSvarint(int64(t.ClientY))
+				enc.WriteSvarint(int64(t.PageX))
+				enc.WriteSvarint(int64(t.PageY))
+			}
+			// Encode TargetTouches
+			enc.WriteUvarint(uint64(len(data.TargetTouches)))
+			for _, t := range data.TargetTouches {
+				enc.WriteSvarint(int64(t.ID))
+				enc.WriteSvarint(int64(t.ClientX))
+				enc.WriteSvarint(int64(t.ClientY))
+				enc.WriteSvarint(int64(t.PageX))
+				enc.WriteSvarint(int64(t.PageY))
+			}
+			// Encode ChangedTouches
+			enc.WriteUvarint(uint64(len(data.ChangedTouches)))
+			for _, t := range data.ChangedTouches {
+				enc.WriteSvarint(int64(t.ID))
+				enc.WriteSvarint(int64(t.ClientX))
+				enc.WriteSvarint(int64(t.ClientY))
+				enc.WriteSvarint(int64(t.PageX))
+				enc.WriteSvarint(int64(t.PageY))
 			}
 		}
 
 	case EventDragStart, EventDragEnd, EventDrop:
-		// Similar to mouse events - include position
+		// Similar to mouse events - include position and modifiers
 		data, ok := e.Payload.(*MouseEventData)
 		if !ok || data == nil {
+			enc.WriteSvarint(0)
+			enc.WriteSvarint(0)
 			enc.WriteSvarint(0)
 			enc.WriteSvarint(0)
 			enc.WriteByte(0)
 		} else {
 			enc.WriteSvarint(int64(data.ClientX))
 			enc.WriteSvarint(int64(data.ClientY))
+			enc.WriteSvarint(int64(data.PageX))
+			enc.WriteSvarint(int64(data.PageY))
 			enc.WriteByte(byte(data.Modifiers))
+		}
+
+	case EventAnimationStart, EventAnimationEnd, EventAnimationIteration, EventAnimationCancel:
+		data, ok := e.Payload.(*AnimationEventData)
+		if !ok || data == nil {
+			enc.WriteString("")
+			enc.WriteFloat64(0)
+			enc.WriteString("")
+		} else {
+			enc.WriteString(data.AnimationName)
+			enc.WriteFloat64(data.ElapsedTime)
+			enc.WriteString(data.PseudoElement)
+		}
+
+	case EventTransitionStart, EventTransitionEnd, EventTransitionRun, EventTransitionCancel:
+		data, ok := e.Payload.(*TransitionEventData)
+		if !ok || data == nil {
+			enc.WriteString("")
+			enc.WriteFloat64(0)
+			enc.WriteString("")
+		} else {
+			enc.WriteString(data.PropertyName)
+			enc.WriteFloat64(data.ElapsedTime)
+			enc.WriteString(data.PseudoElement)
 		}
 
 	case EventHook:
@@ -472,13 +634,28 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 		if err != nil {
 			return nil, err
 		}
+		code, err := d.ReadString()
+		if err != nil {
+			return nil, err
+		}
 		mods, err := d.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		repeat, err := d.ReadBool()
+		if err != nil {
+			return nil, err
+		}
+		location, err := d.ReadByte()
 		if err != nil {
 			return nil, err
 		}
 		e.Payload = &KeyboardEventData{
 			Key:       key,
+			Code:      code,
 			Modifiers: Modifiers(mods),
+			Repeat:    repeat,
+			Location:  location,
 		}
 
 	case EventMouseDown, EventMouseUp, EventMouseMove:
@@ -490,7 +667,27 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 		if err != nil {
 			return nil, err
 		}
+		pageX, err := d.ReadSvarint()
+		if err != nil {
+			return nil, err
+		}
+		pageY, err := d.ReadSvarint()
+		if err != nil {
+			return nil, err
+		}
+		offsetX, err := d.ReadSvarint()
+		if err != nil {
+			return nil, err
+		}
+		offsetY, err := d.ReadSvarint()
+		if err != nil {
+			return nil, err
+		}
 		button, err := d.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		buttons, err := d.ReadByte()
 		if err != nil {
 			return nil, err
 		}
@@ -501,7 +698,51 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 		e.Payload = &MouseEventData{
 			ClientX:   int(x),
 			ClientY:   int(y),
+			PageX:     int(pageX),
+			PageY:     int(pageY),
+			OffsetX:   int(offsetX),
+			OffsetY:   int(offsetY),
 			Button:    button,
+			Buttons:   buttons,
+			Modifiers: Modifiers(mods),
+		}
+
+	case EventWheel:
+		deltaX, err := d.ReadFloat64()
+		if err != nil {
+			return nil, err
+		}
+		deltaY, err := d.ReadFloat64()
+		if err != nil {
+			return nil, err
+		}
+		deltaZ, err := d.ReadFloat64()
+		if err != nil {
+			return nil, err
+		}
+		deltaMode, err := d.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		clientX, err := d.ReadSvarint()
+		if err != nil {
+			return nil, err
+		}
+		clientY, err := d.ReadSvarint()
+		if err != nil {
+			return nil, err
+		}
+		mods, err := d.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		e.Payload = &WheelEventData{
+			DeltaX:    deltaX,
+			DeltaY:    deltaY,
+			DeltaZ:    deltaZ,
+			DeltaMode: deltaMode,
+			ClientX:   int(clientX),
+			ClientY:   int(clientY),
 			Modifiers: Modifiers(mods),
 		}
 
@@ -534,12 +775,13 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 		}
 
 	case EventTouchStart, EventTouchMove, EventTouchEnd:
-		count, err := d.ReadCollectionCount()
+		// Decode Touches
+		touchCount, err := d.ReadCollectionCount()
 		if err != nil {
 			return nil, err
 		}
-		touches := make([]TouchPoint, count)
-		for i := 0; i < count; i++ {
+		touches := make([]TouchPoint, touchCount)
+		for i := 0; i < touchCount; i++ {
 			id, err := d.ReadSvarint()
 			if err != nil {
 				return nil, err
@@ -552,13 +794,97 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 			if err != nil {
 				return nil, err
 			}
+			pageX, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			pageY, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
 			touches[i] = TouchPoint{
 				ID:      int(id),
 				ClientX: int(x),
 				ClientY: int(y),
+				PageX:   int(pageX),
+				PageY:   int(pageY),
 			}
 		}
-		e.Payload = &TouchEventData{Touches: touches}
+		// Decode TargetTouches
+		targetCount, err := d.ReadCollectionCount()
+		if err != nil {
+			return nil, err
+		}
+		targetTouches := make([]TouchPoint, targetCount)
+		for i := 0; i < targetCount; i++ {
+			id, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			x, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			y, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			pageX, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			pageY, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			targetTouches[i] = TouchPoint{
+				ID:      int(id),
+				ClientX: int(x),
+				ClientY: int(y),
+				PageX:   int(pageX),
+				PageY:   int(pageY),
+			}
+		}
+		// Decode ChangedTouches
+		changedCount, err := d.ReadCollectionCount()
+		if err != nil {
+			return nil, err
+		}
+		changedTouches := make([]TouchPoint, changedCount)
+		for i := 0; i < changedCount; i++ {
+			id, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			x, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			y, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			pageX, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			pageY, err := d.ReadSvarint()
+			if err != nil {
+				return nil, err
+			}
+			changedTouches[i] = TouchPoint{
+				ID:      int(id),
+				ClientX: int(x),
+				ClientY: int(y),
+				PageX:   int(pageX),
+				PageY:   int(pageY),
+			}
+		}
+		e.Payload = &TouchEventData{
+			Touches:        touches,
+			TargetTouches:  targetTouches,
+			ChangedTouches: changedTouches,
+		}
 
 	case EventDragStart, EventDragEnd, EventDrop:
 		x, err := d.ReadSvarint()
@@ -569,6 +895,14 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 		if err != nil {
 			return nil, err
 		}
+		pageX, err := d.ReadSvarint()
+		if err != nil {
+			return nil, err
+		}
+		pageY, err := d.ReadSvarint()
+		if err != nil {
+			return nil, err
+		}
 		mods, err := d.ReadByte()
 		if err != nil {
 			return nil, err
@@ -576,7 +910,47 @@ func DecodeEventFrom(d *Decoder) (*Event, error) {
 		e.Payload = &MouseEventData{
 			ClientX:   int(x),
 			ClientY:   int(y),
+			PageX:     int(pageX),
+			PageY:     int(pageY),
 			Modifiers: Modifiers(mods),
+		}
+
+	case EventAnimationStart, EventAnimationEnd, EventAnimationIteration, EventAnimationCancel:
+		animName, err := d.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		elapsed, err := d.ReadFloat64()
+		if err != nil {
+			return nil, err
+		}
+		pseudo, err := d.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		e.Payload = &AnimationEventData{
+			AnimationName: animName,
+			ElapsedTime:   elapsed,
+			PseudoElement: pseudo,
+		}
+
+	case EventTransitionStart, EventTransitionEnd, EventTransitionRun, EventTransitionCancel:
+		propName, err := d.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		elapsed, err := d.ReadFloat64()
+		if err != nil {
+			return nil, err
+		}
+		pseudo, err := d.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		e.Payload = &TransitionEventData{
+			PropertyName:  propName,
+			ElapsedTime:   elapsed,
+			PseudoElement: pseudo,
 		}
 
 	case EventHook:

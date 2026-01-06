@@ -602,7 +602,10 @@ func (sm *SessionManager) restoreSessionFromPersistence(sessionID string, data [
 	}
 
 	// Initialize session-scoped store for SharedSignal support
-	sess.owner.SetValue(store.SessionKey, store.NewSessionStore())
+	sessionStore := store.NewSessionStore()
+	sess.owner.SetValue(store.SessionKey, sessionStore)
+	// Also set vango.SessionSignalStoreKey for vango.NewSharedSignal support.
+	sess.owner.SetValue(vango.SessionSignalStoreKey, sessionStore)
 
 	// Initialize URL navigator for URLParam support
 	navigator := urlparam.NewNavigator(sess.queueURLPatch)

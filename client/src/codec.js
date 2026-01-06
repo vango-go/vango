@@ -584,26 +584,54 @@ export class BinaryCodec {
 
     /**
      * Encode keyboard event
+     * Per spec section 3.9.3, lines 1091-1103
      */
     encodeKeyboardEvent(parts, data) {
+        // Key value (e.g., "Enter", "a", "Escape")
         parts.push(this.encodeString(data?.key || ''));
 
+        // Physical key code (e.g., "Enter", "KeyA", "Escape")
+        parts.push(this.encodeString(data?.code || ''));
+
+        // Modifier keys bitmask
         let modifiers = 0;
         if (data?.ctrlKey) modifiers |= KeyMod.CTRL;
         if (data?.shiftKey) modifiers |= KeyMod.SHIFT;
         if (data?.altKey) modifiers |= KeyMod.ALT;
         if (data?.metaKey) modifiers |= KeyMod.META;
         parts.push(new Uint8Array([modifiers]));
+
+        // Repeat flag (true if key is being held down)
+        parts.push(new Uint8Array([data?.repeat ? 1 : 0]));
+
+        // Key location: 0=standard, 1=left, 2=right, 3=numpad
+        parts.push(new Uint8Array([data?.location || 0]));
     }
 
     /**
      * Encode mouse event
+     * Per spec section 3.9.3, lines 1059-1075
      */
     encodeMouseEvent(parts, data) {
+        // Position relative to viewport
         parts.push(this.encodeSvarint(data?.clientX || 0));
         parts.push(this.encodeSvarint(data?.clientY || 0));
+
+        // Position relative to document
+        parts.push(this.encodeSvarint(data?.pageX || 0));
+        parts.push(this.encodeSvarint(data?.pageY || 0));
+
+        // Position relative to target element
+        parts.push(this.encodeSvarint(data?.offsetX || 0));
+        parts.push(this.encodeSvarint(data?.offsetY || 0));
+
+        // Button that triggered the event (0=left, 1=middle, 2=right)
         parts.push(new Uint8Array([data?.button || 0]));
 
+        // Bitmask of currently pressed buttons
+        parts.push(new Uint8Array([data?.buttons || 0]));
+
+        // Modifier keys
         let modifiers = 0;
         if (data?.ctrlKey) modifiers |= KeyMod.CTRL;
         if (data?.shiftKey) modifiers |= KeyMod.SHIFT;
@@ -630,14 +658,40 @@ export class BinaryCodec {
 
     /**
      * Encode touch event
+     * Per spec section 3.9.3, lines 1212-1225
      */
     encodeTouchEvent(parts, data) {
+        // All current touches on the screen
         const touches = data?.touches || [];
         parts.push(this.encodeUvarint(touches.length));
         for (const touch of touches) {
-            parts.push(this.encodeSvarint(touch.id || 0));
+            parts.push(this.encodeSvarint(touch.identifier || touch.id || 0));
             parts.push(this.encodeSvarint(touch.clientX || 0));
             parts.push(this.encodeSvarint(touch.clientY || 0));
+            parts.push(this.encodeSvarint(touch.pageX || 0));
+            parts.push(this.encodeSvarint(touch.pageY || 0));
+        }
+
+        // Touches that started on this element
+        const targetTouches = data?.targetTouches || [];
+        parts.push(this.encodeUvarint(targetTouches.length));
+        for (const touch of targetTouches) {
+            parts.push(this.encodeSvarint(touch.identifier || touch.id || 0));
+            parts.push(this.encodeSvarint(touch.clientX || 0));
+            parts.push(this.encodeSvarint(touch.clientY || 0));
+            parts.push(this.encodeSvarint(touch.pageX || 0));
+            parts.push(this.encodeSvarint(touch.pageY || 0));
+        }
+
+        // Touches that changed in this event
+        const changedTouches = data?.changedTouches || [];
+        parts.push(this.encodeUvarint(changedTouches.length));
+        for (const touch of changedTouches) {
+            parts.push(this.encodeSvarint(touch.identifier || touch.id || 0));
+            parts.push(this.encodeSvarint(touch.clientX || 0));
+            parts.push(this.encodeSvarint(touch.clientY || 0));
+            parts.push(this.encodeSvarint(touch.pageX || 0));
+            parts.push(this.encodeSvarint(touch.pageY || 0));
         }
     }
 

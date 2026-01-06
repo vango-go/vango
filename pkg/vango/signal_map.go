@@ -1,12 +1,30 @@
 package vango
 
 // MapSignal wraps Signal[map[K]V] with convenience methods for map operations.
+//
+// Deprecated: Use NewSignal[map[K]V] instead. Signal[T] now has SetKey(), RemoveKey(),
+// UpdateKey(), HasKey(), Clear(), and Len() methods directly available.
+//
+// Note: MapSignal[K,V] provides type-safe methods (e.g., SetKey(key K, value V)) while
+// the Signal[T] methods use any (e.g., SetKey(key, value any)). Use MapSignal[K,V] if
+// you prefer compile-time type safety over the unified API.
+//
+//	// Old:
+//	users := vango.NewMapSignal(map[string]User{})
+//	users.SetKey("alice", alice)
+//
+//	// New:
+//	users := vango.NewSignal(map[string]User{})
+//	users.SetKey("alice", alice)  // Note: uses 'any' parameters
 type MapSignal[K comparable, V any] struct {
 	*Signal[map[K]V]
 }
 
 // NewMapSignal creates a new MapSignal with the given initial value.
 // If initial is nil, creates an empty map.
+//
+// Deprecated: Use NewSignal[map[K]V] instead. Signal[T] now has map convenience methods.
+// MapSignal[K,V] is retained for type-safe map operations if preferred.
 func NewMapSignal[K comparable, V any](initial map[K]V) *MapSignal[K, V] {
 	if initial == nil {
 		initial = make(map[K]V)

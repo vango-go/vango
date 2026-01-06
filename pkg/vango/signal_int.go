@@ -1,11 +1,25 @@
 package vango
 
 // IntSignal wraps Signal[int] with convenience methods for integer operations.
+//
+// Deprecated: Use NewSignal[int] instead. Signal[T] now has Inc(), Dec(), Add(),
+// Sub(), Mul(), and Div() methods directly available.
+//
+//	// Old:
+//	count := vango.NewIntSignal(0)
+//	count.Inc()
+//
+//	// New:
+//	count := vango.NewSignal(0)
+//	count.Inc()
 type IntSignal struct {
 	*Signal[int]
 }
 
 // NewIntSignal creates a new IntSignal with the given initial value.
+//
+// Deprecated: Use NewSignal[int] instead. Signal[T] now has Inc(), Dec(), Add(),
+// Sub(), Mul(), and Div() methods directly available.
 func NewIntSignal(initial int) *IntSignal {
 	return &IntSignal{NewSignal(initial)}
 }
@@ -42,11 +56,17 @@ func (s *IntSignal) Div(n int) {
 }
 
 // Int64Signal wraps Signal[int64] with convenience methods for integer operations.
+//
+// Deprecated: Use NewSignal[int64] instead. Signal[T] now has Inc(), Dec(), Add(),
+// Sub(), Mul(), and Div() methods directly available.
 type Int64Signal struct {
 	*Signal[int64]
 }
 
 // NewInt64Signal creates a new Int64Signal with the given initial value.
+//
+// Deprecated: Use NewSignal[int64] instead. Signal[T] now has Inc(), Dec(), Add(),
+// Sub(), Mul(), and Div() methods directly available.
 func NewInt64Signal(initial int64) *Int64Signal {
 	return &Int64Signal{NewSignal(initial)}
 }
@@ -83,11 +103,17 @@ func (s *Int64Signal) Div(n int64) {
 }
 
 // Float64Signal wraps Signal[float64] with convenience methods for float operations.
+//
+// Deprecated: Use NewSignal[float64] instead. Signal[T] now has Add(), Sub(),
+// Mul(), and Div() methods directly available.
 type Float64Signal struct {
 	*Signal[float64]
 }
 
 // NewFloat64Signal creates a new Float64Signal with the given initial value.
+//
+// Deprecated: Use NewSignal[float64] instead. Signal[T] now has Add(), Sub(),
+// Mul(), and Div() methods directly available.
 func NewFloat64Signal(initial float64) *Float64Signal {
 	return &Float64Signal{NewSignal(initial)}
 }

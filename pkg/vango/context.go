@@ -121,3 +121,16 @@ func (o *Owner) GetValue(key any) any {
 
 	return nil
 }
+
+// GetValueLocal retrieves a value from this Owner only, without checking parents.
+// This is used by context Providers to check if they have already stored a
+// contextValue in their own scope (vs. inheriting from an ancestor).
+func (o *Owner) GetValueLocal(key any) any {
+	o.valuesMu.RLock()
+	defer o.valuesMu.RUnlock()
+
+	if o.values != nil {
+		return o.values[key]
+	}
+	return nil
+}

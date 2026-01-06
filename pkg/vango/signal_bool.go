@@ -1,11 +1,25 @@
 package vango
 
 // BoolSignal wraps Signal[bool] with convenience methods for boolean operations.
+//
+// Deprecated: Use NewSignal[bool] instead. Signal[T] now has Toggle(), SetTrue(),
+// and SetFalse() methods directly available.
+//
+//	// Old:
+//	visible := vango.NewBoolSignal(false)
+//	visible.Toggle()
+//
+//	// New:
+//	visible := vango.NewSignal(false)
+//	visible.Toggle()
 type BoolSignal struct {
 	*Signal[bool]
 }
 
 // NewBoolSignal creates a new BoolSignal with the given initial value.
+//
+// Deprecated: Use NewSignal[bool] instead. Signal[T] now has Toggle(), SetTrue(),
+// and SetFalse() methods directly available.
 func NewBoolSignal(initial bool) *BoolSignal {
 	return &BoolSignal{NewSignal(initial)}
 }

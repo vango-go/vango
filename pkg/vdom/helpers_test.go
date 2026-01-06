@@ -24,7 +24,19 @@ func TestTextf(t *testing.T) {
 	}
 }
 
+func TestDangerouslySetInnerHTML(t *testing.T) {
+	node := DangerouslySetInnerHTML("<strong>Bold</strong>")
+
+	if node.Kind != KindRaw {
+		t.Errorf("Kind = %v, want KindRaw", node.Kind)
+	}
+	if node.Text != "<strong>Bold</strong>" {
+		t.Errorf("Text = %v, want '<strong>Bold</strong>'", node.Text)
+	}
+}
+
 func TestRaw(t *testing.T) {
+	// Raw is a legacy alias for DangerouslySetInnerHTML
 	node := Raw("<strong>Bold</strong>")
 
 	if node.Kind != KindRaw {
