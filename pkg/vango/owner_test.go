@@ -217,7 +217,7 @@ func TestOwnerRunPendingEffects(t *testing.T) {
 	effect.pending.Store(true)
 
 	owner.scheduleEffect(effect)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if !effectRan {
 		t.Error("effect should have run")
@@ -603,4 +603,132 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// ============================================================================
+// Storm Budget Tests
+// ============================================================================
+
+// mockLimitedBudget allows a limited number of effect runs.
+type mockLimitedBudget struct {
+	remaining int
+}
+
+func (m *mockLimitedBudget) CheckResource() error  { return nil }
+func (m *mockLimitedBudget) CheckAction() error    { return nil }
+func (m *mockLimitedBudget) CheckGoLatest() error  { return nil }
+func (m *mockLimitedBudget) ResetTick()            { m.remaining = 1 } // Reset to 1 per tick
+
+func (m *mockLimitedBudget) CheckEffectRun() error {
+	if m.remaining <= 0 {
+		return ErrBudgetExceeded
+	}
+	m.remaining--
+	return nil
+}
+
+func TestRunPendingEffectsBudgetExceeded(t *testing.T) {
+	owner := NewOwner(nil)
+	defer owner.Dispose()
+
+	// Create budget that only allows 1 effect run per tick
+	budget := &mockLimitedBudget{remaining: 1}
+
+	effectRuns := 0
+
+	// Create 3 effects
+	for i := 0; i < 3; i++ {
+		effect := &Effect{
+			id:    nextID(),
+			owner: owner,
+			fn: func() Cleanup {
+				effectRuns++
+				return nil
+			},
+		}
+		effect.pending.Store(true)
+		owner.scheduleEffect(effect)
+	}
+
+	// Run with budget - only 1 should run
+	owner.RunPendingEffects(budget)
+
+	// Only 1 effect should have run due to budget
+	if effectRuns != 1 {
+		t.Errorf("expected 1 effect to run due to budget, got %d", effectRuns)
+	}
+}
+
+func TestRunPendingEffectsBudgetReset(t *testing.T) {
+	owner := NewOwner(nil)
+	defer owner.Dispose()
+
+	// Create budget that only allows 1 effect run per tick
+	budget := &mockLimitedBudget{remaining: 1}
+
+	effectRuns := 0
+
+	// Create 3 effects
+	for i := 0; i < 3; i++ {
+		effect := &Effect{
+			id:    nextID(),
+			owner: owner,
+			fn: func() Cleanup {
+				effectRuns++
+				return nil
+			},
+		}
+		effect.pending.Store(true)
+		owner.scheduleEffect(effect)
+	}
+
+	// First tick - only 1 runs
+	owner.RunPendingEffects(budget)
+	if effectRuns != 1 {
+		t.Errorf("after tick 1: expected 1 effect, got %d", effectRuns)
+	}
+
+	// Reset tick (simulating new event) - budget refreshed
+	budget.ResetTick()
+
+	// Second tick - 1 more runs
+	owner.RunPendingEffects(budget)
+	if effectRuns != 2 {
+		t.Errorf("after tick 2: expected 2 effects, got %d", effectRuns)
+	}
+
+	// Reset and run again
+	budget.ResetTick()
+	owner.RunPendingEffects(budget)
+	if effectRuns != 3 {
+		t.Errorf("after tick 3: expected 3 effects, got %d", effectRuns)
+	}
+}
+
+func TestRunPendingEffectsNoBudget(t *testing.T) {
+	owner := NewOwner(nil)
+	defer owner.Dispose()
+
+	effectRuns := 0
+
+	// Create 3 effects
+	for i := 0; i < 3; i++ {
+		effect := &Effect{
+			id:    nextID(),
+			owner: owner,
+			fn: func() Cleanup {
+				effectRuns++
+				return nil
+			},
+		}
+		effect.pending.Store(true)
+		owner.scheduleEffect(effect)
+	}
+
+	// Run without budget - all should run
+	owner.RunPendingEffects(nil)
+
+	if effectRuns != 3 {
+		t.Errorf("expected all 3 effects to run without budget, got %d", effectRuns)
+	}
 }

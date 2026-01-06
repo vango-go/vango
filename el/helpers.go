@@ -37,7 +37,7 @@ func Case_[T comparable](value T, node *VNode) Case[T] {
 	return vdom.Case_(value, node)
 }
 func Default[T comparable](node *VNode) Case[T] {
-	return vdom.Default(node)
+	return vdom.Default[T](node)
 }
 func Switch[T comparable](value T, cases ...Case[T]) *VNode {
 	return vdom.Switch(value, cases...)

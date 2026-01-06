@@ -249,3 +249,107 @@ func TestActionHelpers(t *testing.T) {
 		t.Error("IsError() should return false on success")
 	}
 }
+
+// mockBudgetExceeded is a mock budget checker that always returns ErrBudgetExceeded.
+type mockBudgetExceeded struct{}
+
+func (m *mockBudgetExceeded) CheckResource() error  { return ErrBudgetExceeded }
+func (m *mockBudgetExceeded) CheckAction() error    { return ErrBudgetExceeded }
+func (m *mockBudgetExceeded) CheckGoLatest() error  { return ErrBudgetExceeded }
+func (m *mockBudgetExceeded) CheckEffectRun() error { return ErrBudgetExceeded }
+func (m *mockBudgetExceeded) ResetTick()            {}
+
+// mockBudgetOK is a mock budget checker that always allows operations.
+type mockBudgetOK struct{}
+
+func (m *mockBudgetOK) CheckResource() error  { return nil }
+func (m *mockBudgetOK) CheckAction() error    { return nil }
+func (m *mockBudgetOK) CheckGoLatest() error  { return nil }
+func (m *mockBudgetOK) CheckEffectRun() error { return nil }
+func (m *mockBudgetOK) ResetTick()            {}
+
+func TestActionBudgetExceeded(t *testing.T) {
+	mockC := newMockCtx()
+	mockC.stormBudget = &mockBudgetExceeded{}
+	setCurrentCtx(mockC)
+	defer setCurrentCtx(nil)
+
+	owner := NewOwner(nil)
+	setCurrentOwner(owner)
+	defer setCurrentOwner(nil)
+
+	var callCount int
+	action := NewAction(func(ctx context.Context, arg int) (int, error) {
+		callCount++
+		return arg * 2, nil
+	})
+
+	// Run action - should be rejected due to budget
+	accepted := action.Run(5)
+	if accepted {
+		t.Error("Run() should return false when budget exceeded")
+	}
+
+	// Wait briefly to ensure async operations complete
+	time.Sleep(10 * time.Millisecond)
+
+	// State should be Error
+	if action.State() != ActionError {
+		t.Errorf("State = %v, want ActionError", action.State())
+	}
+
+	// Error should be ErrBudgetExceeded
+	if action.Error() != ErrBudgetExceeded {
+		t.Errorf("Error() = %v, want ErrBudgetExceeded", action.Error())
+	}
+
+	// Work function should not have been called
+	if callCount != 0 {
+		t.Errorf("Work function called %d times, want 0", callCount)
+	}
+}
+
+func TestActionBudgetOK(t *testing.T) {
+	mockC := newMockCtx()
+	mockC.stormBudget = &mockBudgetOK{}
+	setCurrentCtx(mockC)
+	defer setCurrentCtx(nil)
+
+	owner := NewOwner(nil)
+	setCurrentOwner(owner)
+	defer setCurrentOwner(nil)
+
+	var callCount int
+	action := NewAction(func(ctx context.Context, arg int) (int, error) {
+		callCount++
+		return arg * 2, nil
+	})
+
+	// Run action - should be accepted
+	accepted := action.Run(5)
+	if !accepted {
+		t.Error("Run() should return true when budget allows")
+	}
+
+	// Wait for async completion
+	time.Sleep(10 * time.Millisecond)
+
+	// State should be Success
+	if action.State() != ActionSuccess {
+		t.Errorf("State = %v, want ActionSuccess", action.State())
+	}
+
+	// Work function should have been called
+	if callCount != 1 {
+		t.Errorf("Work function called %d times, want 1", callCount)
+	}
+
+	// Check result
+	result, ok := action.Result()
+	if !ok {
+		t.Error("Result() returned false, want true")
+	}
+	if result != 10 {
+		t.Errorf("Result() = %d, want 10", result)
+	}
+}

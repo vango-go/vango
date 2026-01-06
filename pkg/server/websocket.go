@@ -215,6 +215,11 @@ func (s *Session) EventLoop() {
 // states that UseCtx() MUST be valid during callbacks invoked on the session
 // loop via ctx.Dispatch(...).
 func (s *Session) executeDispatch(fn func()) {
+	// Reset per-tick storm budget counters at the start of each dispatch tick
+	if s.stormBudget != nil {
+		s.stormBudget.ResetTick()
+	}
+
 	// Panic recovery
 	defer func() {
 		if r := recover(); r != nil {

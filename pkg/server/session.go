@@ -295,6 +295,11 @@ func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance)
 
 // handleEvent processes a single event from the client.
 func (s *Session) handleEvent(event *Event) {
+	// Reset per-tick storm budget counters at the start of each event tick
+	if s.stormBudget != nil {
+		s.stormBudget.ResetTick()
+	}
+
 	// Update sequence tracking
 	s.recvSeq.Store(event.Seq)
 	s.eventCount.Add(1)
@@ -444,9 +449,9 @@ func (s *Session) flush() {
 		// Commit current dirty state
 		s.renderDirty()
 
-		// Run pending effects after commit
+		// Run pending effects after commit (pass storm budget for per-tick limiting)
 		if s.owner != nil {
-			s.owner.RunPendingEffects()
+			s.owner.RunPendingEffects(s.stormBudget)
 		}
 
 		// Continue if effects or signal writes created new work

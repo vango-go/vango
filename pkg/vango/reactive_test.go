@@ -91,7 +91,7 @@ func TestIntegrationDiamondDependency(t *testing.T) {
 
 	// Change a: both b and c should recompute, effect should run once
 	a.Set(2)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if lastSum != 10 { // b=4, c=6
 		t.Errorf("expected sum 10, got %d", lastSum)
@@ -136,7 +136,7 @@ func TestIntegrationBatchedUpdatesWithMemos(t *testing.T) {
 		z.Set(30)
 	})
 
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	// Effect should only run once more (not 3 times)
 	if effectRuns != 2 {
@@ -171,7 +171,7 @@ func TestIntegrationEffectCleanupChain(t *testing.T) {
 
 	// Change selection
 	selection.Set("B")
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	// Should cleanup A, then run B
 	expected := []string{"run:A", "cleanup:A", "run:B"}
@@ -397,7 +397,7 @@ func TestIntegrationCompleteExample(t *testing.T) {
 
 	// Increment to 1 (odd)
 	count.Inc()
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if count.Get() != 1 {
 		t.Errorf("expected count 1, got %d", count.Get())
@@ -414,7 +414,7 @@ func TestIntegrationCompleteExample(t *testing.T) {
 
 	// Increment to 2 (even again)
 	count.Inc()
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if label.Get() != "even" {
 		t.Errorf("expected label 'even', got %s", label.Get())
@@ -422,7 +422,7 @@ func TestIntegrationCompleteExample(t *testing.T) {
 
 	// Increment by 2 (stays even)
 	count.Add(2)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if label.Get() != "even" {
 		t.Errorf("expected label 'even', got %s", label.Get())

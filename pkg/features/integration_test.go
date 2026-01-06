@@ -181,42 +181,58 @@ func TestResourceErrorHandling(t *testing.T) {
 
 // TestContextProviderWorkflow tests the context creation and consumption workflow.
 func TestContextProviderWorkflow(t *testing.T) {
-	// Define a theme context
+	// Define a theme context with default value
 	type Theme struct {
 		Primary   string
 		Secondary string
 		Dark      bool
 	}
 
-	ThemeCtx := context.Create(Theme{})
+	defaultTheme := Theme{
+		Primary:   "#ffffff",
+		Secondary: "#000000",
+		Dark:      false,
+	}
+	ThemeCtx := context.Create(defaultTheme)
 
 	// Create component hierarchy with owner
 	root := vango.NewOwner(nil)
 
 	vango.WithOwner(root, func() {
-		// Set context directly for testing
-		vango.SetContext(ThemeCtx, Theme{
+		// Without a Provider, Use() should return the default value
+		theme := ThemeCtx.Use()
+
+		if theme.Primary != "#ffffff" {
+			t.Errorf("Expected default primary '#ffffff', got '%s'", theme.Primary)
+		}
+		if theme.Dark {
+			t.Error("Expected dark mode to be false (default)")
+		}
+
+		// Test that Provider().Render() sets up the context correctly
+		// by simulating a render cycle with the provider
+		providerTheme := Theme{
 			Primary:   "#007bff",
 			Secondary: "#6c757d",
 			Dark:      true,
-		})
-
-		// Consumer reads the context
-		theme := ThemeCtx.Use()
-
-		if theme.Primary != "#007bff" {
-			t.Errorf("Expected primary '#007bff', got '%s'", theme.Primary)
 		}
-		if !theme.Dark {
-			t.Error("Expected dark mode to be true")
-		}
+		providerNode := ThemeCtx.Provider(providerTheme, vdom.Text("child"))
 
-		// Nested owner inherits context
+		// Render the provider in a child owner (simulates component rendering)
 		child := vango.NewOwner(root)
 		vango.WithOwner(child, func() {
+			// Render the provider component
+			if providerNode.Comp != nil {
+				providerNode.Comp.Render()
+			}
+
+			// Now Use() should return the provided value
 			childTheme := ThemeCtx.Use()
 			if childTheme.Primary != "#007bff" {
-				t.Error("Child should inherit parent context")
+				t.Errorf("Child expected primary '#007bff', got '%s'", childTheme.Primary)
+			}
+			if !childTheme.Dark {
+				t.Error("Child expected dark mode to be true")
 			}
 		})
 	})
@@ -374,12 +390,16 @@ func TestResourceRefetchWithMutation(t *testing.T) {
 
 	counter := resource.New(func() (int, error) {
 		calls++
-		done <- struct{}{}
-		return calls * 10, nil
+		result := calls * 10
+		// Signal completion after we know the fetch will return
+		defer func() { done <- struct{}{} }()
+		return result, nil
 	})
 
-	// Wait for initial fetch
+	// Wait for initial fetch to signal AND for data to be set
 	<-done
+	// Small delay to allow the goroutine to call data.Set() after fetcher returns
+	time.Sleep(10 * time.Millisecond)
 
 	// Mutate optimistically
 	counter.Mutate(func(n int) int {
@@ -393,6 +413,8 @@ func TestResourceRefetchWithMutation(t *testing.T) {
 	// Refetch to get fresh data
 	counter.Refetch()
 	<-done
+	// Small delay to allow data to be set
+	time.Sleep(10 * time.Millisecond)
 
 	// Should have refetched (calls=2, so 20)
 	if counter.Data() != 20 {
@@ -406,12 +428,13 @@ func TestContextWithFallback(t *testing.T) {
 		APIKey string
 	}
 
+	// Create context with empty default
 	ConfigCtx := context.Create(Config{})
 
 	root := vango.NewOwner(nil)
 
 	vango.WithOwner(root, func() {
-		// Try to use context without provider
+		// Without a Provider, Use() should return the default value (empty)
 		config := ConfigCtx.Use()
 
 		// Should return zero value (default)
@@ -419,13 +442,27 @@ func TestContextWithFallback(t *testing.T) {
 			t.Errorf("Expected empty APIKey, got '%s'", config.APIKey)
 		}
 
-		// Now set context
-		vango.SetContext(ConfigCtx, Config{APIKey: "secret123"})
+		// Create a Provider node and render it to set up context
+		providerNode := ConfigCtx.Provider(Config{APIKey: "secret123"}, vdom.Text("child"))
 
-		// Should work after setting
+		// Render provider in child owner
+		child := vango.NewOwner(root)
+		vango.WithOwner(child, func() {
+			if providerNode.Comp != nil {
+				providerNode.Comp.Render()
+			}
+
+			// Now Use() should return the provided value
+			config = ConfigCtx.Use()
+			if config.APIKey != "secret123" {
+				t.Errorf("Expected 'secret123', got '%s'", config.APIKey)
+			}
+		})
+
+		// Outside the provider's scope, should still get default
 		config = ConfigCtx.Use()
-		if config.APIKey != "secret123" {
-			t.Errorf("Expected 'secret123', got '%s'", config.APIKey)
+		if config.APIKey != "" {
+			t.Errorf("Expected empty APIKey outside provider scope, got '%s'", config.APIKey)
 		}
 	})
 }

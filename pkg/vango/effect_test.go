@@ -45,7 +45,7 @@ func TestEffectTracksDependencies(t *testing.T) {
 	count.Set(1)
 
 	// Run pending effects
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if runCount != 2 {
 		t.Errorf("expected 2 runs after signal change, got %d", runCount)
@@ -102,7 +102,7 @@ func TestEffectCleanupBeforeRerun(t *testing.T) {
 
 	// Trigger re-run
 	count.Set(1)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if runCount != 2 {
 		t.Errorf("expected 2 runs, got %d", runCount)
@@ -141,21 +141,21 @@ func TestEffectDynamicDependencies(t *testing.T) {
 
 	// Changing b should NOT trigger (not currently tracked)
 	b.Set(20)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 	if runCount != 1 {
 		t.Errorf("changing b should not trigger, got %d runs", runCount)
 	}
 
 	// Changing a should trigger
 	a.Set(10)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 	if runCount != 2 || lastValue != 10 {
 		t.Errorf("expected 2 runs with value 10, got %d runs with value %d", runCount, lastValue)
 	}
 
 	// Switch to b
 	flag.Set(false)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 	if lastValue != 20 {
 		t.Errorf("expected value 20 after switching, got %d", lastValue)
 	}
@@ -163,13 +163,13 @@ func TestEffectDynamicDependencies(t *testing.T) {
 	// Now a should not trigger, b should
 	runCount = 0
 	a.Set(100)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 	if runCount != 0 {
 		t.Errorf("changing a should not trigger when using b, got %d runs", runCount)
 	}
 
 	b.Set(200)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 	if lastValue != 200 {
 		t.Errorf("expected value 200, got %d", lastValue)
 	}
@@ -233,7 +233,7 @@ func TestOnUpdate(t *testing.T) {
 
 	// Should run on update
 	count.Set(1)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if updateCount != 1 {
 		t.Errorf("OnUpdate should run callback on update, got %d", updateCount)
@@ -241,7 +241,7 @@ func TestOnUpdate(t *testing.T) {
 
 	// And again
 	count.Set(2)
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if updateCount != 2 {
 		t.Errorf("OnUpdate should run callback on each update, got %d", updateCount)
@@ -338,7 +338,7 @@ func TestEffectMarkDirtyIdempotent(t *testing.T) {
 	count.Set(2)
 	count.Set(3)
 
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 
 	if runCount != 2 {
 		t.Errorf("expected 2 total runs (deduped), got %d", runCount)

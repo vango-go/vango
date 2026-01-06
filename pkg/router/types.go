@@ -121,3 +121,11 @@ type MiddlewareFunc func(ctx server.Ctx, next func() error) error
 func (f MiddlewareFunc) Handle(ctx server.Ctx, next func() error) error {
 	return f(ctx, next)
 }
+
+// Handler is a function that handles a request context.
+// This is the base type for all route handlers in middleware chains.
+// It's compatible with the signature expected by middleware patterns.
+type Handler func(ctx server.Ctx) error
+
+// HandlerFunc is an alias for Handler for naming consistency with http.HandlerFunc.
+type HandlerFunc = Handler

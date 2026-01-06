@@ -263,3 +263,64 @@ func TestTimeoutCancellation(t *testing.T) {
 		t.Error("Timeout callback should not have been called after cancel")
 	}
 }
+
+func TestGoLatestBudgetExceeded(t *testing.T) {
+	// Create mock context with budget that rejects all GoLatest
+	mockC := newMockCtx()
+	mockC.stormBudget = &mockBudgetExceededGoLatest{}
+	setCurrentCtx(mockC)
+	defer setCurrentCtx(nil)
+
+	owner := NewOwner(nil)
+	setCurrentOwner(owner)
+	defer setCurrentOwner(nil)
+
+	var workCalled atomic.Bool
+	var applyErr error
+	var applyResult string
+	var applyCalled atomic.Bool
+
+	CreateEffect(func() Cleanup {
+		return GoLatest("key1",
+			func(ctx context.Context, key string) (string, error) {
+				workCalled.Store(true)
+				return "result", nil
+			},
+			func(r string, err error) {
+				applyCalled.Store(true)
+				applyResult = r
+				applyErr = err
+			},
+		)
+	})
+
+	// Wait for dispatch to complete
+	time.Sleep(20 * time.Millisecond)
+
+	// Work should NOT have been called (budget rejected it)
+	if workCalled.Load() {
+		t.Error("Work function should not have been called when budget exceeded")
+	}
+
+	// Apply SHOULD be called with error
+	if !applyCalled.Load() {
+		t.Error("Apply should have been called with error")
+	}
+
+	if applyErr != ErrBudgetExceeded {
+		t.Errorf("Apply error = %v, want ErrBudgetExceeded", applyErr)
+	}
+
+	if applyResult != "" {
+		t.Errorf("Apply result = %q, want empty string", applyResult)
+	}
+}
+
+// mockBudgetExceededGoLatest is a mock budget checker that rejects GoLatest.
+type mockBudgetExceededGoLatest struct{}
+
+func (m *mockBudgetExceededGoLatest) CheckResource() error  { return nil }
+func (m *mockBudgetExceededGoLatest) CheckAction() error    { return nil }
+func (m *mockBudgetExceededGoLatest) CheckGoLatest() error  { return ErrBudgetExceeded }
+func (m *mockBudgetExceededGoLatest) CheckEffectRun() error { return nil }
+func (m *mockBudgetExceededGoLatest) ResetTick()            {}

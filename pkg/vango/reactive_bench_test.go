@@ -245,7 +245,7 @@ func BenchmarkEffectRun(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		count.Set(i)
-		owner.RunPendingEffects()
+		owner.RunPendingEffects(nil)
 	}
 }
 
@@ -338,13 +338,13 @@ func BenchmarkRealisticComponent(b *testing.B) {
 			firstName.Set("Jane")
 			lastName.Set("Smith")
 		})
-		owner.RunPendingEffects()
+		owner.RunPendingEffects(nil)
 
 		age.Set(25)
-		owner.RunPendingEffects()
+		owner.RunPendingEffects(nil)
 
 		active.Toggle()
-		owner.RunPendingEffects()
+		owner.RunPendingEffects(nil)
 
 		// Read derived values
 		_ = fullName.Get()

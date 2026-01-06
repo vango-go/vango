@@ -51,7 +51,7 @@ func TestRenderHookSlotStability(t *testing.T) {
 		t.Fatalf("effect ran during render, runs=%d", runs)
 	}
 
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 	if runs != 1 {
 		t.Fatalf("expected 1 effect run after commit, got %d", runs)
 	}
@@ -98,7 +98,7 @@ func TestEffectDeferredUntilAfterRender(t *testing.T) {
 		t.Fatalf("effect ran during render, runs=%d", runs)
 	}
 
-	owner.RunPendingEffects()
+	owner.RunPendingEffects(nil)
 	if runs != 1 {
 		t.Fatalf("expected 1 effect run after commit, got %d", runs)
 	}
@@ -124,7 +124,7 @@ func TestRunPendingEffectsRecursive(t *testing.T) {
 		t.Fatalf("effect ran during render, runs=%d", runs)
 	}
 
-	root.RunPendingEffects()
+	root.RunPendingEffects(nil)
 	if runs != 1 {
 		t.Fatalf("expected child effect to run from root RunPendingEffects, got %d", runs)
 	}

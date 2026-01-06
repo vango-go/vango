@@ -202,10 +202,11 @@ func SubscribeTxName(name string) SubscribeOption {
 // goLatestState holds per-call-site state for GoLatest.
 // This is stored in Effect.callSiteData for persistence across effect reruns.
 type goLatestState[K comparable] struct {
-	lastKey     K
-	initialized bool
-	cancel      context.CancelFunc
-	seq         uint64
+	lastKey         K
+	initialized     bool
+	cancel          context.CancelFunc
+	seq             uint64
+	lastBudgetError time.Time // Track when we last reported budget error
 }
 
 // GoLatest is the standard helper for async integration work inside Effect.
@@ -285,6 +286,25 @@ func GoLatest[K comparable, R any](
 	}
 	workCtx, cancel := context.WithCancel(stdCtx)
 	state.cancel = cancel
+
+	// Check storm budget before spawning work
+	if budget := ctx.StormBudget(); budget != nil {
+		if err := budget.CheckGoLatest(); err != nil {
+			// Budget exceeded - invoke apply(zero, err) at most once per window
+			now := time.Now()
+			if now.Sub(state.lastBudgetError) >= time.Second {
+				state.lastBudgetError = now
+				ctx.Dispatch(func() {
+					TxNamed(cfg.getTxName(), func() {
+						var zero R
+						apply(zero, ErrBudgetExceeded)
+					})
+				})
+			}
+			// Return no-op cleanup since no work was started
+			return func() {}
+		}
+	}
 
 	// Execute work off the session loop
 	go func() {

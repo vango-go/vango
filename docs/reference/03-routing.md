@@ -11,23 +11,47 @@ app/routes/
 ├── projects/
 │   ├── index.go          → /projects
 │   ├── new.go            → /projects/new
-│   └── [id].go           → /projects/:id
+│   └── _id_.go           → /projects/:id
+├── users/
+│   └── _id_/
+│       └── posts.go      → /users/:id/posts
 ├── api/
 │   └── users.go          → /api/users
 └── _layout.go            → Wraps all routes
 ```
 
+## Dynamic Route Conventions
+
+Vango supports two conventions for dynamic route parameters:
+
+### Underscore Notation (Recommended)
+
+The underscore notation is Go-friendly and works on all systems:
+
+- `_id_.go` → `:id` (dynamic parameter)
+- `_id_/posts.go` → `:id/posts` (dynamic directory)
+- `_slug___.go` → `*slug` (catch-all, triple underscore)
+
+### Bracket Notation (Next.js/Remix Style)
+
+The bracket notation may not work on Windows or with some Go toolchains:
+
+- `[id].go` → `:id`
+- `[...slug].go` → `*slug` (catch-all)
+
+**Note:** We recommend using underscore notation for maximum compatibility.
+
 ## Page Components
 
 ```go
-// app/routes/projects/[id].go
+// app/routes/projects/_id_.go
 package routes
 
 type Params struct {
     ID int `param:"id"`
 }
 
-func Page(ctx vango.Ctx, p Params) vango.Component {
+func ShowPage(ctx vango.Ctx, p Params) vango.Component {
     return vango.Func(func() *vango.VNode {
         // Access p.ID
     })

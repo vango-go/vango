@@ -195,7 +195,11 @@ func (o *Owner) scheduleEffect(e *Effect) {
 // RunPendingEffects executes all pending effects.
 // This is called after the render phase to run scheduled effects.
 // The server runtime calls this after event handlers execute.
-func (o *Owner) RunPendingEffects() {
+//
+// The budget parameter is optional (can be nil). When provided, effects are
+// checked against the per-tick effect budget before running. Effects that
+// exceed the budget are re-scheduled for the next tick.
+func (o *Owner) RunPendingEffects(budget StormBudgetChecker) {
 	if o.disposed.Load() {
 		return
 	}
@@ -207,6 +211,18 @@ func (o *Owner) RunPendingEffects() {
 
 	for _, e := range effects {
 		if e.pending.Load() {
+			// Check storm budget before each effect run
+			if budget != nil {
+				if err := budget.CheckEffectRun(); err != nil {
+					// Budget exceeded - re-schedule for next tick
+					if Debug.LogStormBudget {
+						println("Storm budget exceeded: re-scheduling effect")
+					}
+					e.pending.Store(true)
+					o.scheduleEffect(e)
+					continue
+				}
+			}
 			e.run()
 		}
 	}
@@ -218,7 +234,7 @@ func (o *Owner) RunPendingEffects() {
 	o.childrenMu.Unlock()
 
 	for _, child := range children {
-		child.RunPendingEffects()
+		child.RunPendingEffects(budget)
 	}
 }
 

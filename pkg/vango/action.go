@@ -222,8 +222,7 @@ func (a *Action[A, R]) runCancelLatest(arg A) bool {
 	}
 	a.cancelMu.Unlock()
 
-	a.startWork(arg)
-	return true
+	return a.startWork(arg)
 }
 
 func (a *Action[A, R]) runDropWhileRunning(arg A) bool {
@@ -232,8 +231,7 @@ func (a *Action[A, R]) runDropWhileRunning(arg A) bool {
 		return false
 	}
 
-	a.startWork(arg)
-	return true
+	return a.startWork(arg)
 }
 
 func (a *Action[A, R]) runQueue(arg A) bool {
@@ -242,8 +240,7 @@ func (a *Action[A, R]) runQueue(arg A) bool {
 
 	// If not running, start immediately
 	if a.state.Peek() != ActionRunning {
-		a.startWork(arg)
-		return true
+		return a.startWork(arg)
 	}
 
 	// Check queue capacity
@@ -261,7 +258,24 @@ func (a *Action[A, R]) runQueue(arg A) bool {
 	return true
 }
 
-func (a *Action[A, R]) startWork(arg A) {
+func (a *Action[A, R]) startWork(arg A) bool {
+	// Check storm budget before starting work
+	if budget := a.ctx.StormBudget(); budget != nil {
+		if err := budget.CheckAction(); err != nil {
+			// Budget exceeded - transition to Error state
+			a.ctx.Dispatch(func() {
+				TxNamed(a.getTxName("budget_exceeded"), func() {
+					a.err.Set(ErrBudgetExceeded)
+					a.state.Set(ActionError)
+					if a.onError != nil {
+						a.onError(ErrBudgetExceeded)
+					}
+				})
+			})
+			return false
+		}
+	}
+
 	// Get new sequence number
 	seq := a.seq.Add(1)
 
@@ -331,6 +345,8 @@ func (a *Action[A, R]) startWork(arg A) {
 			}
 		})
 	}()
+
+	return true
 }
 
 func (a *Action[A, R]) processQueue() {

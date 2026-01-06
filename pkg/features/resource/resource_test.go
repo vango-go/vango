@@ -1,10 +1,12 @@
 package resource
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/vango-go/vango/pkg/vango"
 	"github.com/vango-go/vango/pkg/vdom"
 )
 
@@ -555,3 +557,76 @@ func TestResourceOnErrorChaining(t *testing.T) {
 		t.Error("OnError should return the resource for chaining")
 	}
 }
+
+// TestResourceRefetchBudgetExceeded verifies that Refetch respects storm budget.
+// This test requires creating a Resource with a mock context.
+func TestResourceRefetchBudgetExceeded(t *testing.T) {
+	// Create resource with a simple fetcher
+	fetcherCalled := false
+	r := &Resource[string]{
+		fetcher: func() (string, error) {
+			fetcherCalled = true
+			return "data", nil
+		},
+		ctx: &mockBudgetExceededCtx{},
+	}
+
+	// Initialize signals
+	r.state = vango.NewSignal(Pending)
+	r.data = vango.NewSignal("")
+	r.err = vango.NewSignal[error](nil)
+
+	done := make(chan struct{})
+	r.onError = func(err error) {
+		if err != vango.ErrBudgetExceeded {
+			t.Errorf("OnError got %v, want ErrBudgetExceeded", err)
+		}
+		close(done)
+	}
+
+	// Call Refetch - should be rejected by budget
+	r.Refetch()
+
+	// Wait for dispatch
+	select {
+	case <-done:
+		// Success - onError was called
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timeout waiting for budget error callback")
+	}
+
+	// Fetcher should NOT have been called
+	if fetcherCalled {
+		t.Error("Fetcher should not have been called when budget exceeded")
+	}
+
+	// State should be Error
+	if r.State() != Error {
+		t.Errorf("State = %v, want Error", r.State())
+	}
+
+	// Error should be ErrBudgetExceeded
+	if r.Error() != vango.ErrBudgetExceeded {
+		t.Errorf("Error = %v, want ErrBudgetExceeded", r.Error())
+	}
+}
+
+// mockBudgetExceededCtx is a mock context that always exceeds the budget.
+type mockBudgetExceededCtx struct{}
+
+func (m *mockBudgetExceededCtx) Dispatch(fn func()) { fn() }
+func (m *mockBudgetExceededCtx) StdContext() context.Context {
+	return context.Background()
+}
+func (m *mockBudgetExceededCtx) StormBudget() vango.StormBudgetChecker {
+	return &mockResourceBudgetExceeded{}
+}
+
+// mockResourceBudgetExceeded always exceeds the resource budget.
+type mockResourceBudgetExceeded struct{}
+
+func (m *mockResourceBudgetExceeded) CheckResource() error  { return vango.ErrBudgetExceeded }
+func (m *mockResourceBudgetExceeded) CheckAction() error    { return nil }
+func (m *mockResourceBudgetExceeded) CheckGoLatest() error  { return nil }
+func (m *mockResourceBudgetExceeded) CheckEffectRun() error { return nil }
+func (m *mockResourceBudgetExceeded) ResetTick()            {}

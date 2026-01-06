@@ -88,7 +88,8 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 
 	route.Path = s.filePathToURLPath(relPath)
 	route.Params = s.extractParams(relPath)
-	route.IsCatchAll = strings.Contains(relPath, "[...")
+	// Check for catch-all in both notation styles
+	route.IsCatchAll = strings.Contains(relPath, "[...") || strings.Contains(relPath, "___")
 
 	// Check for special files
 	baseName := filepath.Base(path)
@@ -179,6 +180,20 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 }
 
 // filePathToURLPath converts a file path to a URL path.
+// Supports two dynamic route conventions:
+//
+//  1. Bracket notation: [id].go → :id (Next.js/Remix style)
+//     - May not work on Windows or with some Go toolchains
+//
+//  2. Underscore notation: _id_.go → :id (Go-friendly)
+//     - Preferred for compatibility with all systems
+//     - Leading underscore indicates dynamic segment
+//     - Trailing underscore distinguishes from reserved files like _layout.go
+//
+// Examples:
+//   - projects/_id_.go  → /projects/:id
+//   - users/_id_/posts/_postId_.go → /users/:id/posts/:postId
+//   - [id].go → :id (if your system supports it)
 func (s *Scanner) filePathToURLPath(relPath string) string {
 	// Remove .go extension
 	path := strings.TrimSuffix(relPath, ".go")
@@ -196,7 +211,8 @@ func (s *Scanner) filePathToURLPath(relPath string) string {
 
 	// Handle layout and error files (they define handlers but not routes)
 	baseName := filepath.Base(path)
-	if strings.HasPrefix(baseName, "_") {
+	if strings.HasPrefix(baseName, "_") && !strings.HasSuffix(baseName, "_") {
+		// Special files start with _ but don't end with _ (e.g., _layout, _middleware)
 		// Get the directory path for layouts
 		dir := filepath.Dir(path)
 		if dir == "." {
@@ -206,7 +222,7 @@ func (s *Scanner) filePathToURLPath(relPath string) string {
 		}
 	}
 
-	// Convert [param] to :param
+	// Convert params to router notation
 	path = s.convertParams(path)
 
 	// Add leading slash
@@ -216,15 +232,21 @@ func (s *Scanner) filePathToURLPath(relPath string) string {
 	return "/" + path
 }
 
-// convertParams converts bracket notation to router notation.
+// convertParams converts parameter notation to router notation.
+// Supports two conventions:
+//
+//  1. Bracket notation (Next.js/Remix style):
+//     - [id] → :id
+//     - [id:int] → :id (type stored separately)
+//     - [...slug] → *slug (catch-all)
+//
+//  2. Underscore notation (Go-friendly, preferred):
+//     - _id_ → :id
+//     - _slug___ → *slug (triple underscore for catch-all)
 func (s *Scanner) convertParams(path string) string {
-	// [id] → :id
-	// [id:int] → :id (type stored separately)
-	// [...slug] → *slug
-
-	// Match [param] or [param:type] or [...param]
-	re := regexp.MustCompile(`\[([.\w]+)(?::(\w+))?\]`)
-	result := re.ReplaceAllStringFunc(path, func(match string) string {
+	// First handle bracket notation: [param] or [param:type] or [...param]
+	bracketRe := regexp.MustCompile(`\[([.\w]+)(?::(\w+))?\]`)
+	result := bracketRe.ReplaceAllStringFunc(path, func(match string) string {
 		inner := match[1 : len(match)-1] // Remove brackets
 
 		// Handle catch-all
@@ -240,22 +262,31 @@ func (s *Scanner) convertParams(path string) string {
 		return ":" + inner
 	})
 
+	// Then handle underscore notation: _param_ or _param___
+	// Triple underscore suffix indicates catch-all: _slug___ → *slug
+	catchAllRe := regexp.MustCompile(`_(\w+)___`)
+	result = catchAllRe.ReplaceAllString(result, "*$1")
+
+	// Single underscore suffix for regular params: _id_ → :id
+	paramRe := regexp.MustCompile(`_(\w+)_`)
+	result = paramRe.ReplaceAllString(result, ":$1")
+
 	return result
 }
 
 // extractParams extracts parameter definitions from a file path.
 // Uses intelligent type inference based on naming conventions:
-//   - [id], [userID], [postId] → int (common ID pattern)
-//   - [uuid] → string (UUID stored as string)
-//   - [slug], [name], [title] → string
-//   - [...path], [...rest] → []string (catch-all)
+//   - [id], [userID], [postId], _id_ → int (common ID pattern)
+//   - [uuid], _uuid_ → string (UUID stored as string)
+//   - [slug], [name], [title], _slug_ → string
+//   - [...path], [...rest], _path___ → []string (catch-all)
 //   - [param:int], [id:int64] → explicit type annotation
 func (s *Scanner) extractParams(relPath string) []ParamDef {
 	var params []ParamDef
 
-	// Match [param] or [param:type] or [...param]
-	re := regexp.MustCompile(`\[([.\w]+)(?::(\w+))?\]`)
-	matches := re.FindAllStringSubmatch(relPath, -1)
+	// Match bracket notation: [param] or [param:type] or [...param]
+	bracketRe := regexp.MustCompile(`\[([.\w]+)(?::(\w+))?\]`)
+	matches := bracketRe.FindAllStringSubmatch(relPath, -1)
 
 	for _, match := range matches {
 		param := ParamDef{
@@ -278,6 +309,36 @@ func (s *Scanner) extractParams(relPath string) []ParamDef {
 		}
 
 		params = append(params, param)
+	}
+
+	// Match underscore notation for catch-all: _param___
+	catchAllRe := regexp.MustCompile(`_(\w+)___`)
+	catchAllMatches := catchAllRe.FindAllStringSubmatch(relPath, -1)
+	for _, match := range catchAllMatches {
+		params = append(params, ParamDef{
+			Segment: match[0],
+			Name:    match[1],
+			Type:    "[]string", // Catch-all is always string slice
+		})
+	}
+
+	// Match underscore notation for regular params: _param_
+	// Skip if already matched as catch-all (followed by another underscore)
+	paramRe := regexp.MustCompile(`_(\w+)_`)
+	paramIndexes := paramRe.FindAllStringSubmatchIndex(relPath, -1)
+	for _, indexes := range paramIndexes {
+		matchEnd := indexes[1]
+		// Skip if followed by another underscore (part of catch-all _param___)
+		if matchEnd < len(relPath) && relPath[matchEnd] == '_' {
+			continue
+		}
+		segment := relPath[indexes[0]:indexes[1]]
+		name := relPath[indexes[2]:indexes[3]]
+		params = append(params, ParamDef{
+			Segment: segment,
+			Name:    name,
+			Type:    inferParamTypeFromName(name),
+		})
 	}
 
 	return params

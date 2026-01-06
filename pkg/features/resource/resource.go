@@ -197,6 +197,22 @@ func (r *Resource[T]) Fetch() {
 // Refetch forces a data fetch, bypassing cache.
 // All signal writes are dispatched via ctx.Dispatch to ensure thread safety.
 func (r *Resource[T]) Refetch() {
+	// Check storm budget before starting fetch
+	if r.ctx != nil {
+		if budget := r.ctx.StormBudget(); budget != nil {
+			if err := budget.CheckResource(); err != nil {
+				r.ctx.Dispatch(func() {
+					r.err.Set(vango.ErrBudgetExceeded)
+					r.state.Set(Error)
+					if r.onError != nil {
+						r.onError(vango.ErrBudgetExceeded)
+					}
+				})
+				return
+			}
+		}
+	}
+
 	r.mu.Lock()
 	r.fetchID++
 	currentID := r.fetchID
