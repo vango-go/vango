@@ -4,24 +4,29 @@ import (
 	"github.com/vango-go/vango/pkg/vdom"
 )
 
-// Link creates an anchor element with client-side navigation.
+// Link creates an anchor element with SPA navigation enabled.
 // When clicked, the thin client intercepts and sends a navigate event
 // to the server instead of performing a full page reload.
+//
+// Per the routing contract (Section 5.1), this sets the data-vango-link
+// attribute which is the canonical marker for SPA navigation.
 func Link(href string, children ...any) *vdom.VNode {
 	return vdom.A(
 		vdom.Href(href),
-		vdom.Attr{Key: "data-link", Value: "true"},
+		vdom.Attr{Key: "data-vango-link", Value: ""},
 		children,
 	)
 }
 
 // LinkWithPrefetch creates a link that prefetches the target page on hover.
 // This provides faster navigation by loading the target page before the user clicks.
+//
+// Sets: href, data-vango-link, and data-prefetch.
 func LinkWithPrefetch(href string, children ...any) *vdom.VNode {
 	return vdom.A(
 		vdom.Href(href),
-		vdom.Attr{Key: "data-link", Value: "true"},
-		vdom.Attr{Key: "data-prefetch", Value: "true"},
+		vdom.Attr{Key: "data-vango-link", Value: ""},
+		vdom.Attr{Key: "data-prefetch", Value: ""},
 		children,
 	)
 }
@@ -32,7 +37,7 @@ func LinkWithPrefetch(href string, children ...any) *vdom.VNode {
 func ActiveLink(href string, activeClass string, exactMatch bool, children ...any) *vdom.VNode {
 	attrs := []any{
 		vdom.Href(href),
-		vdom.Attr{Key: "data-link", Value: "true"},
+		vdom.Attr{Key: "data-vango-link", Value: ""},
 		vdom.Attr{Key: "data-active-class", Value: activeClass},
 	}
 
@@ -53,10 +58,18 @@ func NavLink(href string, children ...any) *vdom.VNode {
 // Prefetch creates a prefetch attribute for links.
 // Add this to any anchor element to enable hover prefetching.
 func Prefetch() vdom.Attr {
-	return vdom.Attr{Key: "data-prefetch", Value: "true"}
+	return vdom.Attr{Key: "data-prefetch", Value: ""}
+}
+
+// VangoLink creates an anchor attribute that enables client-side navigation.
+// This is the canonical marker for SPA navigation.
+func VangoLink() vdom.Attr {
+	return vdom.Attr{Key: "data-vango-link", Value: ""}
 }
 
 // DataLink creates an anchor attribute that enables client-side navigation.
+// Deprecated: Use VangoLink() instead. This function is kept for backwards
+// compatibility but will be removed in a future version.
 func DataLink() vdom.Attr {
-	return vdom.Attr{Key: "data-link", Value: "true"}
+	return vdom.Attr{Key: "data-vango-link", Value: ""}
 }

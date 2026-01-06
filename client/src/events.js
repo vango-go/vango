@@ -509,16 +509,22 @@ export class EventCapture {
     /**
      * Handle link click for client-side navigation.
      *
-     * Per spec Section 3.2 and 9.5.1, do NOT intercept when:
-     * - Element is not an <a> tag
-     * - Any modifier key is held (Ctrl/Meta/Shift/Alt)
-     * - Link has download attribute
-     * - Link has target != "" && target != "_self"
-     * - Link URL is cross-origin
-     * - WebSocket not connected/healthy
-     * - No Vango handler exists (data-vango-link or data-ve="click")
+     * Per Navigation Contract Section 4.5 (Link Click Navigation):
+     * 1. Do NOT update history immediately
+     * 2. Send EventNavigate { path, replace }
+     * 3. Wait for server response with NAV_* + DOM patches
+     * 4. Apply patches (URL update + DOM update)
      *
-     * Otherwise: preventDefault and send NAVIGATE event.
+     * Per Progressive Enhancement Contract Section 5.1:
+     * A link click is intercepted ONLY when ALL conditions are true:
+     * 1. Element has data-vango-link attribute (canonical marker)
+     * 2. WebSocket connection is healthy
+     * 3. Link is same-origin
+     * 4. No modifier keys pressed (ctrl, meta, shift, alt)
+     * 5. No target attribute (or target="_self")
+     * 6. No download attribute
+     *
+     * Note: data-link is supported for backwards compatibility but deprecated.
      */
     _handleLinkClick(event) {
         const link = event.target.closest('a[href]');
@@ -541,16 +547,17 @@ export class EventCapture {
         }
 
         // Check if link is marked for SPA navigation
-        // Supports both data-link (from router.Link) and data-vango-link (from vdom.NavLink)
+        // data-vango-link is the canonical marker per the routing contract
+        // data-link is deprecated but supported for backwards compatibility
         const isVangoLink = link.hasAttribute('data-vango-link') || link.hasAttribute('data-link');
-        const hasClickHandler = this._hasEvent(link, 'click');
 
-        // Only intercept Vango-marked links or links with click handlers
-        if (!isVangoLink && !hasClickHandler) {
+        // Only intercept Vango-marked links
+        // Note: Links with click handlers in data-ve are handled by _handleClick, not here
+        if (!isVangoLink) {
             return; // Let browser handle native navigation
         }
 
-        // Check if this is an internal link (same origin)
+        // Get the href attribute (raw, may be percent-encoded)
         const href = link.getAttribute('href');
         if (!href) return;
 
@@ -576,32 +583,61 @@ export class EventCapture {
             return; // Fall back to native navigation
         }
 
-        // Prevent default and navigate via WebSocket
+        // Prevent default browser navigation
         event.preventDefault();
 
-        // Update browser URL
-        history.pushState(null, '', href);
+        // Track pending navigation for self-heal (connection loss during nav)
+        this.pendingNavPath = href;
 
-        // Send navigate event to server
-        this.client.sendEvent(EventType.NAVIGATE, 'nav', { path: href });
+        // Per Navigation Contract Section 4.5:
+        // Do NOT update history immediately - wait for server NAV_* response
+        // Send navigate event to server (server will respond with NAV_* patch + DOM patches)
+        this.client.sendEvent(EventType.NAVIGATE, 'nav', { path: href, replace: false });
     }
 
     /**
-     * Handle browser back/forward navigation.
-     * Sends the full path including search params.
+     * Handle browser back/forward navigation (popstate).
+     *
+     * Per Navigation Contract Section 4.6:
+     * 1. Browser fires popstate event
+     * 2. Client sends EventNavigate { path, replace: true }
+     * 3. Server remounts and sends DOM patches
+     * 4. Server MAY omit NAV_REPLACE since URL already changed
+     *
+     * Note: popstate means the URL has already changed in the browser,
+     * so we use replace: true to avoid server sending NAV_* that would
+     * duplicate the history entry.
      */
     _handlePopState(event) {
+        // Don't handle if WebSocket is not connected
+        if (!this.client.connected) {
+            return; // Let native navigation take over
+        }
+
         // Include search params in navigation path
+        // Note: location.pathname is already decoded by the browser
         const path = location.pathname + location.search;
-        this.client.sendEvent(EventType.NAVIGATE, 'nav', { path });
+
+        // Track pending navigation for self-heal
+        this.pendingNavPath = path;
+
+        // Send navigate event with replace: true (URL already changed)
+        this.client.sendEvent(EventType.NAVIGATE, 'nav', { path, replace: true });
     }
 
     /**
      * Handle prefetch on hover for links with data-prefetch attribute.
-     * Per spec Section 9.4: "Preloads on hover"
      *
-     * This sends a prefetch event to the server which can preload the target
-     * page's data before the user clicks, making navigation feel instant.
+     * Per Prefetch Contract Section 8.1:
+     * Client sends EventType.CUSTOM (0xFF) with:
+     * - Name: "prefetch"
+     * - Data: JSON-encoded { "path": "/target/path" }
+     *
+     * Wire format:
+     * [0xFF (CUSTOM)][name: "prefetch" (varint-len string)][data: JSON bytes (varint-len)]
+     *
+     * The server can use this to preload route data before the user clicks,
+     * making navigation feel instant.
      */
     _handlePrefetch(event) {
         const link = event.target.closest('a[data-prefetch][href]');
@@ -636,8 +672,13 @@ export class EventCapture {
         this.prefetchedPaths.add(href);
 
         // Send prefetch event to server
-        // The server can use this to preload route data
-        this.client.sendEvent(EventType.CUSTOM, 'prefetch', { name: 'prefetch', path: href });
+        // Per the contract, data MUST be JSON bytes, not an object
+        // The codec's encodeEvent expects data as bytes for CUSTOM events
+        const jsonData = JSON.stringify({ path: href });
+        const encoder = new TextEncoder();
+        const dataBytes = encoder.encode(jsonData);
+
+        this.client.sendEvent(EventType.CUSTOM, 'prefetch', { name: 'prefetch', data: dataBytes });
 
         if (this.client.options.debug) {
             console.log('[Vango] Prefetching:', href);

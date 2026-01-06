@@ -851,59 +851,35 @@ On navigation, `currentPath` and `currentRoute` are updated, and `rootComponent`
 
 ---
 
+## Implementation Checklist
+
+The following files need updates to conform to this contract:
+
+### Routing Core (Go)
+- `vango/pkg/router/scanner.go` - discovery rules, symbol detection, typed annotations, duplicates/conflicts
+- `vango/pkg/router/codegen.go` - generate Register(*router.Router), deterministic ordering, duplicate detection errors
+- `vango/pkg/router/router.go` - add Page/Layout/Middleware/API public methods; canonicalization-aware matching
+- `vango/pkg/router/tree.go` - match priority tiers, catch-all non-empty rule
+- `vango/pkg/router/params.go` - per-segment URL-decoding, %2F handling, typed parsing
+- `vango/pkg/router/types.go` - type constraints metadata
+- `vango/pkg/router/canonicalize.go` - path canonicalization functions (NEW)
+
+### HTTP SSR + Runtime Integration
+- `vango/pkg/server/server.go` - HTTP request path canonicalization + 308 redirect
+- `vango/pkg/server/session.go` - EventNavigate handling, session route state, remount + diff
+- `vango/pkg/server/context.go` - ctx.Navigate() using NAV_* patches
+
+### Protocol (Go)
+- `vango/pkg/protocol/patch.go` - NAV_PUSH=0x32, NAV_REPLACE=0x33
+
+### Thin Client (JS)
+- `vango/client/src/codec.js` - decode NAV_* patches
+- `vango/client/src/patches.js` - apply NAV_* by updating history
+- `vango/client/src/events.js` - link interception with data-vango-link, prefetch JSON bytes
+
+### Public API Helpers
+- `vango/pkg/router/link.go` - vango.Link() emits data-vango-link
+
+---
+
 *This document is the authoritative contract. Implementation MUST conform to these specifications.*
-
-  Routing Core (Go)
-
-  - vango/pkg/router/scanner.go (discovery rules, symbol detection, typed annotations, duplicates/conflicts)
-  - vango/pkg/router/codegen.go (generate Register(*router.Router) with Layout/Middleware/Page/API, deterministic ordering, duplicate detection
-    errors)
-  - vango/pkg/router/router.go (add Page/Layout/Middleware/API public methods; canonicalization-aware matching entrypoints)
-  - vango/pkg/router/tree.go (match priority tiers incl typed-param vs plain-param; catch-all non-empty rule; canonical path expectations)
-  - vango/pkg/router/params.go (per-segment URL-decoding rules, %2F handling, typed parsing + UUID validation, []string catch-all splitting
-    semantics)
-  - vango/pkg/router/types.go (carry type constraints metadata; possibly add route metadata needed for dispatch/canonicalization)
-
-  HTTP SSR + Runtime Integration
-
-  - vango/pkg/server/server.go (HTTP request path canonicalization + 308 redirect behavior before routing)
-  - vango/pkg/server/session.go (built-in EventNavigate handling; session route state; remount + diff; emit NAV_* patch then DOM patches; handle
-    canonicalization to NAV_REPLACE)
-  - vango/pkg/server/context.go (ctx.Navigate becomes “pending nav” committed in flush; remove dispatch-patch vango:navigate approach)
-
-  Protocol (Go)
-
-  - vango/pkg/protocol/patch.go (add NAV_PUSH=0x32, NAV_REPLACE=0x33 with path:string payload; enforce “relative-only” rule server-side)
-  - vango/pkg/protocol/encoder.go / vango/pkg/protocol/decoder.go (encode/decode NAV_* patch payloads)
-
-  Thin Client (JS)
-
-  - vango/client/src/codec.js (decode NAV_* patches; fix CUSTOM encoding expectations for prefetch JSON bytes; error decoding format)
-  - vango/client/src/patches.js (apply NAV_* by updating history; remove server dispatch vango:navigate special-case)
-  - vango/client/src/events.js (link interception: require data-vango-link, don’t mutate history before server reply; send CUSTOM prefetch with JSON
-    bytes; popstate behavior; pending navigation tracking)
-  - vango/client/src/index.js (fix error decoding to [uint16][string][bool], correct code mapping; self-heal on handler-not-found during nav)
-  - vango/client/src/url.js (keep URL_* query-only updates; ensure it never changes path)
-
-  Public API Helpers
-
-  - vango/el/* and/or vango/pkg/vdom/helpers.go (implement/adjust vango.Link(...) helper and ensure it emits data-vango-link only; handle Prefetch()
-    attribute)
-  - Potentially add a new helper location depending on where you want vango.Link to live.
-
-  CLI + Dev Tooling
-
-  - vango/cmd/vango/gen.go (vango gen routes must emit new glue; gen route and gen api must match handler signature contract and imports)
-  - vango/internal/dev/server.go (route regen uses updated generator; ordering/dedup errors surfaced cleanly)
-  - vango/internal/templates/templates.go (scaffolded routes_gen.go, route file templates, and links updated to data-vango-link)
-
-  Docs / Contract
-
-  - vango/docs/reference/03-routing.md (either replace or link to the new contract as authoritative)
-  - Add new doc file (recommended): vango/docs/reference/routing-runtime-contracts.md (or similar)
-
-  Tests (high value)
-
-  - vango/pkg/router/*_test.go (canonicalization, %2F rules, typed constraints, duplicate detection, generator determinism/order)
-  - vango/pkg/protocol/*_test.go (NAV_* patch encode/decode, error decode compatibility)
-  - vango/pkg/server/*_test.go (NAVIGATE remount + navigation envelope ordering; WS canonicalization uses NAV_REPLACE)

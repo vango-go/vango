@@ -1,6 +1,87 @@
 package vango
 
 // =============================================================================
+// Development Mode (Phase 7: Prefetch)
+// =============================================================================
+
+// DevMode enables development-time checks and panics for invalid operations.
+// When true:
+//   - Signal writes in prefetch mode panic
+//   - Effect/Interval/Timeout in prefetch mode panic
+//   - More verbose logging and error messages
+//
+// When false (production):
+//   - Signal writes in prefetch mode are silently dropped
+//   - Effect/Interval/Timeout in prefetch mode are no-ops
+//   - Minimal overhead
+//
+// Set this at application startup:
+//
+//	func main() {
+//	    vango.DevMode = os.Getenv("VANGO_DEV") == "1"
+//	    // ...
+//	}
+var DevMode = false
+
+// =============================================================================
+// Prefetch Mode Detection (Phase 7: Routing, Section 8.3.2)
+// =============================================================================
+
+// PrefetchModeChecker is implemented by contexts that support prefetch mode.
+// Used by primitives to check if side effects should be suppressed.
+type PrefetchModeChecker interface {
+	// Mode returns the current render mode.
+	// 0 = normal, 1 = prefetch
+	Mode() int
+}
+
+// IsPrefetchMode returns true if the current context is in prefetch mode.
+// This is used by Signal.Set(), Effect(), Interval(), Timeout(), and Action()
+// to enforce read-only behavior during prefetch.
+//
+// Per Section 8.3.2 of the Routing Spec:
+//   - Dev mode: Operations panic with descriptive message
+//   - Prod mode: Operations are silently dropped (no-op)
+func IsPrefetchMode() bool {
+	ctx := getCurrentCtx()
+	if ctx == nil {
+		return false
+	}
+	if checker, ok := ctx.(PrefetchModeChecker); ok {
+		return checker.Mode() == 1 // 1 = ModePrefetch
+	}
+	return false
+}
+
+// checkPrefetchWrite checks if a write operation is allowed.
+// Returns true if the write should proceed, false if it should be dropped.
+// Panics in dev mode if in prefetch mode.
+func checkPrefetchWrite(operation string) bool {
+	if !IsPrefetchMode() {
+		return true // Write allowed
+	}
+	if DevMode {
+		panic("vango: " + operation + " is forbidden in prefetch mode")
+	}
+	// Production: silently drop
+	return false
+}
+
+// checkPrefetchSideEffect checks if a side effect operation is allowed.
+// Returns true if the operation should proceed, false if it should be a no-op.
+// Panics in dev mode if in prefetch mode.
+func checkPrefetchSideEffect(operation string) bool {
+	if !IsPrefetchMode() {
+		return true // Operation allowed
+	}
+	if DevMode {
+		panic("vango: " + operation + " is forbidden in prefetch mode")
+	}
+	// Production: no-op
+	return false
+}
+
+// =============================================================================
 // Phase 16: Configuration Types for Structured Side Effects
 // =============================================================================
 

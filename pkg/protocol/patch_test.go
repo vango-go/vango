@@ -115,6 +115,31 @@ func TestPatchEncodeDecode(t *testing.T) {
 			patch: NewDispatchPatch("h22", "custom-event", `{"detail":"value"}`),
 		},
 		// NOTE: eval test case removed - PatchEval removed for security
+		{
+			name: "url_push",
+			patch: NewURLPushPatch(map[string]string{
+				"page":   "2",
+				"filter": "active",
+			}),
+		},
+		{
+			name: "url_replace",
+			patch: NewURLReplacePatch(map[string]string{
+				"tab": "settings",
+			}),
+		},
+		{
+			name:  "nav_push",
+			patch: NewNavPushPatch("/projects/123?tab=details"),
+		},
+		{
+			name:  "nav_replace",
+			patch: NewNavReplacePatch("/dashboard"),
+		},
+		{
+			name:  "nav_push_root",
+			patch: NewNavPushPatch("/"),
+		},
 	}
 
 	for _, tc := range tests {
@@ -183,6 +208,18 @@ func verifyPatch(t *testing.T, _ string, got, want Patch) {
 	if got.Behavior != want.Behavior {
 		t.Errorf("Behavior = %v, want %v", got.Behavior, want.Behavior)
 	}
+	if got.Path != want.Path {
+		t.Errorf("Path = %q, want %q", got.Path, want.Path)
+	}
+	// Verify Params map
+	if len(got.Params) != len(want.Params) {
+		t.Errorf("Params length = %d, want %d", len(got.Params), len(want.Params))
+	}
+	for k, v := range want.Params {
+		if gotV, ok := got.Params[k]; !ok || gotV != v {
+			t.Errorf("Params[%q] = %q, want %q", k, gotV, v)
+		}
+	}
 }
 
 func TestPatchesFrameMultiple(t *testing.T) {
@@ -250,6 +287,10 @@ func TestPatchOpString(t *testing.T) {
 		{PatchSetData, "SetData"},
 		{PatchDispatch, "Dispatch"},
 		// NOTE: PatchEval removed for security
+		{PatchURLPush, "URLPush"},
+		{PatchURLReplace, "URLReplace"},
+		{PatchNavPush, "NavPush"},
+		{PatchNavReplace, "NavReplace"},
 		{PatchOp(0xFF), "Unknown"},
 	}
 

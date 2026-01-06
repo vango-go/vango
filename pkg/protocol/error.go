@@ -15,6 +15,7 @@ const (
 	ErrNotAuthorized   ErrorCode = 0x0101 // Not authorized
 	ErrNotFound        ErrorCode = 0x0102 // Resource not found
 	ErrValidation      ErrorCode = 0x0103 // Validation failed
+	ErrRouteError      ErrorCode = 0x0104 // Route matching/navigation error
 )
 
 // String returns the string representation of the error code.
@@ -42,6 +43,8 @@ func (ec ErrorCode) String() string {
 		return "NotFound"
 	case ErrValidation:
 		return "Validation"
+	case ErrRouteError:
+		return "RouteError"
 	default:
 		return "Unknown"
 	}

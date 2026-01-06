@@ -113,6 +113,17 @@ type Session struct {
 
 	// Storm budget tracker (Phase 16)
 	stormBudget *vango.StormBudgetTracker
+
+	// Route navigation (Phase 7: Routing)
+	// navigator handles route-based navigation for this session
+	navigator *RouteNavigator
+
+	// Prefetch system (Phase 7: Routing, Section 8)
+	// Per Section 8.2: Cache result per session, keyed by canonical path
+	prefetchCache     *PrefetchCache
+	prefetchLimiter   *PrefetchRateLimiter
+	prefetchSemaphore *PrefetchSemaphore
+	prefetchConfig    *PrefetchConfig
 }
 
 // generateSessionID generates a cryptographically random session ID.
@@ -162,6 +173,14 @@ func newSession(conn *websocket.Conn, userID string, config *SessionConfig, logg
 	// sent along with DOM patches in renderDirty().
 	navigator := urlparam.NewNavigator(s.queueURLPatch)
 	s.owner.SetValue(urlparam.NavigatorKey, navigator)
+
+	// Initialize prefetch system (Phase 7: Routing, Section 8)
+	// Per Section 8.2: Cache result per session with TTL and LRU eviction
+	// Per Section 8.5: Rate limit 5 requests/second per session
+	s.prefetchConfig = DefaultPrefetchConfig()
+	s.prefetchCache = NewPrefetchCache(s.prefetchConfig)
+	s.prefetchLimiter = NewPrefetchRateLimiter(s.prefetchConfig.RateLimit)
+	s.prefetchSemaphore = NewPrefetchSemaphore(s.prefetchConfig.SessionConcurrency)
 
 	return s
 }
@@ -309,6 +328,25 @@ func (s *Session) handleEvent(event *Event) {
 		fmt.Printf("[EVENT] Received: HID=%s Type=%v Seq=%d\n", event.HID, event.Type, event.Seq)
 	}
 
+	// Special handling for EventNavigate (0x70)
+	// Per Section 4.2, navigation events trigger route matching, remount, and
+	// NAV_* + DOM patches in ONE transaction (no client roundtrip).
+	if event.Type == protocol.EventNavigate {
+		s.handleEventNavigate(event)
+		return
+	}
+
+	// Special handling for EventCustom (0xFF) - check for prefetch events
+	// Per Section 8.1, prefetch events come as CUSTOM with name="prefetch"
+	if event.Type == protocol.EventCustom {
+		if customData, ok := event.Payload.(*protocol.CustomEventData); ok && customData != nil {
+			if customData.Name == "prefetch" {
+				s.handlePrefetch(customData.Data)
+				return
+			}
+		}
+	}
+
 	// Build handler key based on event type
 	var handlerKey string
 	if _, ok := event.Payload.(*protocol.HookEventData); ok {
@@ -344,6 +382,28 @@ func (s *Session) handleEvent(event *Event) {
 		// Commit render + effects after handler
 		s.flush()
 	})
+}
+
+// handleEventNavigate handles client navigation events.
+// Per Section 4.5 (Link Click Navigation) and 4.6 (Back/Forward Navigation),
+// the client sends EventNavigate and the server responds with NAV_* + DOM patches.
+func (s *Session) handleEventNavigate(event *Event) {
+	navData, ok := event.Payload.(*protocol.NavigateEventData)
+	if !ok || navData == nil {
+		s.logger.Warn("invalid navigate event payload")
+		s.sendErrorMessage(protocol.ErrInvalidEvent, "Invalid navigate event")
+		return
+	}
+
+	if DebugMode {
+		fmt.Printf("[EVENT] Navigate: path=%s replace=%v\n", navData.Path, navData.Replace)
+	}
+
+	// Handle the navigation (matches route, remounts page, sends patches)
+	if err := s.HandleNavigate(navData.Path, navData.Replace); err != nil {
+		// Error already logged and sent to client
+		return
+	}
 }
 
 // safeExecute runs a handler with panic recovery.
@@ -442,8 +502,17 @@ func (s *Session) hasDirtyComponents() bool {
 
 // flush runs render/effect cycles until the system is stable or a safety cap is reached.
 // Assumes a valid runtime context has been set via vango.WithCtx.
+//
+// Per Section 4.4 (Programmatic Navigation), flush FIRST checks for pending navigation.
+// If ctx.Navigate() was called during handler execution, the navigation is processed
+// here so NAV_* + DOM patches are sent in ONE transaction.
 func (s *Session) flush() {
 	const maxCycles = 10
+
+	// Check for pending navigation FIRST
+	// Per Section 4.4: ctx.Navigate() sets a pending navigation, which is processed
+	// at flush time to ensure NAV_* + DOM patches are sent together.
+	s.processPendingNavigation()
 
 	for i := 0; i < maxCycles; i++ {
 		// Commit current dirty state
@@ -461,6 +530,40 @@ func (s *Session) flush() {
 	}
 
 	s.logger.Warn("flush exceeded max cycles", "max", maxCycles)
+}
+
+// processPendingNavigation checks for and processes any pending navigation from ctx.Navigate().
+// This ensures navigation happens at flush time so NAV_* + DOM patches are sent together.
+func (s *Session) processPendingNavigation() {
+	// Get current context via UseCtx (set by vango.WithCtx)
+	vangoCtx := vango.UseCtx()
+	if vangoCtx == nil {
+		return
+	}
+
+	// Type assert to our *ctx to access pending navigation
+	c, ok := vangoCtx.(*ctx)
+	if !ok {
+		return
+	}
+
+	// Check for pending navigation
+	path, replace, has := c.PendingNavigation()
+	if !has {
+		return
+	}
+
+	// Clear pending to prevent double-processing
+	c.ClearPendingNavigation()
+
+	if DebugMode {
+		fmt.Printf("[FLUSH] Processing pending navigation: path=%s replace=%v\n", path, replace)
+	}
+
+	// Process the navigation (this handles route matching, remount, and sending patches)
+	if err := s.HandleNavigate(path, replace); err != nil {
+		s.logger.Error("pending navigation failed", "path", path, "error", err)
+	}
 }
 
 // renderComponent re-renders a single component and returns patches.
@@ -1392,28 +1495,315 @@ func (s *Session) Deserialize(data []byte) error {
 }
 
 // =============================================================================
+// Route Navigation (Phase 7: Routing)
+// =============================================================================
+
+// SetRouter sets the router for this session and creates a navigator.
+// This enables route-based navigation via ctx.Navigate() and EventNavigate.
+// The router must implement the Router interface (defined in navigation.go).
+func (s *Session) SetRouter(r Router) {
+	s.navigator = NewRouteNavigator(s, r)
+}
+
+// Navigator returns the route navigator for this session.
+// Returns nil if no router has been set.
+func (s *Session) Navigator() *RouteNavigator {
+	return s.navigator
+}
+
+// HandleNavigate processes a navigation request and returns patches.
+// This is called from handleEvent when an EventNavigate is received,
+// or from flush() when ctx.Navigate() was called during event handling.
+//
+// Per Section 4.4 (Programmatic Navigation), navigation is ONE transaction:
+// NAV_* patch + DOM patches are sent together in a single frame.
+//
+// Parameters:
+//   - path: The target path (may include query string)
+//   - replace: If true, use NAV_REPLACE instead of NAV_PUSH
+//
+// Returns:
+//   - error if navigation failed (no route matched and no NotFound handler)
+func (s *Session) HandleNavigate(path string, replace bool) error {
+	if s.navigator == nil {
+		// No router configured - fall back to sending just NAV_* patch
+		// The client will need to request a full page load
+		s.logger.Warn("navigation without router, sending NAV patch only", "path", path)
+		var patch protocol.Patch
+		if replace {
+			patch = protocol.NewNavReplacePatch(path)
+		} else {
+			patch = protocol.NewNavPushPatch(path)
+		}
+		s.SendPatches([]protocol.Patch{patch})
+		return nil
+	}
+
+	// Use the route navigator
+	result := s.navigator.Navigate(path, replace)
+
+	if result.Error != nil {
+		s.logger.Error("navigation error", "path", path, "error", result.Error)
+		s.sendErrorMessage(protocol.ErrRouteError, result.Error.Error())
+		return result.Error
+	}
+
+	if !result.Matched && s.navigator.router.NotFound() == nil {
+		s.logger.Warn("no route matched", "path", path)
+		s.sendErrorMessage(protocol.ErrNotFound, "Route not found: "+path)
+		return errors.New("route not found")
+	}
+
+	// Send NAV_* patch + DOM patches in one frame
+	// Convert vdom.Patch to protocol.Patch
+	allPatches := make([]protocol.Patch, 0, len(result.Patches)+1)
+
+	// NAV patch first
+	allPatches = append(allPatches, result.NavPatch)
+
+	// Then DOM patches
+	for _, p := range result.Patches {
+		allPatches = append(allPatches, protocol.Patch{
+			Op:       protocol.PatchOp(p.Op),
+			HID:      p.HID,
+			Key:      p.Key,
+			Value:    p.Value,
+			ParentID: p.ParentID,
+			Index:    p.Index,
+		})
+		if p.Node != nil {
+			allPatches[len(allPatches)-1].Node = protocol.VNodeToWire(p.Node)
+		}
+	}
+
+	s.SendPatches(allPatches)
+
+	s.logger.Debug("navigation completed",
+		"path", result.Path,
+		"matched", result.Matched,
+		"dom_patches", len(result.Patches))
+
+	return nil
+}
+
+// =============================================================================
+// Prefetch System (Phase 7: Routing, Section 8)
+// =============================================================================
+
+// prefetchPayload is the JSON structure for prefetch events.
+// Per Section 8.1: Data: JSON-encoded `{ "path": "/target/path" }`
+type prefetchPayload struct {
+	Path string `json:"path"`
+}
+
+// handlePrefetch handles a prefetch custom event.
+// Per Section 8.1-8.5:
+//   - Parse JSON path from event data
+//   - Check rate limit (5/sec per session)
+//   - Check concurrency limits (2 per session, 50 global)
+//   - Execute route in prefetch mode with timeout
+//   - Cache result if successful
+func (s *Session) handlePrefetch(data []byte) {
+	// Parse the prefetch payload
+	var payload prefetchPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		s.logger.Warn("invalid prefetch payload", "error", err)
+		return
+	}
+
+	if payload.Path == "" {
+		s.logger.Warn("prefetch path is empty")
+		return
+	}
+
+	if DebugMode {
+		fmt.Printf("[PREFETCH] Received request for path: %s\n", payload.Path)
+	}
+
+	// Check rate limit (Section 8.5: 5 requests/sec per session)
+	if !s.prefetchLimiter.Allow() {
+		if DebugMode {
+			fmt.Printf("[PREFETCH] Rate limited, dropping request for: %s\n", payload.Path)
+		}
+		return // Silently drop
+	}
+
+	// Check session concurrency limit (Section 8.3.3: 2 per session)
+	if !s.prefetchSemaphore.Acquire() {
+		if DebugMode {
+			fmt.Printf("[PREFETCH] Session concurrency limit reached, dropping: %s\n", payload.Path)
+		}
+		return // Silently drop
+	}
+	defer s.prefetchSemaphore.Release()
+
+	// Check global concurrency limit (Section 8.3.3: 50 global)
+	if !GlobalPrefetchSemaphore().Acquire() {
+		if DebugMode {
+			fmt.Printf("[PREFETCH] Global concurrency limit reached, dropping: %s\n", payload.Path)
+		}
+		return // Silently drop
+	}
+	defer GlobalPrefetchSemaphore().Release()
+
+	// Execute prefetch with timeout
+	s.executePrefetch(payload.Path)
+}
+
+// executePrefetch renders a route in prefetch mode and caches the result.
+// Per Section 8.2:
+//   - Route match the prefetch path (using canonical path)
+//   - Execute page handler in "prefetch mode" (ctx.Mode() == ModePrefetch)
+//   - Cache result per session, keyed by canonical path
+//
+// Per Section 8.3.3:
+//   - Timeout: 100ms (abort if handler takes too long)
+func (s *Session) executePrefetch(path string) {
+	// Canonicalize the path
+	canonPath, _, _, err := CanonicalizePath(path)
+	if err != nil {
+		s.logger.Warn("prefetch path canonicalization failed", "path", path, "error", err)
+		return
+	}
+
+	// Check if already cached
+	if s.prefetchCache.Get(canonPath) != nil {
+		if DebugMode {
+			fmt.Printf("[PREFETCH] Already cached: %s\n", canonPath)
+		}
+		return
+	}
+
+	// Check if we have a router
+	if s.navigator == nil || s.navigator.router == nil {
+		s.logger.Warn("prefetch without router", "path", canonPath)
+		return
+	}
+
+	// Match the route
+	match, ok := s.navigator.router.Match("GET", canonPath)
+	if !ok {
+		s.logger.Debug("prefetch: no route matched", "path", canonPath)
+		return
+	}
+
+	// Get page handler
+	pageHandler := match.GetPageHandler()
+	if pageHandler == nil {
+		s.logger.Debug("prefetch: no page handler", "path", canonPath)
+		return
+	}
+
+	// Create a prefetch context with timeout
+	done := make(chan *vdom.VNode, 1)
+	timeout := time.NewTimer(s.prefetchConfig.Timeout)
+	defer timeout.Stop()
+
+	// Execute in goroutine with timeout
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Warn("prefetch panic recovered", "path", canonPath, "panic", r)
+				done <- nil
+			}
+		}()
+
+		// Create a render context in prefetch mode
+		renderCtx := s.createPrefetchContext()
+		if ctxImpl, ok := renderCtx.(*ctx); ok {
+			ctxImpl.setParams(match.GetParams())
+		}
+
+		var tree *vdom.VNode
+
+		// Render within vango.WithCtx for proper reactive context
+		vango.WithCtx(renderCtx, func() {
+			// Call the page handler to get the component
+			comp := pageHandler(renderCtx, match.GetParams())
+			if comp == nil {
+				return
+			}
+
+			// Render the component to VNode
+			tree = comp.Render()
+
+			// Apply layouts root to leaf (reverse order so outermost is first)
+			layouts := match.GetLayoutHandlers()
+			for i := len(layouts) - 1; i >= 0; i-- {
+				layout := layouts[i]
+				tree = layout(renderCtx, tree)
+			}
+		})
+
+		done <- tree
+	}()
+
+	// Wait for result or timeout
+	select {
+	case tree := <-done:
+		if tree != nil {
+			// Cache the result
+			s.prefetchCache.Set(canonPath, tree)
+			if DebugMode {
+				fmt.Printf("[PREFETCH] Cached result for: %s\n", canonPath)
+			}
+		}
+
+	case <-timeout.C:
+		// Timeout - discard result
+		s.logger.Debug("prefetch timeout", "path", canonPath)
+		if DebugMode {
+			fmt.Printf("[PREFETCH] Timeout for: %s\n", canonPath)
+		}
+	}
+}
+
+// createPrefetchContext creates a Ctx for prefetch rendering.
+// The context is in ModePrefetch to enforce read-only behavior.
+func (s *Session) createPrefetchContext() Ctx {
+	c := &ctx{
+		session: s,
+		logger:  s.logger,
+		stdCtx:  context.Background(),
+		mode:    ModePrefetch,
+	}
+	return c
+}
+
+// PrefetchCache returns the prefetch cache for this session.
+// Returns nil if prefetch is not initialized.
+func (s *Session) PrefetchCache() *PrefetchCache {
+	return s.prefetchCache
+}
+
+// =============================================================================
 // Test Helpers (Phase 10F)
 // =============================================================================
 
 // NewMockSession creates a session without a WebSocket connection for testing.
 // The session has all fields initialized except conn.
 func NewMockSession() *Session {
+	prefetchConfig := DefaultPrefetchConfig()
 	return &Session{
-		ID:            "test-session-id",
-		UserID:        "",
-		CreatedAt:     time.Now(),
-		LastActive:    time.Now(),
-		allComponents: make(map[*ComponentInstance]struct{}),
-		handlers:      make(map[string]Handler),
-		components:    make(map[string]*ComponentInstance),
-		owner:         vango.NewOwner(nil),
-		hidGen:        vdom.NewHIDGenerator(),
-		events:        make(chan *Event, 256),
-		renderCh:      make(chan struct{}, 1),
-		dispatchCh:    make(chan func(), 256),
-		done:          make(chan struct{}),
-		config:        DefaultSessionConfig(),
-		logger:        slog.Default().With("session_id", "test-session-id"),
-		data:          make(map[string]any),
+		ID:                "test-session-id",
+		UserID:            "",
+		CreatedAt:         time.Now(),
+		LastActive:        time.Now(),
+		allComponents:     make(map[*ComponentInstance]struct{}),
+		handlers:          make(map[string]Handler),
+		components:        make(map[string]*ComponentInstance),
+		owner:             vango.NewOwner(nil),
+		hidGen:            vdom.NewHIDGenerator(),
+		events:            make(chan *Event, 256),
+		renderCh:          make(chan struct{}, 1),
+		dispatchCh:        make(chan func(), 256),
+		done:              make(chan struct{}),
+		config:            DefaultSessionConfig(),
+		logger:            slog.Default().With("session_id", "test-session-id"),
+		data:              make(map[string]any),
+		prefetchConfig:    prefetchConfig,
+		prefetchCache:     NewPrefetchCache(prefetchConfig),
+		prefetchLimiter:   NewPrefetchRateLimiter(prefetchConfig.RateLimit),
+		prefetchSemaphore: NewPrefetchSemaphore(prefetchConfig.SessionConcurrency),
 	}
 }

@@ -24,7 +24,22 @@ func NewScanner(rootDir string) *Scanner {
 }
 
 // Scan reads all route files and returns route definitions.
+// Routes are validated and sorted by specificity.
 func (s *Scanner) Scan() ([]ScannedRoute, error) {
+	return s.ScanWithOptions(ScanOptions{Validate: true, Sort: true})
+}
+
+// ScanOptions configures scanning behavior.
+type ScanOptions struct {
+	// Validate enables route validation (duplicate detection, constraint conflicts, etc.)
+	Validate bool
+
+	// Sort enables specificity sorting (static > typed > plain > catch-all)
+	Sort bool
+}
+
+// ScanWithOptions reads all route files with configurable validation and sorting.
+func (s *Scanner) ScanWithOptions(opts ScanOptions) ([]ScannedRoute, error) {
 	var routes []ScannedRoute
 
 	err := filepath.WalkDir(s.rootDir, func(path string, d fs.DirEntry, err error) error {
@@ -61,6 +76,19 @@ func (s *Scanner) Scan() ([]ScannedRoute, error) {
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate routes if enabled
+	if opts.Validate {
+		validator := NewValidator(routes)
+		if err := validator.Validate(); err != nil {
+			return nil, err
+		}
+	}
+
+	// Sort by specificity if enabled
+	if opts.Sort {
+		SortBySpecificity(routes)
 	}
 
 	return routes, nil

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/vango"
@@ -19,6 +20,43 @@ func encodeJSON(v any) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// =============================================================================
+// Render Mode (Phase 7: Prefetch)
+// =============================================================================
+
+// RenderMode indicates the rendering context for a request.
+// This is used by the prefetch system to enforce read-only behavior.
+type RenderMode int
+
+const (
+	// ModeNormal is the default rendering mode for regular requests.
+	// All operations are allowed.
+	ModeNormal RenderMode = iota
+
+	// ModePrefetch is used when prefetching a route for caching.
+	// In this mode, side effects are forbidden:
+	//   - Signal.Set() panics in dev / drops in prod
+	//   - Effect/Interval/Timeout panic in dev / no-op in prod
+	//   - SetUser() panics
+	//   - Navigate() is ignored
+	//
+	// Per Routing Spec Section 8.3.1, prefetch uses "bounded I/O":
+	// synchronous work is allowed, but no async work may outlive the prefetch.
+	ModePrefetch
+)
+
+// String returns a human-readable name for the render mode.
+func (m RenderMode) String() string {
+	switch m {
+	case ModeNormal:
+		return "normal"
+	case ModePrefetch:
+		return "prefetch"
+	default:
+		return "unknown"
+	}
 }
 
 // =============================================================================
@@ -240,6 +278,27 @@ type Ctx interface {
 	//
 	// See SPEC_ADDENDUM.md §A.4 for storm budget configuration.
 	StormBudget() vango.StormBudgetChecker
+
+	// ==========================================================================
+	// Render Mode (Phase 7: Prefetch)
+	// ==========================================================================
+
+	// Mode returns the current render mode as int.
+	// Returns 0 (ModeNormal) for regular requests, 1 (ModePrefetch) during prefetch.
+	//
+	// Primitives like Effect, Interval, and signal.Set() check this to
+	// enforce read-only behavior during prefetch:
+	//   - ModePrefetch (1): Signal writes are dropped, effects are no-ops
+	//   - ModeNormal (0): All operations proceed normally
+	//
+	// This method implements vango.PrefetchModeChecker interface.
+	//
+	// Example (for primitive implementations):
+	//     if ctx := UseCtx(); ctx != nil && ctx.Mode() == 1 {
+	//         if DevMode { panic("signal write forbidden in prefetch") }
+	//         return // drop in prod
+	//     }
+	Mode() int
 }
 
 // ctx is the concrete implementation of Ctx.
@@ -256,6 +315,18 @@ type ctx struct {
 	stdCtx     context.Context // Standard context with trace propagation (Phase 13)
 	event      *Event          // Current WebSocket event (Phase 13)
 	patchCount int             // Number of patches sent (Phase 13)
+	mode       RenderMode      // Render mode (Phase 7: Prefetch)
+
+	// pendingNavigation is set by ctx.Navigate() and processed by flush().
+	// Per Section 4.4 (Programmatic Navigation), navigation is processed
+	// at flush time so NAV_* + DOM patches are sent in ONE transaction.
+	pendingNavigation *pendingNav
+}
+
+// pendingNav holds a pending navigation request.
+type pendingNav struct {
+	Path    string
+	Replace bool
 }
 
 // newCtx creates a new context for a request.
@@ -336,7 +407,15 @@ func (c *ctx) User() any {
 }
 
 // SetUser sets the authenticated user.
+// Per Section 8.3.2 of the Routing Spec, SetUser is forbidden during prefetch
+// and panics in BOTH dev and production modes (unlike other operations that
+// are silently dropped in production). This is because authentication changes
+// must never occur during prefetch.
 func (c *ctx) SetUser(user any) {
+	// Check for prefetch mode - SetUser panics in BOTH modes per spec
+	if c.mode == ModePrefetch {
+		panic("vango: ctx.SetUser() is forbidden in prefetch mode")
+	}
 	c.user = user
 }
 
@@ -476,10 +555,32 @@ func (c *ctx) Dispatch(fn func()) {
 // =============================================================================
 
 // Navigate performs a client-side navigation to the given path.
-// For WebSocket sessions, this sends a navigate event to the client which
-// triggers client-side navigation. For HTTP-only requests, this falls back
-// to an HTTP redirect.
+//
+// Per the Navigation Contract (Section 4.4), this:
+//   - Sets a pending navigation on the context
+//   - At flush() time, the pending navigation triggers:
+//     1. Route matching
+//     2. Page remount
+//     3. NAV_* patch + DOM patches sent in ONE transaction
+//   - For HTTP-only requests (SSR): Falls back to HTTP redirect
+//
+// The path must be a relative path starting with "/". It may include query
+// parameters (e.g., "/projects/123?tab=details").
+//
+// Options can be provided to customize behavior:
+//   - WithReplace() - replace current history entry instead of pushing
+//   - WithNavigateParams(map[string]any) - add query parameters to the URL
+//   - WithoutScroll() - disable scrolling to top after navigation (TODO)
 func (c *ctx) Navigate(path string, opts ...NavigateOption) {
+	// Per Section 8.3.2 of the Routing Spec, Navigate is ignored during prefetch.
+	// Prefetch should be referentially transparent - no navigation side effects.
+	if c.mode == ModePrefetch {
+		if c.logger != nil {
+			c.logger.Debug("ctx.Navigate() ignored during prefetch", "path", path)
+		}
+		return
+	}
+
 	// Apply options with defaults
 	options := navigateOptions{
 		Scroll: true, // Default to scrolling to top
@@ -500,6 +601,15 @@ func (c *ctx) Navigate(path string, opts ...NavigateOption) {
 		}
 	}
 
+	// SECURITY: Validate that path is relative (starts with "/")
+	// This prevents open-redirect attacks per Navigation Contract Section 4.2
+	if !isRelativePath(fullPath) {
+		if c.logger != nil {
+			c.logger.Error("invalid navigation path (must be relative)", "path", fullPath)
+		}
+		return
+	}
+
 	// If no session (SSR-only), fall back to HTTP redirect
 	if c.session == nil {
 		code := 302 // Found (temporary redirect)
@@ -510,34 +620,61 @@ func (c *ctx) Navigate(path string, opts ...NavigateOption) {
 		return
 	}
 
-	// Build navigation event data
-	navData := struct {
-		Path    string `json:"path"`
-		Replace bool   `json:"replace,omitempty"`
-		Scroll  bool   `json:"scroll"`
-	}{
+	// Set pending navigation to be processed by flush()
+	// Per Section 4.4 (Programmatic Navigation):
+	// "ctx.Navigate() sets a pending navigation on the event context.
+	// At flush/commit, if pending navigation exists:
+	//   1. Match new route
+	//   2. Remount page tree
+	//   3. Send NAV_* patch + DOM patches
+	// This is ONE transaction (no client roundtrip)"
+	c.pendingNavigation = &pendingNav{
 		Path:    fullPath,
 		Replace: options.Replace,
-		Scroll:  options.Scroll,
 	}
-
-	// Encode to JSON
-	detail, err := encodeJSON(navData)
-	if err != nil {
-		if c.logger != nil {
-			c.logger.Error("failed to encode navigation data", "error", err)
-		}
-		return
-	}
-
-	// Send as a special dispatch event that the client handles
-	// The client will intercept "vango:navigate" and perform navigation
-	patch := protocol.NewDispatchPatch("", "vango:navigate", detail)
-	c.session.SendPatches([]protocol.Patch{patch})
 
 	if c.logger != nil {
-		c.logger.Debug("queued navigation", "path", fullPath, "replace", options.Replace)
+		c.logger.Debug("pending navigation set",
+			"path", fullPath,
+			"replace", options.Replace)
 	}
+}
+
+// PendingNavigation returns the pending navigation, if any.
+// This is used by Session.flush() to check for and process pending navigations.
+func (c *ctx) PendingNavigation() (path string, replace bool, has bool) {
+	if c.pendingNavigation == nil {
+		return "", false, false
+	}
+	return c.pendingNavigation.Path, c.pendingNavigation.Replace, true
+}
+
+// ClearPendingNavigation clears the pending navigation.
+// This is called after the navigation has been processed.
+func (c *ctx) ClearPendingNavigation() {
+	c.pendingNavigation = nil
+}
+
+// isRelativePath checks if a path is a valid relative path for navigation.
+// Returns true if the path starts with "/" and is not an absolute URL.
+func isRelativePath(path string) bool {
+	// Must start with /
+	if len(path) == 0 || path[0] != '/' {
+		return false
+	}
+	// Must not be protocol-relative URL (//example.com)
+	if len(path) >= 2 && path[1] == '/' {
+		return false
+	}
+	// Must not contain protocol
+	// Check for common protocols
+	lowerPath := strings.ToLower(path)
+	if strings.HasPrefix(lowerPath, "/http:") ||
+		strings.HasPrefix(lowerPath, "/https:") ||
+		strings.HasPrefix(lowerPath, "/javascript:") {
+		return false
+	}
+	return true
 }
 
 // =============================================================================
@@ -600,6 +737,35 @@ func (c *ctx) StormBudget() vango.StormBudgetChecker {
 		return nil
 	}
 	return c.session.StormBudget()
+}
+
+// =============================================================================
+// Render Mode (Phase 7: Prefetch)
+// =============================================================================
+
+// Mode returns the current render mode.
+// Returns ModeNormal for regular requests, ModePrefetch during prefetch.
+// This implements vango.PrefetchModeChecker by returning int.
+func (c *ctx) Mode() int {
+	return int(c.mode)
+}
+
+// RenderMode returns the current render mode as RenderMode type.
+// Use Mode() for interface compatibility with vango.PrefetchModeChecker.
+func (c *ctx) RenderMode() RenderMode {
+	return c.mode
+}
+
+// setMode sets the render mode for this context.
+// This is called internally when creating a prefetch context.
+func (c *ctx) setMode(mode RenderMode) {
+	c.mode = mode
+}
+
+// IsPrefetch returns true if the context is in prefetch mode.
+// This is a convenience method for checking if side effects should be suppressed.
+func (c *ctx) IsPrefetch() bool {
+	return c.mode == ModePrefetch
 }
 
 // =============================================================================

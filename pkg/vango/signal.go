@@ -189,6 +189,12 @@ func (s *Signal[T]) Peek() T {
 // Set updates the signal's value and notifies subscribers if the value changed.
 // Uses the signal's equality function to determine if the value changed.
 func (s *Signal[T]) Set(value T) {
+	// Check for prefetch mode (Phase 7: Routing, Section 8.3.2)
+	// Signal writes are forbidden during prefetch
+	if !checkPrefetchWrite("Signal.Set") {
+		return // Drop write in production
+	}
+
 	// Check for effect-time write (Phase 16: Effect Enforcement)
 	checkEffectTimeWrite("Set")
 
@@ -207,6 +213,11 @@ func (s *Signal[T]) Set(value T) {
 // Update atomically reads and updates the signal's value.
 // The function receives the current value and returns the new value.
 func (s *Signal[T]) Update(fn func(T) T) {
+	// Check for prefetch mode (Phase 7: Routing, Section 8.3.2)
+	if !checkPrefetchWrite("Signal.Update") {
+		return
+	}
+
 	// Check for effect-time write (Phase 16: Effect Enforcement)
 	checkEffectTimeWrite("Update")
 
@@ -366,6 +377,9 @@ func (e *TypeMismatchError) Error() string {
 // Inc increments the value by 1.
 // Panics if the signal's type is not numeric.
 func (s *Signal[T]) Inc() {
+	if !checkPrefetchWrite("Signal.Inc") {
+		return
+	}
 	checkEffectTimeWrite("Inc")
 
 	s.mu.Lock()
@@ -427,6 +441,9 @@ func (s *Signal[T]) Inc() {
 // Dec decrements the value by 1.
 // Panics if the signal's type is not numeric.
 func (s *Signal[T]) Dec() {
+	if !checkPrefetchWrite("Signal.Dec") {
+		return
+	}
 	checkEffectTimeWrite("Dec")
 
 	s.mu.Lock()
@@ -489,6 +506,9 @@ func (s *Signal[T]) Dec() {
 // The parameter n must be the same numeric type as the signal's value.
 // Panics if the signal's type is not numeric or if n is the wrong type.
 func (s *Signal[T]) Add(n any) {
+	if !checkPrefetchWrite("Signal.Add") {
+		return
+	}
 	checkEffectTimeWrite("Add")
 
 	s.mu.Lock()
@@ -611,6 +631,9 @@ func (s *Signal[T]) Add(n any) {
 // The parameter n must be the same numeric type as the signal's value.
 // Panics if the signal's type is not numeric or if n is the wrong type.
 func (s *Signal[T]) Sub(n any) {
+	if !checkPrefetchWrite("Signal.Sub") {
+		return
+	}
 	checkEffectTimeWrite("Sub")
 
 	s.mu.Lock()
@@ -733,6 +756,9 @@ func (s *Signal[T]) Sub(n any) {
 // The parameter n must be the same numeric type as the signal's value.
 // Panics if the signal's type is not numeric or if n is the wrong type.
 func (s *Signal[T]) Mul(n any) {
+	if !checkPrefetchWrite("Signal.Mul") {
+		return
+	}
 	checkEffectTimeWrite("Mul")
 
 	s.mu.Lock()
@@ -856,6 +882,9 @@ func (s *Signal[T]) Mul(n any) {
 // Panics if the signal's type is not numeric or if n is the wrong type.
 // Note: Integer division truncates toward zero.
 func (s *Signal[T]) Div(n any) {
+	if !checkPrefetchWrite("Signal.Div") {
+		return
+	}
 	checkEffectTimeWrite("Div")
 
 	s.mu.Lock()
@@ -981,6 +1010,9 @@ func (s *Signal[T]) Div(n any) {
 // Toggle inverts a boolean value.
 // Panics if the signal's type is not bool.
 func (s *Signal[T]) Toggle() {
+	if !checkPrefetchWrite("Signal.Toggle") {
+		return
+	}
 	checkEffectTimeWrite("Toggle")
 
 	s.mu.Lock()
@@ -1000,6 +1032,9 @@ func (s *Signal[T]) Toggle() {
 // SetTrue sets the value to true.
 // Panics if the signal's type is not bool.
 func (s *Signal[T]) SetTrue() {
+	if !checkPrefetchWrite("Signal.SetTrue") {
+		return
+	}
 	checkEffectTimeWrite("SetTrue")
 
 	s.mu.Lock()
@@ -1024,6 +1059,9 @@ func (s *Signal[T]) SetTrue() {
 // SetFalse sets the value to false.
 // Panics if the signal's type is not bool.
 func (s *Signal[T]) SetFalse() {
+	if !checkPrefetchWrite("Signal.SetFalse") {
+		return
+	}
 	checkEffectTimeWrite("SetFalse")
 
 	s.mu.Lock()
@@ -1052,6 +1090,9 @@ func (s *Signal[T]) SetFalse() {
 // Append appends a suffix to a string value.
 // Panics if the signal's type is not string.
 func (s *Signal[T]) Append(suffix string) {
+	if !checkPrefetchWrite("Signal.Append") {
+		return
+	}
 	checkEffectTimeWrite("Append")
 
 	s.mu.Lock()
@@ -1076,6 +1117,9 @@ func (s *Signal[T]) Append(suffix string) {
 // Prepend prepends a prefix to a string value.
 // Panics if the signal's type is not string.
 func (s *Signal[T]) Prepend(prefix string) {
+	if !checkPrefetchWrite("Signal.Prepend") {
+		return
+	}
 	checkEffectTimeWrite("Prepend")
 
 	s.mu.Lock()
@@ -1105,6 +1149,9 @@ func (s *Signal[T]) Prepend(prefix string) {
 // The item must be assignable to the slice's element type.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) AppendItem(item any) {
+	if !checkPrefetchWrite("Signal.AppendItem") {
+		return
+	}
 	checkEffectTimeWrite("AppendItem")
 
 	s.mu.Lock()
@@ -1126,6 +1173,9 @@ func (s *Signal[T]) AppendItem(item any) {
 // The item must be assignable to the slice's element type.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) PrependItem(item any) {
+	if !checkPrefetchWrite("Signal.PrependItem") {
+		return
+	}
 	checkEffectTimeWrite("PrependItem")
 
 	s.mu.Lock()
@@ -1150,6 +1200,9 @@ func (s *Signal[T]) PrependItem(item any) {
 // If index is out of bounds, the item is appended (if index >= len) or prepended (if index < 0).
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) InsertAt(index int, item any) {
+	if !checkPrefetchWrite("Signal.InsertAt") {
+		return
+	}
 	checkEffectTimeWrite("InsertAt")
 
 	s.mu.Lock()
@@ -1190,6 +1243,9 @@ func (s *Signal[T]) InsertAt(index int, item any) {
 // Does nothing if index is out of bounds.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) RemoveAt(index int) {
+	if !checkPrefetchWrite("Signal.RemoveAt") {
+		return
+	}
 	checkEffectTimeWrite("RemoveAt")
 
 	s.mu.Lock()
@@ -1216,6 +1272,9 @@ func (s *Signal[T]) RemoveAt(index int) {
 // Does nothing if the slice is empty.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) RemoveFirst() {
+	if !checkPrefetchWrite("Signal.RemoveFirst") {
+		return
+	}
 	checkEffectTimeWrite("RemoveFirst")
 
 	s.mu.Lock()
@@ -1241,6 +1300,9 @@ func (s *Signal[T]) RemoveFirst() {
 // Does nothing if the slice is empty.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) RemoveLast() {
+	if !checkPrefetchWrite("Signal.RemoveLast") {
+		return
+	}
 	checkEffectTimeWrite("RemoveLast")
 
 	s.mu.Lock()
@@ -1266,6 +1328,9 @@ func (s *Signal[T]) RemoveLast() {
 // The predicate receives each item as any and returns true to remove it.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) RemoveWhere(predicate func(any) bool) {
+	if !checkPrefetchWrite("Signal.RemoveWhere") {
+		return
+	}
 	checkEffectTimeWrite("RemoveWhere")
 
 	s.mu.Lock()
@@ -1292,6 +1357,9 @@ func (s *Signal[T]) RemoveWhere(predicate func(any) bool) {
 // Does nothing if index is out of bounds.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) SetAt(index int, item any) {
+	if !checkPrefetchWrite("Signal.SetAt") {
+		return
+	}
 	checkEffectTimeWrite("SetAt")
 
 	s.mu.Lock()
@@ -1320,6 +1388,9 @@ func (s *Signal[T]) SetAt(index int, item any) {
 // Does nothing if index is out of bounds.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) UpdateAt(index int, fn func(any) any) {
+	if !checkPrefetchWrite("Signal.UpdateAt") {
+		return
+	}
 	checkEffectTimeWrite("UpdateAt")
 
 	s.mu.Lock()
@@ -1349,6 +1420,9 @@ func (s *Signal[T]) UpdateAt(index int, fn func(any) any) {
 // UpdateWhere updates all items that satisfy the predicate using the provided function.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) UpdateWhere(predicate func(any) bool, fn func(any) any) {
+	if !checkPrefetchWrite("Signal.UpdateWhere") {
+		return
+	}
 	checkEffectTimeWrite("UpdateWhere")
 
 	s.mu.Lock()
@@ -1377,6 +1451,9 @@ func (s *Signal[T]) UpdateWhere(predicate func(any) bool, fn func(any) any) {
 // Filter keeps only items that satisfy the predicate.
 // Panics if the signal's type is not a slice.
 func (s *Signal[T]) Filter(predicate func(any) bool) {
+	if !checkPrefetchWrite("Signal.Filter") {
+		return
+	}
 	checkEffectTimeWrite("Filter")
 
 	s.mu.Lock()
@@ -1407,6 +1484,9 @@ func (s *Signal[T]) Filter(predicate func(any) bool) {
 // The key and value must be assignable to the map's key and value types.
 // Panics if the signal's type is not a map.
 func (s *Signal[T]) SetKey(key, value any) {
+	if !checkPrefetchWrite("Signal.SetKey") {
+		return
+	}
 	checkEffectTimeWrite("SetKey")
 
 	s.mu.Lock()
@@ -1433,6 +1513,9 @@ func (s *Signal[T]) SetKey(key, value any) {
 // Does nothing if the key doesn't exist.
 // Panics if the signal's type is not a map.
 func (s *Signal[T]) RemoveKey(key any) {
+	if !checkPrefetchWrite("Signal.RemoveKey") {
+		return
+	}
 	checkEffectTimeWrite("RemoveKey")
 
 	s.mu.Lock()
@@ -1461,6 +1544,9 @@ func (s *Signal[T]) RemoveKey(key any) {
 // If the key doesn't exist, the function receives nil/zero value.
 // Panics if the signal's type is not a map.
 func (s *Signal[T]) UpdateKey(key any, fn func(any) any) {
+	if !checkPrefetchWrite("Signal.UpdateKey") {
+		return
+	}
 	checkEffectTimeWrite("UpdateKey")
 
 	s.mu.Lock()
@@ -1521,6 +1607,9 @@ func (s *Signal[T]) HasKey(key any) bool {
 // Works for string (empty string), slice (empty slice), and map (empty map).
 // Panics if the signal's type is not one of these.
 func (s *Signal[T]) Clear() {
+	if !checkPrefetchWrite("Signal.Clear") {
+		return
+	}
 	checkEffectTimeWrite("Clear")
 
 	s.mu.Lock()

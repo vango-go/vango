@@ -27,6 +27,12 @@ import (
 //
 // See SPEC_ADDENDUM.md §A.2.1.
 func Interval(d time.Duration, fn func(), opts ...IntervalOption) Cleanup {
+	// Check for prefetch mode (Phase 7: Routing, Section 8.3.2)
+	// Interval is forbidden during prefetch - return no-op cleanup
+	if !checkPrefetchSideEffect("Interval") {
+		return func() {}
+	}
+
 	ctx := UseCtx()
 	if ctx == nil {
 		panic(ErrEffectContext)
@@ -141,6 +147,12 @@ type Stream[T any] interface {
 //
 // See SPEC_ADDENDUM.md §A.2.2.
 func Subscribe[T any](stream Stream[T], fn func(T), opts ...SubscribeOption) Cleanup {
+	// Check for prefetch mode (Phase 7: Routing, Section 8.3.2)
+	// Subscribe is forbidden during prefetch - return no-op cleanup
+	if !checkPrefetchSideEffect("Subscribe") {
+		return func() {}
+	}
+
 	ctx := UseCtx()
 	if ctx == nil {
 		panic(ErrEffectContext)
@@ -238,6 +250,12 @@ func GoLatest[K comparable, R any](
 	apply func(result R, err error),
 	opts ...GoLatestOption,
 ) Cleanup {
+	// Check for prefetch mode (Phase 7: Routing, Section 8.3.2)
+	// GoLatest is forbidden during prefetch - return no-op cleanup
+	if !checkPrefetchSideEffect("GoLatest") {
+		return func() {}
+	}
+
 	ctx := UseCtx()
 	if ctx == nil {
 		panic(ErrGoLatestContext)
@@ -394,6 +412,12 @@ func GoLatestForceRestart() GoLatestOption {
 //	    })
 //	})
 func Timeout(d time.Duration, fn func(), opts ...TimeoutOption) Cleanup {
+	// Check for prefetch mode (Phase 7: Routing, Section 8.3.2)
+	// Timeout is forbidden during prefetch - return no-op cleanup
+	if !checkPrefetchSideEffect("Timeout") {
+		return func() {}
+	}
+
 	ctx := UseCtx()
 	if ctx == nil {
 		panic(ErrEffectContext)

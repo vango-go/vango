@@ -86,6 +86,7 @@ type ParamDef struct {
 }
 
 // MatchResult contains the result of matching a path against the router.
+// Implements server.RouteMatch interface.
 type MatchResult struct {
 	// PageHandler is the handler for page routes
 	PageHandler PageHandler
@@ -104,6 +105,50 @@ type MatchResult struct {
 
 	// Route is the matched route definition
 	Route *ScannedRoute
+}
+
+// GetParams implements server.RouteMatch.
+func (m *MatchResult) GetParams() map[string]string {
+	return m.Params
+}
+
+// GetPageHandler implements server.RouteMatch.
+func (m *MatchResult) GetPageHandler() server.PageHandler {
+	if m.PageHandler == nil {
+		return nil
+	}
+	// Wrap the router PageHandler to match server.PageHandler signature
+	return func(ctx server.Ctx, params any) server.Component {
+		paramsMap, _ := params.(map[string]string)
+		return m.PageHandler(ctx, paramsMap)
+	}
+}
+
+// GetLayoutHandlers implements server.RouteMatch.
+func (m *MatchResult) GetLayoutHandlers() []server.LayoutHandler {
+	if len(m.Layouts) == 0 {
+		return nil
+	}
+	result := make([]server.LayoutHandler, len(m.Layouts))
+	for i, layout := range m.Layouts {
+		layout := layout // capture loop var
+		result[i] = func(ctx server.Ctx, children *vdom.VNode) *vdom.VNode {
+			return layout(ctx, children)
+		}
+	}
+	return result
+}
+
+// GetMiddleware implements server.RouteMatch.
+func (m *MatchResult) GetMiddleware() []server.RouteMiddleware {
+	if len(m.Middleware) == 0 {
+		return nil
+	}
+	result := make([]server.RouteMiddleware, len(m.Middleware))
+	for i, mw := range m.Middleware {
+		result[i] = mw // Middleware already implements RouteMiddleware via server.Ctx
+	}
+	return result
 }
 
 // Middleware processes requests before they reach the handler.

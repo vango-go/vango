@@ -19,9 +19,9 @@ func TestLink(t *testing.T) {
 		t.Errorf("href = %v, want %q", node.Props["href"], "/users")
 	}
 
-	// Check data-link attribute
-	if node.Props["data-link"] != "true" {
-		t.Errorf("data-link = %v, want %q", node.Props["data-link"], "true")
+	// Check data-vango-link attribute (canonical marker for SPA navigation)
+	if _, exists := node.Props["data-vango-link"]; !exists {
+		t.Error("data-vango-link attribute should be present")
 	}
 }
 
@@ -33,13 +33,13 @@ func TestLinkWithPrefetch(t *testing.T) {
 	}
 
 	// Check data-prefetch
-	if node.Props["data-prefetch"] != "true" {
-		t.Errorf("data-prefetch = %v, want %q", node.Props["data-prefetch"], "true")
+	if _, exists := node.Props["data-prefetch"]; !exists {
+		t.Error("data-prefetch attribute should be present")
 	}
 
-	// Check data-link
-	if node.Props["data-link"] != "true" {
-		t.Errorf("data-link = %v, want %q", node.Props["data-link"], "true")
+	// Check data-vango-link
+	if _, exists := node.Props["data-vango-link"]; !exists {
+		t.Error("data-vango-link attribute should be present")
 	}
 }
 
@@ -98,18 +98,33 @@ func TestPrefetch(t *testing.T) {
 	if attr.Key != "data-prefetch" {
 		t.Errorf("Key = %q, want %q", attr.Key, "data-prefetch")
 	}
-	if attr.Value != "true" {
-		t.Errorf("Value = %v, want %q", attr.Value, "true")
+	// Empty string value - presence is what matters
+	if attr.Value != "" {
+		t.Errorf("Value = %v, want empty string", attr.Value)
 	}
 }
 
 func TestDataLink(t *testing.T) {
+	// DataLink is deprecated but still returns the canonical marker
 	attr := DataLink()
 
-	if attr.Key != "data-link" {
-		t.Errorf("Key = %q, want %q", attr.Key, "data-link")
+	if attr.Key != "data-vango-link" {
+		t.Errorf("Key = %q, want %q", attr.Key, "data-vango-link")
 	}
-	if attr.Value != "true" {
-		t.Errorf("Value = %v, want %q", attr.Value, "true")
+	// Empty string value - presence is what matters
+	if attr.Value != "" {
+		t.Errorf("Value = %v, want empty string", attr.Value)
+	}
+}
+
+func TestVangoLink(t *testing.T) {
+	attr := VangoLink()
+
+	if attr.Key != "data-vango-link" {
+		t.Errorf("Key = %q, want %q", attr.Key, "data-vango-link")
+	}
+	// Empty string value - presence is what matters
+	if attr.Value != "" {
+		t.Errorf("Value = %v, want empty string", attr.Value)
 	}
 }

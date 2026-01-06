@@ -320,6 +320,12 @@ func (s *Session) SendPatches(patches []protocol.Patch) {
 		return
 	}
 
+	// Guard against nil connection (can happen in tests or edge cases)
+	if s.conn == nil {
+		s.logger.Warn("SendPatches: no connection available")
+		return
+	}
+
 	seq := s.sendSeq.Add(1)
 
 	pf := &protocol.PatchesFrame{

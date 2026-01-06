@@ -232,6 +232,12 @@ func EffectTxName(name string) EffectOption {
 //	    return func() { fmt.Println("Cleanup") }
 //	})
 func CreateEffect(fn func() Cleanup, opts ...EffectOption) *Effect {
+	// Check for prefetch mode (Phase 7: Routing, Section 8.3.2)
+	// Effects are forbidden during prefetch - return nil in prod
+	if !checkPrefetchSideEffect("Effect") {
+		return nil
+	}
+
 	owner := getCurrentOwner()
 	inRender := owner != nil && isInRender()
 

@@ -121,6 +121,38 @@ func (r *Router) ErrorPage() ErrorHandler {
 	return r.errorPage
 }
 
+// RouterAdapter wraps Router to implement server.Router interface.
+// This adapter is needed because the server package defines its own
+// PageHandler type to avoid import cycles.
+type RouterAdapter struct {
+	*Router
+}
+
+// NewRouterAdapter creates a new adapter for use with server.Session.SetRouter().
+func NewRouterAdapter(r *Router) *RouterAdapter {
+	return &RouterAdapter{Router: r}
+}
+
+// Match implements server.Router interface.
+func (a *RouterAdapter) Match(method, path string) (server.RouteMatch, bool) {
+	match, ok := a.Router.Match(method, path)
+	if !ok {
+		return nil, false
+	}
+	return match, true
+}
+
+// NotFound implements server.Router interface.
+func (a *RouterAdapter) NotFound() server.PageHandler {
+	if a.Router.notFound == nil {
+		return nil
+	}
+	return func(ctx server.Ctx, params any) server.Component {
+		paramsMap, _ := params.(map[string]string)
+		return a.Router.notFound(ctx, paramsMap)
+	}
+}
+
 // ServeHTTP implements http.Handler for the router.
 // This provides basic HTTP routing without WebSocket features.
 func (r *Router) ServeHTTP(ctx server.Ctx) (*MatchResult, bool) {

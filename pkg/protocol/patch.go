@@ -36,6 +36,10 @@ const (
 	// URL operations (Phase 12: URLParam 2.0)
 	PatchURLPush    PatchOp = 0x30 // Update query params, push to history
 	PatchURLReplace PatchOp = 0x31 // Update query params, replace current entry
+
+	// Navigation operations (full route navigation)
+	PatchNavPush    PatchOp = 0x32 // Full navigation, push history (NAV_PUSH)
+	PatchNavReplace PatchOp = 0x33 // Full navigation, replace history (NAV_REPLACE)
 )
 
 // String returns the string representation of the patch operation.
@@ -85,6 +89,10 @@ func (op PatchOp) String() string {
 		return "URLPush"
 	case PatchURLReplace:
 		return "URLReplace"
+	case PatchNavPush:
+		return "NavPush"
+	case PatchNavReplace:
+		return "NavReplace"
 	default:
 		return "Unknown"
 	}
@@ -101,17 +109,18 @@ const (
 // Patch represents a single DOM operation.
 type Patch struct {
 	Op       PatchOp
-	HID      string         // Target element's hydration ID
-	Key      string         // Attribute/style/class key
-	Value    string         // Value for text/attr/style/class
-	ParentID string         // Parent HID for InsertNode/MoveNode
-	Index    int            // Insert/Move position
-	Node     *VNodeWire     // For InsertNode/ReplaceNode
-	Bool     bool           // For SetChecked/SetSelected
-	X        int            // For ScrollTo
-	Y        int            // For ScrollTo
-	Behavior ScrollBehavior // For ScrollTo
+	HID      string            // Target element's hydration ID
+	Key      string            // Attribute/style/class key
+	Value    string            // Value for text/attr/style/class
+	ParentID string            // Parent HID for InsertNode/MoveNode
+	Index    int               // Insert/Move position
+	Node     *VNodeWire        // For InsertNode/ReplaceNode
+	Bool     bool              // For SetChecked/SetSelected
+	X        int               // For ScrollTo
+	Y        int               // For ScrollTo
+	Behavior ScrollBehavior    // For ScrollTo
 	Params   map[string]string // For URLPush/URLReplace
+	Path     string            // For NavPush/NavReplace (includes query string)
 }
 
 // PatchesFrame represents a batch of patches with sequence number.
@@ -208,6 +217,12 @@ func encodePatch(e *Encoder, p *Patch) {
 			e.WriteString(key)
 			e.WriteString(value)
 		}
+
+	case PatchNavPush, PatchNavReplace:
+		// Encode path (includes query string)
+		// Wire format: [0x32|0x33][hid:string][path:string]
+		// SECURITY: Validated server-side that path starts with "/" and is relative
+		e.WriteString(p.Path)
 	}
 }
 
@@ -391,6 +406,10 @@ func decodePatchWithDepth(d *Decoder, p *Patch, depth int) error {
 			p.Params[key] = value
 		}
 
+	case PatchNavPush, PatchNavReplace:
+		// Decode path (includes query string)
+		p.Path, err = d.ReadString()
+
 	default:
 		// Unknown patch op - skip for forward compatibility
 	}
@@ -510,4 +529,18 @@ func NewURLPushPatch(params map[string]string) Patch {
 // NewURLReplacePatch creates a URLReplace patch (replaces current entry).
 func NewURLReplacePatch(params map[string]string) Patch {
 	return Patch{Op: PatchURLReplace, Params: params}
+}
+
+// NewNavPushPatch creates a NavPush patch for full navigation (adds history entry).
+// The path should be a relative path starting with "/" and may include query string.
+// SECURITY: The path must be validated server-side to prevent open-redirect attacks.
+func NewNavPushPatch(path string) Patch {
+	return Patch{Op: PatchNavPush, Path: path}
+}
+
+// NewNavReplacePatch creates a NavReplace patch for full navigation (replaces history).
+// The path should be a relative path starting with "/" and may include query string.
+// SECURITY: The path must be validated server-side to prevent open-redirect attacks.
+func NewNavReplacePatch(path string) Patch {
+	return Patch{Op: PatchNavReplace, Path: path}
 }

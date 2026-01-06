@@ -80,6 +80,9 @@ export const PatchType = {
     // URL operations (Phase 12: URLParam 2.0)
     URL_PUSH: 0x30,
     URL_REPLACE: 0x31,
+    // Navigation operations (full route navigation)
+    NAV_PUSH: 0x32,
+    NAV_REPLACE: 0x33,
 };
 
 /**
@@ -375,6 +378,16 @@ export class BinaryCodec {
                     patch.params[key] = value;
                 }
                 patch.op = patch.type; // Store op for URLManager
+                break;
+            }
+
+            case PatchType.NAV_PUSH:
+            case PatchType.NAV_REPLACE: {
+                // Decode path (includes query string)
+                // Wire format: [0x32|0x33][hid:string][path:string]
+                const { value: path, bytesRead: pathBytes } = this.decodeString(buffer, offset);
+                offset += pathBytes;
+                patch.path = path;
                 break;
             }
 

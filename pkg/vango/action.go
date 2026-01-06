@@ -202,6 +202,12 @@ func NewAction[A any, R any](
 //   - DropWhileRunning: Ignores call if already running. Returns false if dropped.
 //   - Queue: Queues the call if running. Returns false if queue is full.
 func (a *Action[A, R]) Run(arg A) bool {
+	// Check for prefetch mode (Phase 7: Routing, Section 8.3.2)
+	// Action.Run is forbidden during prefetch - return false
+	if !checkPrefetchSideEffect("Action.Run") {
+		return false
+	}
+
 	switch a.policy {
 	case PolicyCancelLatest:
 		return a.runCancelLatest(arg)

@@ -29,6 +29,11 @@ type Server struct {
 	// Root component factory
 	rootComponent func() Component
 
+	// Router for route-based navigation (Phase 7: Routing)
+	// When set, this router is passed to all new sessions to enable
+	// client-side navigation via EventNavigate and ctx.Navigate().
+	router Router
+
 	// Configuration
 	config *ServerConfig
 
@@ -140,6 +145,32 @@ func (s *Server) SetAuthFunc(fn func(*http.Request) (any, error)) {
 	s.authFunc = fn
 }
 
+// SetRouter sets the router for route-based navigation.
+// When set, this router is passed to all new sessions to enable:
+//   - Client-side navigation via EventNavigate (link clicks, popstate)
+//   - Programmatic navigation via ctx.Navigate()
+//
+// The router must implement the Router interface (defined in navigation.go).
+// Use router.NewRouterAdapter to wrap a router.Router for use with Server.
+//
+// Example:
+//
+//	r := router.NewRouter()
+//	r.AddPage("/", index.IndexPage)
+//	r.AddPage("/about", about.AboutPage)
+//	r.AddPage("/projects/:id", projects.ShowPage)
+//	r.SetNotFound(notfound.NotFoundPage)
+//
+//	app.SetRouter(router.NewRouterAdapter(r))
+func (s *Server) SetRouter(r Router) {
+	s.router = r
+}
+
+// Router returns the current router, or nil if none is set.
+func (s *Server) Router() Router {
+	return s.router
+}
+
 // Use adds middleware to the server.
 func (s *Server) Use(mw Middleware) {
 	s.middleware = append(s.middleware, mw)
@@ -200,6 +231,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check for WebSocket upgrade
 	if r.URL.Path == "/_vango/ws" || r.URL.Path == "/_vango/live" {
 		s.HandleWebSocket(w, r)
+		return
+	}
+
+	// Per Section 1.2.4 (Path Canonicalization):
+	// HTTP requests with non-canonical paths should redirect with 308 Permanent Redirect.
+	// This ensures consistent URL handling and prevents duplicate content issues.
+	if canonPath, query, changed, err := CanonicalizePath(r.URL.Path); err == nil && changed {
+		// Build canonical URL
+		canonURL := canonPath
+		if query != "" {
+			canonURL = canonPath + "?" + query
+		} else if r.URL.RawQuery != "" {
+			canonURL = canonPath + "?" + r.URL.RawQuery
+		}
+
+		// 308 Permanent Redirect preserves the HTTP method (unlike 301)
+		// This is important for POST/PUT/DELETE requests
+		http.Redirect(w, r, canonURL, http.StatusPermanentRedirect)
 		return
 	}
 
@@ -349,6 +398,12 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		conn.Close()
 		return
+	}
+
+	// Wire router to session for route-based navigation (Phase 7: Routing)
+	// This enables EventNavigate and ctx.Navigate() to work
+	if s.router != nil {
+		session.SetRouter(s.router)
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════

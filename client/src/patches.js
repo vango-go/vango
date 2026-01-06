@@ -130,6 +130,12 @@ export class PatchApplier {
                 }
                 break;
 
+            case PatchType.NAV_PUSH:
+            case PatchType.NAV_REPLACE:
+                // Handle full navigation from server
+                this._applyNavPatch(patch);
+                break;
+
             default:
                 if (this.client.options.debug) {
                     console.warn('[Vango] Unknown patch type:', patch.type);
@@ -402,8 +408,57 @@ export class PatchApplier {
     }
 
     /**
-     * Handle server-initiated navigation
-     * Called when server sends ctx.Navigate() via dispatch patch
+     * Handle server-initiated navigation via NAV_PUSH/NAV_REPLACE patches.
+     * This is the contract-compliant implementation that does NOT send
+     * EventNavigate back to the server (server already rendered the new page).
+     *
+     * Per spec Section 4.2 (Navigation Contract):
+     * 1. Receive NAV_* patch
+     * 2. Update history via pushState/replaceState with provided path
+     * 3. Apply subsequent DOM patches
+     * 4. Do NOT send EventNavigate back to server
+     */
+    _applyNavPatch(patch) {
+        const { path, type } = patch;
+
+        // SECURITY: Validate path is relative (starts with "/")
+        // This prevents open-redirect attacks
+        if (!path || !path.startsWith('/')) {
+            console.error('[Vango] Invalid navigation path (must start with /):', path);
+            return;
+        }
+
+        // Ensure path doesn't contain protocol to prevent open-redirect
+        if (path.includes('://') || path.startsWith('//')) {
+            console.error('[Vango] Invalid navigation path (must be relative):', path);
+            return;
+        }
+
+        // Update browser history based on patch type
+        // NAV_PUSH = add new entry, NAV_REPLACE = replace current entry
+        if (type === PatchType.NAV_REPLACE) {
+            history.replaceState(null, '', path);
+        } else {
+            history.pushState(null, '', path);
+        }
+
+        // Clear any pending navigation tracking
+        if (this.client.events) {
+            this.client.events.pendingNavPath = null;
+        }
+
+        // Scroll to top (default behavior for navigation)
+        window.scrollTo({ top: 0, behavior: 'instant' });
+
+        if (this.client.options.debug) {
+            console.log('[Vango] Navigation applied:', path, type === PatchType.NAV_REPLACE ? '(replace)' : '(push)');
+        }
+    }
+
+    /**
+     * Handle server-initiated navigation via dispatch patch (DEPRECATED).
+     * This is the legacy mechanism using vango:navigate custom event.
+     * New code should use NAV_PUSH/NAV_REPLACE patches instead.
      */
     _handleNavigate(data) {
         if (!data || !data.path) {
@@ -423,6 +478,7 @@ export class PatchApplier {
         }
 
         // Send navigate event to server to trigger re-render
+        // NOTE: This roundtrip is deprecated behavior. NAV_* patches are preferred.
         this.client.sendEvent(EventType.NAVIGATE, 'nav', { path });
 
         // Scroll to top if requested (default: true)
