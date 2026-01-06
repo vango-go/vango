@@ -21,8 +21,8 @@ func Title(args ...any) *VNode {
 func Meta(args ...any) *VNode {
 	return vdom.Meta(args...)
 }
-func Link(args ...any) *VNode {
-	return vdom.Link(args...)
+func LinkEl(args ...any) *VNode {
+	return vdom.LinkEl(args...)
 }
 func Base(args ...any) *VNode {
 	return vdom.Base(args...)

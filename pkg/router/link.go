@@ -8,8 +8,9 @@ import (
 // When clicked, the thin client intercepts and sends a navigate event
 // to the server instead of performing a full page reload.
 //
-// Per the routing contract (Section 5.1), this sets the data-vango-link
-// attribute which is the canonical marker for SPA navigation.
+// Deprecated: Use el.Link() instead. With the dot import of el, this is
+// simply Link("/path", Text("label")). This function remains for backwards
+// compatibility but will be removed in a future version.
 func Link(href string, children ...any) *vdom.VNode {
 	return vdom.A(
 		vdom.Href(href),
@@ -21,7 +22,9 @@ func Link(href string, children ...any) *vdom.VNode {
 // LinkWithPrefetch creates a link that prefetches the target page on hover.
 // This provides faster navigation by loading the target page before the user clicks.
 //
-// Sets: href, data-vango-link, and data-prefetch.
+// Deprecated: Use el.LinkPrefetch() instead. With the dot import of el, this is
+// simply LinkPrefetch("/path", Text("label")). This function remains for backwards
+// compatibility but will be removed in a future version.
 func LinkWithPrefetch(href string, children ...any) *vdom.VNode {
 	return vdom.A(
 		vdom.Href(href),
@@ -31,9 +34,15 @@ func LinkWithPrefetch(href string, children ...any) *vdom.VNode {
 	)
 }
 
-// ActiveLink creates a link that adds an active class when the current path matches.
-// The activeClass is applied when href matches the current path.
-// The exactMatch parameter controls whether the match must be exact or can be a prefix.
+// ActiveLink creates a link with custom active class handling via data attributes.
+// This is for power users who need custom active class names or client-side
+// active state detection.
+//
+// For most use cases, prefer el.NavLink(ctx, path, children...) which uses
+// server-side path matching to add the "active" class directly.
+//
+// The activeClass is set via data-active-class attribute.
+// The exactMatch parameter controls whether the match must be exact (data-active-exact).
 func ActiveLink(href string, activeClass string, exactMatch bool, children ...any) *vdom.VNode {
 	attrs := []any{
 		vdom.Href(href),
@@ -49,25 +58,38 @@ func ActiveLink(href string, activeClass string, exactMatch bool, children ...an
 	return vdom.A(attrs...)
 }
 
-// NavLink is an alias for ActiveLink with common defaults.
-// It adds "active" class when the path matches exactly.
+// NavLink creates a link with default active class handling.
+//
+// Deprecated: Use el.NavLink(ctx, path, children...) instead. The new NavLink
+// uses server-side path matching which works with SSR and doesn't require
+// client-side JavaScript. This function remains for backwards compatibility
+// but will be removed in a future version.
 func NavLink(href string, children ...any) *vdom.VNode {
 	return ActiveLink(href, "active", true, children...)
 }
 
 // Prefetch creates a prefetch attribute for links.
 // Add this to any anchor element to enable hover prefetching.
+//
+// Example:
+//
+//	A(Href("/about"), Prefetch(), Text("About"))
 func Prefetch() vdom.Attr {
 	return vdom.Attr{Key: "data-prefetch", Value: ""}
 }
 
 // VangoLink creates an anchor attribute that enables client-side navigation.
 // This is the canonical marker for SPA navigation.
+//
+// Example:
+//
+//	A(Href("/about"), VangoLink(), Text("About"))
 func VangoLink() vdom.Attr {
 	return vdom.Attr{Key: "data-vango-link", Value: ""}
 }
 
 // DataLink creates an anchor attribute that enables client-side navigation.
+//
 // Deprecated: Use VangoLink() instead. This function is kept for backwards
 // compatibility but will be removed in a future version.
 func DataLink() vdom.Attr {

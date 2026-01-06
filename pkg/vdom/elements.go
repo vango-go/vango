@@ -135,7 +135,7 @@ func Head(args ...any) *VNode  { return createElement("head", args) }
 func Body(args ...any) *VNode  { return createElement("body", args) }
 func Title(args ...any) *VNode { return createElement("title", args) }
 func Meta(args ...any) *VNode  { return createElement("meta", args) }
-func Link(args ...any) *VNode  { return createElement("link", args) }
+func LinkEl(args ...any) *VNode { return createElement("link", args) }
 func Base(args ...any) *VNode  { return createElement("base", args) }
 
 // Content sectioning elements

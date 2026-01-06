@@ -225,7 +225,7 @@ func TestAllElementsComprehensive(t *testing.T) {
 		{Body, "body"},
 		{Title, "title"},
 		{Meta, "meta"},
-		{Link, "link"},
+		{LinkEl, "link"},
 		{Base, "base"},
 
 		// Content sectioning

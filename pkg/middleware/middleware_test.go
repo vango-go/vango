@@ -72,6 +72,7 @@ func (m *mockCtx) AddPatchCount(count int)  { m.patchCount += count }
 func (m *mockCtx) Dispatch(fn func())                                   { fn() } // Execute inline for tests
 func (m *mockCtx) Navigate(path string, opts ...server.NavigateOption) {} // No-op for tests
 func (m *mockCtx) StormBudget() vango.StormBudgetChecker                { return nil }
+func (m *mockCtx) Mode() int                                            { return 0 } // ModeNormal
 
 // =============================================================================
 // OpenTelemetry Tests

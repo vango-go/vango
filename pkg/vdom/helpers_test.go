@@ -403,3 +403,166 @@ func TestFragmentWithComponent(t *testing.T) {
 		t.Errorf("Child kind = %v, want KindComponent", node.Children[0].Kind)
 	}
 }
+
+// =============================================================================
+// SPA Link Helper Tests
+// =============================================================================
+
+func TestLink(t *testing.T) {
+	node := Link("/about", Text("About"))
+
+	if node.Tag != "a" {
+		t.Errorf("Tag = %v, want 'a'", node.Tag)
+	}
+	if node.Props["href"] != "/about" {
+		t.Errorf("href = %v, want '/about'", node.Props["href"])
+	}
+	if node.Props["data-vango-link"] != "" {
+		t.Errorf("data-vango-link = %v, want ''", node.Props["data-vango-link"])
+	}
+	if len(node.Children) != 1 {
+		t.Fatalf("Children len = %v, want 1", len(node.Children))
+	}
+	if node.Children[0].Text != "About" {
+		t.Errorf("Child text = %v, want 'About'", node.Children[0].Text)
+	}
+}
+
+func TestLinkWithClass(t *testing.T) {
+	node := Link("/home", Class("nav-link"), Text("Home"))
+
+	if node.Props["href"] != "/home" {
+		t.Errorf("href = %v, want '/home'", node.Props["href"])
+	}
+	if node.Props["class"] != "nav-link" {
+		t.Errorf("class = %v, want 'nav-link'", node.Props["class"])
+	}
+}
+
+func TestLinkPrefetch(t *testing.T) {
+	node := LinkPrefetch("/about", Text("About"))
+
+	if node.Tag != "a" {
+		t.Errorf("Tag = %v, want 'a'", node.Tag)
+	}
+	if node.Props["href"] != "/about" {
+		t.Errorf("href = %v, want '/about'", node.Props["href"])
+	}
+	if node.Props["data-vango-link"] != "" {
+		t.Errorf("data-vango-link = %v, want ''", node.Props["data-vango-link"])
+	}
+	if node.Props["data-prefetch"] != "" {
+		t.Errorf("data-prefetch = %v, want ''", node.Props["data-prefetch"])
+	}
+}
+
+// mockPathProvider implements PathProvider for testing.
+type mockPathProvider struct {
+	path string
+}
+
+func (m *mockPathProvider) Path() string {
+	return m.path
+}
+
+func TestNavLink(t *testing.T) {
+	t.Run("active when path matches", func(t *testing.T) {
+		ctx := &mockPathProvider{path: "/about"}
+		node := NavLink(ctx, "/about", Text("About"))
+
+		if node.Props["href"] != "/about" {
+			t.Errorf("href = %v, want '/about'", node.Props["href"])
+		}
+		if node.Props["class"] != "active" {
+			t.Errorf("class = %v, want 'active'", node.Props["class"])
+		}
+	})
+
+	t.Run("not active when path differs", func(t *testing.T) {
+		ctx := &mockPathProvider{path: "/home"}
+		node := NavLink(ctx, "/about", Text("About"))
+
+		if node.Props["class"] != nil {
+			t.Errorf("class = %v, want nil", node.Props["class"])
+		}
+	})
+
+	t.Run("not active when prefix only", func(t *testing.T) {
+		ctx := &mockPathProvider{path: "/about/team"}
+		node := NavLink(ctx, "/about", Text("About"))
+
+		// NavLink requires exact match, so /about/team should NOT match /about
+		if node.Props["class"] != nil {
+			t.Errorf("class = %v, want nil (NavLink requires exact match)", node.Props["class"])
+		}
+	})
+
+	t.Run("nil context", func(t *testing.T) {
+		node := NavLink(nil, "/about", Text("About"))
+
+		// Should not add active class when ctx is nil
+		if node.Props["class"] != nil {
+			t.Errorf("class = %v, want nil", node.Props["class"])
+		}
+		// Should still create a valid link
+		if node.Props["href"] != "/about" {
+			t.Errorf("href = %v, want '/about'", node.Props["href"])
+		}
+	})
+}
+
+func TestNavLinkPrefix(t *testing.T) {
+	t.Run("active when path matches exactly", func(t *testing.T) {
+		ctx := &mockPathProvider{path: "/admin"}
+		node := NavLinkPrefix(ctx, "/admin", Text("Admin"))
+
+		if node.Props["class"] != "active" {
+			t.Errorf("class = %v, want 'active'", node.Props["class"])
+		}
+	})
+
+	t.Run("active when path is sub-route", func(t *testing.T) {
+		ctx := &mockPathProvider{path: "/admin/users"}
+		node := NavLinkPrefix(ctx, "/admin", Text("Admin"))
+
+		if node.Props["class"] != "active" {
+			t.Errorf("class = %v, want 'active'", node.Props["class"])
+		}
+	})
+
+	t.Run("active when path is deep sub-route", func(t *testing.T) {
+		ctx := &mockPathProvider{path: "/admin/users/123/edit"}
+		node := NavLinkPrefix(ctx, "/admin", Text("Admin"))
+
+		if node.Props["class"] != "active" {
+			t.Errorf("class = %v, want 'active'", node.Props["class"])
+		}
+	})
+
+	t.Run("not active when path just starts with same chars", func(t *testing.T) {
+		ctx := &mockPathProvider{path: "/administrator"}
+		node := NavLinkPrefix(ctx, "/admin", Text("Admin"))
+
+		// /administrator should NOT match /admin (must be /admin or /admin/...)
+		if node.Props["class"] != nil {
+			t.Errorf("class = %v, want nil (/administrator is not a sub-route of /admin)", node.Props["class"])
+		}
+	})
+
+	t.Run("not active when different path", func(t *testing.T) {
+		ctx := &mockPathProvider{path: "/home"}
+		node := NavLinkPrefix(ctx, "/admin", Text("Admin"))
+
+		if node.Props["class"] != nil {
+			t.Errorf("class = %v, want nil", node.Props["class"])
+		}
+	})
+
+	t.Run("nil context", func(t *testing.T) {
+		node := NavLinkPrefix(nil, "/admin", Text("Admin"))
+
+		if node.Props["class"] != nil {
+			t.Errorf("class = %v, want nil", node.Props["class"])
+		}
+	})
+}

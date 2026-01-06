@@ -426,8 +426,8 @@ func Layout(ctx server.Ctx, children router.Slot) *vdom.VNode {
 			Meta(Charset("utf-8")),
 			Meta(Name("viewport"), Content("width=device-width, initial-scale=1")),
 			Title(Text("{{.ProjectName}}")),
-			Link(Rel("stylesheet"), Href("/styles.css")),
-			Link(Rel("icon"), Href("/favicon.ico")),
+			LinkEl(Rel("stylesheet"), Href("/styles.css")),
+			LinkEl(Rel("icon"), Href("/favicon.ico")),
 		),
 		Body(
 			shared.Navbar(),
@@ -512,19 +512,18 @@ func HealthGET(ctx server.Ctx) (*HealthResponse, error) {
 const navbarGoTemplate = `package shared
 
 import (
-	"github.com/vango-go/vango/pkg/router"
 	"github.com/vango-go/vango/pkg/vdom"
 	. "github.com/vango-go/vango/el"
 )
 
 // Navbar renders the site navigation.
-// Uses router.Link() for SPA navigation with data-vango-link attribute.
+// Uses Link() for SPA navigation with data-vango-link attribute.
 func Navbar() *vdom.VNode {
 	return Nav(Class("navbar"),
-		router.Link("/", Class("logo"), Text("{{.ProjectName}}")),
+		Link("/", Class("logo"), Text("{{.ProjectName}}")),
 		Div(Class("nav-links"),
-			router.Link("/", Text("Home")),
-			router.Link("/about", Text("About")),
+			Link("/", Text("Home")),
+			Link("/about", Text("About")),
 		),
 	)
 }
@@ -1186,13 +1185,13 @@ import (
 )
 
 // Layout wraps all admin routes.
-// Uses router.Link() for SPA navigation with data-vango-link attribute.
+// Uses Link() for SPA navigation with data-vango-link attribute.
 func Layout(ctx server.Ctx, children router.Slot) *vdom.VNode {
 	return Div(Class("admin-layout"),
 		Nav(Class("admin-sidebar"),
-			router.Link("/admin", Text("Dashboard")),
-			router.Link("/admin/users", Text("Users")),
-			router.Link("/admin/settings", Text("Settings")),
+			Link("/admin", Text("Dashboard")),
+			Link("/admin/users", Text("Users")),
+			Link("/admin/settings", Text("Settings")),
 		),
 		Div(Class("admin-content"),
 			children,

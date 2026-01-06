@@ -1,6 +1,9 @@
 package vdom
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Text creates a text node.
 func Text(content string) *VNode {
@@ -287,15 +290,82 @@ func Group(children ...any) *VNode {
 	return Fragment(children...)
 }
 
-// NavLink creates an anchor for client-side SPA navigation.
-// Unlike regular A(Href(...)), NavLink triggers the Vango router
-// without a full page reload, and the browser URL updates automatically.
+// =============================================================================
+// SPA Navigation Link Helpers
+// =============================================================================
+
+// Link creates an anchor for client-side SPA navigation.
+// When clicked, the thin client intercepts and sends a navigate event
+// to the server instead of performing a full page reload.
 //
-// Example: NavLink("/settings", Text("Settings"))
-func NavLink(path string, children ...any) *VNode {
+// Example: Link("/about", Text("About"))
+func Link(path string, children ...any) *VNode {
 	args := []any{
 		Href(path),
-		attr("data-vango-link", "true"),
+		attr("data-vango-link", ""),
+	}
+	args = append(args, children...)
+	return A(args...)
+}
+
+// LinkPrefetch creates an SPA link that prefetches the target on hover.
+// This provides faster navigation by loading the page before click.
+//
+// Example: LinkPrefetch("/about", Text("About"))
+func LinkPrefetch(path string, children ...any) *VNode {
+	args := []any{
+		Href(path),
+		attr("data-vango-link", ""),
+		attr("data-prefetch", ""),
+	}
+	args = append(args, children...)
+	return A(args...)
+}
+
+// PathProvider is the interface for context that provides current path.
+// This is typically satisfied by server.Ctx.
+type PathProvider interface {
+	Path() string
+}
+
+// NavLink creates an SPA link with "active" class when path matches.
+// The active class is applied server-side based on the current route.
+// This is the recommended helper for navigation menus.
+//
+// Example:
+//
+//	Nav(
+//	    NavLink(ctx, "/", Text("Home")),
+//	    NavLink(ctx, "/about", Text("About")),
+//	)
+func NavLink(ctx PathProvider, path string, children ...any) *VNode {
+	args := []any{
+		Href(path),
+		attr("data-vango-link", ""),
+	}
+	// Add "active" class if current path matches exactly
+	if ctx != nil && ctx.Path() == path {
+		args = append(args, Class("active"))
+	}
+	args = append(args, children...)
+	return A(args...)
+}
+
+// NavLinkPrefix is like NavLink but matches path prefixes.
+// Use for nav items that should be active for all sub-routes.
+//
+// Example:
+//
+//	NavLinkPrefix(ctx, "/admin", Text("Admin"))
+//	// Active on /admin, /admin/users, /admin/settings, etc.
+func NavLinkPrefix(ctx PathProvider, path string, children ...any) *VNode {
+	args := []any{
+		Href(path),
+		attr("data-vango-link", ""),
+	}
+	// Add "active" class if current path matches or is a sub-path
+	if ctx != nil && (ctx.Path() == path || strings.HasPrefix(ctx.Path(), path+"/")) {
+		args = append(args, Class("active"))
 	}
 	args = append(args, children...)
 	return A(args...)

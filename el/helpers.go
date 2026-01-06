@@ -72,8 +72,54 @@ func Maybe(node *VNode) *VNode {
 func Group(children ...any) *VNode {
 	return vdom.Group(children...)
 }
-func NavLink(path string, children ...any) *VNode {
-	return vdom.NavLink(path, children...)
+// =============================================================================
+// SPA Navigation Link Helpers
+// =============================================================================
+
+// Link creates an anchor for client-side SPA navigation.
+// When clicked, the thin client intercepts and sends a navigate event
+// to the server instead of performing a full page reload.
+//
+// Example: Link("/about", Text("About"))
+func Link(path string, children ...any) *VNode {
+	return vdom.Link(path, children...)
+}
+
+// LinkPrefetch creates an SPA link that prefetches the target on hover.
+// This provides faster navigation by loading the page before click.
+//
+// Example: LinkPrefetch("/about", Text("About"))
+func LinkPrefetch(path string, children ...any) *VNode {
+	return vdom.LinkPrefetch(path, children...)
+}
+
+// PathProvider is the interface for context that provides current path.
+// This is typically satisfied by server.Ctx.
+type PathProvider = vdom.PathProvider
+
+// NavLink creates an SPA link with "active" class when path matches.
+// The active class is applied server-side based on the current route.
+// This is the recommended helper for navigation menus.
+//
+// Example:
+//
+//	Nav(
+//	    NavLink(ctx, "/", Text("Home")),
+//	    NavLink(ctx, "/about", Text("About")),
+//	)
+func NavLink(ctx PathProvider, path string, children ...any) *VNode {
+	return vdom.NavLink(ctx, path, children...)
+}
+
+// NavLinkPrefix is like NavLink but matches path prefixes.
+// Use for nav items that should be active for all sub-routes.
+//
+// Example:
+//
+//	NavLinkPrefix(ctx, "/admin", Text("Admin"))
+//	// Active on /admin, /admin/users, /admin/settings, etc.
+func NavLinkPrefix(ctx PathProvider, path string, children ...any) *VNode {
+	return vdom.NavLinkPrefix(ctx, path, children...)
 }
 func WithDebug() ScriptsOption {
 	return vdom.WithDebug()
