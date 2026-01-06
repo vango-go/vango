@@ -512,17 +512,19 @@ func HealthGET(ctx server.Ctx) (*HealthResponse, error) {
 const navbarGoTemplate = `package shared
 
 import (
+	"github.com/vango-go/vango/pkg/router"
 	"github.com/vango-go/vango/pkg/vdom"
 	. "github.com/vango-go/vango/el"
 )
 
 // Navbar renders the site navigation.
+// Uses router.Link() for SPA navigation with data-vango-link attribute.
 func Navbar() *vdom.VNode {
 	return Nav(Class("navbar"),
-		A(Href("/"), Class("logo"), Text("{{.ProjectName}}")),
+		router.Link("/", Class("logo"), Text("{{.ProjectName}}")),
 		Div(Class("nav-links"),
-			A(Href("/"), Text("Home")),
-			A(Href("/about"), Text("About")),
+			router.Link("/", Text("Home")),
+			router.Link("/about", Text("About")),
 		),
 	)
 }
@@ -947,8 +949,8 @@ func GetWithOptions(name string, cfg Config) (*Template, error) {
 }
 
 func addDatabaseFiles(files map[string]string, cfg Config) {
-	// Add projects route
-	files["app/routes/projects/show.go"] = projectShowGoTemplate
+	// Add projects route using file-based routing convention [id].go
+	files["app/routes/projects/[id].go"] = projectShowGoTemplate
 
 	// Add users API
 	files["app/routes/api/users.go"] = usersAPIGoTemplate
@@ -1184,12 +1186,13 @@ import (
 )
 
 // Layout wraps all admin routes.
+// Uses router.Link() for SPA navigation with data-vango-link attribute.
 func Layout(ctx server.Ctx, children router.Slot) *vdom.VNode {
 	return Div(Class("admin-layout"),
 		Nav(Class("admin-sidebar"),
-			A(Href("/admin"), Text("Dashboard")),
-			A(Href("/admin/users"), Text("Users")),
-			A(Href("/admin/settings"), Text("Settings")),
+			router.Link("/admin", Text("Dashboard")),
+			router.Link("/admin/users", Text("Users")),
+			router.Link("/admin/settings", Text("Settings")),
 		),
 		Div(Class("admin-content"),
 			children,

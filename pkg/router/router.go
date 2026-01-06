@@ -1,6 +1,8 @@
 package router
 
 import (
+	"strings"
+
 	"github.com/vango-go/vango/pkg/server"
 )
 
@@ -44,6 +46,128 @@ func (r *Router) AddAPI(path, method string, handler APIHandler) {
 func (r *Router) AddMiddleware(path string, mw ...Middleware) {
 	node := r.root.insertRoute(path)
 	node.middleware = append(node.middleware, mw...)
+}
+
+// =============================================================================
+// Spec-compliant aliases (per VANGO_ARCHITECTURE_AND_GUIDE.md §9.1.4)
+// =============================================================================
+
+// Page registers a page handler for a path.
+// This is the spec-compliant alias for AddPage.
+// Optional RouteOption arguments can specify parameter type constraints.
+//
+// Example:
+//
+//	r.Page("/users/:id", users.ShowPage)
+//	r.Page("/users/:id", users.ShowPage, router.WithParamType("id", "int"))
+func (r *Router) Page(path string, handler PageHandler, opts ...RouteOption) {
+	node := r.root.insertRoute(path)
+	node.pageHandler = handler
+	r.applyRouteOptions(path, opts)
+}
+
+// Layout registers a layout handler for a path.
+// This is the spec-compliant alias for AddLayout.
+func (r *Router) Layout(path string, handler LayoutHandler) {
+	r.AddLayout(path, handler)
+}
+
+// API registers an API handler for a method and path.
+// This is the spec-compliant alias for AddAPI.
+// Note: method comes first to match natural reading order ("GET /api/health").
+//
+// Example:
+//
+//	r.API("GET", "/api/health", api.HealthGET)
+//	r.API("POST", "/api/users", api.UsersPOST)
+func (r *Router) API(method, path string, handler APIHandler) {
+	r.AddAPI(path, method, handler)
+}
+
+// Middleware adds middleware to a specific path.
+// This is the spec-compliant alias for AddMiddleware.
+func (r *Router) Middleware(path string, mw ...Middleware) {
+	r.AddMiddleware(path, mw...)
+}
+
+// RouteOption configures route registration.
+// Used for param type constraints, etc.
+type RouteOption func(*routeOptions)
+
+type routeOptions struct {
+	paramTypes map[string]string
+}
+
+// WithParamType specifies the type constraint for a route parameter.
+// This allows specifying the type separately from the path pattern.
+//
+// Example:
+//
+//	r.Page("/users/:id", users.ShowPage, router.WithParamType("id", "int"))
+//
+// This is equivalent to using the inline type syntax:
+//
+//	r.Page("/users/:id:int", users.ShowPage)
+func WithParamType(param, typ string) RouteOption {
+	return func(o *routeOptions) {
+		if o.paramTypes == nil {
+			o.paramTypes = make(map[string]string)
+		}
+		o.paramTypes[param] = typ
+	}
+}
+
+// applyRouteOptions applies route options to the route tree.
+// It traverses the path from the root to find and update parameter nodes.
+func (r *Router) applyRouteOptions(path string, opts []RouteOption) {
+	if len(opts) == 0 {
+		return
+	}
+
+	// Collect options
+	var options routeOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	if len(options.paramTypes) == 0 {
+		return
+	}
+
+	// Traverse the tree following the path to find param nodes
+	segments := splitPath(path)
+	current := r.root
+
+	for _, seg := range segments {
+		if strings.HasPrefix(seg, "*") {
+			// Catch-all - check if we have a type (though catch-all is always []string)
+			if current.catchAllChild != nil {
+				name := seg[1:]
+				if typ, ok := options.paramTypes[name]; ok {
+					current.catchAllChild.paramType = typ
+				}
+			}
+			break
+		} else if strings.HasPrefix(seg, ":") {
+			// Parameter segment - this is where we apply the type
+			if current.paramChild != nil {
+				// Extract param name (without type suffix if present)
+				name := seg[1:]
+				if idx := strings.Index(name, ":"); idx != -1 {
+					name = name[:idx]
+				}
+				if typ, ok := options.paramTypes[name]; ok {
+					current.paramChild.paramType = typ
+				}
+				current = current.paramChild
+			}
+		} else {
+			// Static segment
+			if child := current.findChild(seg); child != nil {
+				current = child
+			}
+		}
+	}
 }
 
 // Use adds global middleware that applies to all routes.
