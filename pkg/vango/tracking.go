@@ -31,6 +31,10 @@ type TrackingContext struct {
 	// Stored as any to avoid circular imports with server package.
 	currentCtx any
 
+	// renderDepth tracks nested render phases for this goroutine.
+	// When > 0, hook-slot semantics should be enforced.
+	renderDepth int
+
 	// ==========================================================================
 	// Phase 16: Effect-local call-site tracking for helpers like GoLatest
 	// ==========================================================================
@@ -135,6 +139,29 @@ func setCurrentOwner(o *Owner) *Owner {
 	old := ctx.currentOwner
 	ctx.currentOwner = o
 	return old
+}
+
+// isInRender returns true when inside a component render phase.
+// This is used to gate hook-slot semantics for render-time primitives.
+func isInRender() bool {
+	ctx := getTrackingContext()
+	return ctx.renderDepth > 0
+}
+
+// beginRender increments the render depth for the current goroutine.
+// Called by Owner.StartRender.
+func beginRender() {
+	ctx := getTrackingContext()
+	ctx.renderDepth++
+}
+
+// endRender decrements the render depth for the current goroutine.
+// Called by Owner.EndRender.
+func endRender() {
+	ctx := getTrackingContext()
+	if ctx.renderDepth > 0 {
+		ctx.renderDepth--
+	}
 }
 
 // getBatchDepth returns the current batch nesting depth.
@@ -275,9 +302,9 @@ func TrackHook(ht HookType) {
 //	    return instance
 //	}
 //
-// If no owner is set (outside render context), returns nil.
+// If no owner is set or we're outside render context, returns nil.
 func UseHookSlot() any {
-	if owner := getCurrentOwner(); owner != nil {
+	if owner := getCurrentOwner(); owner != nil && isInRender() {
 		return owner.UseHookSlot()
 	}
 	return nil
@@ -286,9 +313,9 @@ func UseHookSlot() any {
 // SetHookSlot stores a value in the current hook slot.
 // Must be called after UseHookSlot returns nil (first render only).
 //
-// If no owner is set (outside render context), this is a no-op.
+// If no owner is set or we're outside render context, this is a no-op.
 func SetHookSlot(value any) {
-	if owner := getCurrentOwner(); owner != nil {
+	if owner := getCurrentOwner(); owner != nil && isInRender() {
 		owner.SetHookSlot(value)
 	}
 }

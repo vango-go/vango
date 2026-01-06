@@ -43,19 +43,37 @@ func UseForm[T any](initial T) *Form[T] {
 	// Track hook call for dev-mode order validation
 	vango.TrackHook(vango.HookForm)
 
-	f := &Form[T]{
-		initial:    initial,
-		values:     vango.NewSignal(initial),
-		errors:     vango.NewSignal(make(map[string][]string)),
-		touched:    vango.NewSignal(make(map[string]bool)),
-		dirty:      vango.NewSignal(make(map[string]bool)),
-		submitting: vango.NewSignal(false),
-		validators: make(map[string][]Validator),
-		fieldMeta:  make(map[string]fieldMeta),
+	// Use hook slot for stable identity across renders
+	slot := vango.UseHookSlot()
+	var f *Form[T]
+	first := false
+	if slot != nil {
+		existing, ok := slot.(*Form[T])
+		if !ok {
+			panic("vango: hook slot type mismatch for Form")
+		}
+		f = existing
+	} else {
+		first = true
+		f = &Form[T]{
+			validators: make(map[string][]Validator),
+			fieldMeta:  make(map[string]fieldMeta),
+		}
+		vango.SetHookSlot(f)
 	}
 
-	// Parse struct tags to extract field metadata and validators
-	f.parseStructTags(reflect.TypeOf(initial), "")
+	// Signals are hook-slot stabilized when called during render
+	f.values = vango.NewSignal(initial)
+	f.errors = vango.NewSignal(make(map[string][]string))
+	f.touched = vango.NewSignal(make(map[string]bool))
+	f.dirty = vango.NewSignal(make(map[string]bool))
+	f.submitting = vango.NewSignal(false)
+
+	if first {
+		f.initial = initial
+		// Parse struct tags to extract field metadata and validators
+		f.parseStructTags(reflect.TypeOf(initial), "")
+	}
 
 	return f
 }

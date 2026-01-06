@@ -29,13 +29,32 @@ type Ref[T any] struct {
 //	    Type("text"),
 //	)
 func NewRef[T any](initial T) *Ref[T] {
+	owner := getCurrentOwner()
+	inRender := owner != nil && isInRender()
+
 	// Track hook call for dev-mode order validation
 	TrackHook(HookRef)
 
-	return &Ref[T]{
+	if inRender {
+		if slot := owner.UseHookSlot(); slot != nil {
+			ref, ok := slot.(*Ref[T])
+			if !ok {
+				panic("vango: hook slot type mismatch for Ref")
+			}
+			return ref
+		}
+	}
+
+	ref := &Ref[T]{
 		value: initial,
 		isSet: false, // Not set until attached to DOM
 	}
+
+	if inRender {
+		owner.SetHookSlot(ref)
+	}
+
+	return ref
 }
 
 // Current returns the current value of the ref.

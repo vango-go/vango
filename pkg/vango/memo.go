@@ -45,17 +45,38 @@ type Memo[T any] struct {
 // NewMemo creates a new memo with the given computation function.
 // The computation is not run immediately; it runs lazily on first Get().
 func NewMemo[T any](compute func() T) *Memo[T] {
+	owner := getCurrentOwner()
+	inRender := owner != nil && isInRender()
+
 	// Track hook call for dev-mode order validation
-	if owner := getCurrentOwner(); owner != nil {
+	if owner != nil {
 		owner.TrackHook(HookMemo)
+		if inRender {
+			if slot := owner.UseHookSlot(); slot != nil {
+				memo, ok := slot.(*Memo[T])
+				if !ok {
+					panic("vango: hook slot type mismatch for Memo")
+				}
+				// Update compute function in case closures changed
+				memo.compute = compute
+				memo.valid.Store(false)
+				return memo
+			}
+		}
 	}
 
-	return &Memo[T]{
+	memo := &Memo[T]{
 		base: signalBase{
 			id: nextID(),
 		},
 		compute: compute,
 	}
+
+	if inRender {
+		owner.SetHookSlot(memo)
+	}
+
+	return memo
 }
 
 // Get returns the memo's value, recomputing if necessary.

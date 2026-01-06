@@ -210,6 +210,44 @@ func (o *Owner) RunPendingEffects() {
 			e.run()
 		}
 	}
+
+	// Recursively run pending effects on child owners
+	o.childrenMu.Lock()
+	children := make([]*Owner, len(o.children))
+	copy(children, o.children)
+	o.childrenMu.Unlock()
+
+	for _, child := range children {
+		child.RunPendingEffects()
+	}
+}
+
+// HasPendingEffects returns true if this owner or any child has pending effects.
+func (o *Owner) HasPendingEffects() bool {
+	if o.disposed.Load() {
+		return false
+	}
+
+	o.pendingEffectsMu.Lock()
+	hasPending := len(o.pendingEffects) > 0
+	o.pendingEffectsMu.Unlock()
+
+	if hasPending {
+		return true
+	}
+
+	o.childrenMu.Lock()
+	children := make([]*Owner, len(o.children))
+	copy(children, o.children)
+	o.childrenMu.Unlock()
+
+	for _, child := range children {
+		if child.HasPendingEffects() {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Dispose disposes this Owner and all its children, effects, and cleanups.
@@ -271,6 +309,9 @@ func (o *Owner) Dispose() {
 // It resets the hook slot index for stable identity, and in debug mode,
 // also resets the hook order validation index.
 func (o *Owner) StartRender() {
+	// Track render phase for hook-slot semantics
+	beginRender()
+
 	// Always reset slot index for stable hook identity
 	o.hookSlotIdx = 0
 
@@ -283,6 +324,9 @@ func (o *Owner) StartRender() {
 // EndRender is called at the end of a component render.
 // In debug mode, it validates that all expected hooks were called.
 func (o *Owner) EndRender() {
+	// End render phase tracking
+	endRender()
+
 	if !DebugMode {
 		return
 	}

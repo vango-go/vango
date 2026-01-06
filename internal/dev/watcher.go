@@ -3,6 +3,7 @@ package dev
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -56,6 +57,7 @@ type Watcher struct {
 	onChange   func(Change)
 	mu         sync.Mutex
 	running    bool
+	initialized bool
 	stopCh     chan struct{}
 	timestamps map[string]time.Time
 }
@@ -143,12 +145,15 @@ func (w *Watcher) scanInitial() {
 			return nil
 		})
 	}
+
+	w.initialized = true
 }
 
 // checkForChanges scans for modified files.
 func (w *Watcher) checkForChanges() {
 	w.mu.Lock()
 	callback := w.onChange
+	initialized := w.initialized
 	w.mu.Unlock()
 
 	if callback == nil {
@@ -182,7 +187,7 @@ func (w *Watcher) checkForChanges() {
 				w.timestamps[p] = modTime
 				w.mu.Unlock()
 
-				if exists { // Only report if it existed before (not new file detection on first scan)
+				if exists || initialized {
 					changes = append(changes, Change{
 						Path: p,
 						Type: classifyChange(p),
@@ -218,27 +223,100 @@ func (w *Watcher) checkForChanges() {
 }
 
 // shouldIgnore checks if a path should be ignored.
-func (w *Watcher) shouldIgnore(path string) bool {
-	name := filepath.Base(path)
+func (w *Watcher) shouldIgnore(fullPath string) bool {
+	name := filepath.Base(fullPath)
+	normalized := filepath.ToSlash(fullPath)
 
 	for _, pattern := range w.config.Ignore {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+
 		// Direct match
 		if name == pattern {
 			return true
 		}
 
-		// Glob match
-		if matched, _ := filepath.Match(pattern, name); matched {
-			return true
+		hasPathSep := strings.Contains(pattern, "/") || strings.Contains(pattern, "\\")
+		hasGlob := strings.ContainsAny(pattern, "*?[")
+
+		if hasGlob {
+			if hasPathSep {
+				if matched, _ := path.Match(filepath.ToSlash(pattern), normalized); matched {
+					return true
+				}
+			} else {
+				if matched, _ := filepath.Match(pattern, name); matched {
+					return true
+				}
+			}
+			continue
 		}
 
-		// Check if pattern matches any part of path
-		if strings.Contains(path, pattern) {
+		if hasPathSep {
+			if pathMatchesSegments(normalized, filepath.ToSlash(pattern)) {
+				return true
+			}
+			continue
+		}
+
+		if pathHasSegment(normalized, pattern) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func pathHasSegment(path, segment string) bool {
+	if segment == "" {
+		return false
+	}
+	parts := splitPathSegments(path)
+	for _, part := range parts {
+		if part == segment {
+			return true
+		}
+	}
+	return false
+}
+
+func pathMatchesSegments(path, pattern string) bool {
+	pathParts := splitPathSegments(path)
+	patternParts := splitPathSegments(pattern)
+	if len(patternParts) == 0 || len(patternParts) > len(pathParts) {
+		return false
+	}
+
+	for i := 0; i <= len(pathParts)-len(patternParts); i++ {
+		match := true
+		for j := range patternParts {
+			if pathParts[i+j] != patternParts[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+
+	return false
+}
+
+func splitPathSegments(path string) []string {
+	if path == "" {
+		return nil
+	}
+	parts := strings.Split(path, "/")
+	result := parts[:0]
+	for _, part := range parts {
+		if part != "" && part != "." {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 // classifyChange determines the type of change based on file extension.

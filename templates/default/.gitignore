@@ -4,13 +4,13 @@
 *.dll
 *.so
 *.dylib
-/{{.ProjectName}}
 
 # Dependencies
 node_modules/
 
 # Build output
 dist/
+.vango/
 
 # IDE
 .idea/

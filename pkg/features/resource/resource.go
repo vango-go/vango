@@ -57,25 +57,30 @@ func New[T any](fetcher func() (T, error)) *Resource[T] {
 
 	// Use hook slot for stable identity across renders
 	slot := vango.UseHookSlot()
+	var r *Resource[T]
 	if slot != nil {
-		// Subsequent render: return existing instance
-		return slot.(*Resource[T])
+		existing, ok := slot.(*Resource[T])
+		if !ok {
+			panic("vango: hook slot type mismatch for Resource")
+		}
+		r = existing
+	} else {
+		r = &Resource[T]{}
+		vango.SetHookSlot(r)
 	}
 
-	// First render: create new instance
 	// Capture runtime context for Dispatch calls from goroutines
-	ctx := vango.UseCtx()
-
-	r := &Resource[T]{
-		fetcher: fetcher,
-		state:   vango.NewSignal(Pending),
-		data:    vango.NewSignal(*new(T)),
-		err:     vango.NewSignal[error](nil),
-		ctx:     ctx,
+	if r.ctx == nil {
+		r.ctx = vango.UseCtx()
 	}
 
-	// Store in hook slot for subsequent renders
-	vango.SetHookSlot(r)
+	// Always update fetcher in case closures changed
+	r.fetcher = fetcher
+
+	// Signals are hook-slot stabilized when called during render
+	r.state = vango.NewSignal(Pending)
+	r.data = vango.NewSignal(*new(T))
+	r.err = vango.NewSignal[error](nil)
 
 	// Schedule initial fetch via Effect (not during render)
 	// This avoids signal writes during the render phase
@@ -100,31 +105,22 @@ func NewWithKey[K comparable, T any](key func() K, fetcher func(K) (T, error)) *
 
 	// Use hook slot for stable identity across renders
 	slot := vango.UseHookSlot()
+	var r *Resource[T]
 	if slot != nil {
-		// Subsequent render: return existing instance
-		return slot.(*Resource[T])
+		existing, ok := slot.(*Resource[T])
+		if !ok {
+			panic("vango: hook slot type mismatch for Resource")
+		}
+		r = existing
+	} else {
+		r = &Resource[T]{}
+		vango.SetHookSlot(r)
 	}
 
-	// First render: create new instance
 	// Capture runtime context for Dispatch calls from goroutines
-	ctx := vango.UseCtx()
-
-	// Wrap fetcher to use current key
-	wrappedFetcher := func() (T, error) {
-		k := key() // Track dependency
-		return fetcher(k)
+	if r.ctx == nil {
+		r.ctx = vango.UseCtx()
 	}
-
-	r := &Resource[T]{
-		fetcher: wrappedFetcher,
-		state:   vango.NewSignal(Pending),
-		data:    vango.NewSignal(*new(T)),
-		err:     vango.NewSignal[error](nil),
-		ctx:     ctx,
-	}
-
-	// Store in hook slot for subsequent renders
-	vango.SetHookSlot(r)
 
 	// Setup effect to fetch initially and refetch when key changes
 	// Using Effect ensures no signal writes during render
@@ -133,6 +129,17 @@ func NewWithKey[K comparable, T any](key func() K, fetcher func(K) (T, error)) *
 		r.Fetch()
 		return nil
 	})
+
+	// Wrap fetcher to use current key
+	r.fetcher = func() (T, error) {
+		k := key() // Track dependency
+		return fetcher(k)
+	}
+
+	// Signals are hook-slot stabilized when called during render
+	r.state = vango.NewSignal(Pending)
+	r.data = vango.NewSignal(*new(T))
+	r.err = vango.NewSignal[error](nil)
 
 	return r
 }

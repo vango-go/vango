@@ -196,7 +196,10 @@ func (s *Session) EventLoop() {
 			s.executeDispatch(fn)
 
 		case <-s.renderCh:
-			s.renderDirty()
+			ctx := s.createRenderContext()
+			vango.WithCtx(ctx, func() {
+				s.flush()
+			})
 
 		case <-s.done:
 			return
@@ -205,7 +208,7 @@ func (s *Session) EventLoop() {
 }
 
 // executeDispatch runs a dispatched function with proper cleanup.
-// It handles panic recovery, runs pending effects, and re-renders dirty components.
+// It handles panic recovery and runs the commit cycle (render, effects, rerender as needed).
 //
 // IMPORTANT: Wraps execution with vango.WithCtx so that UseCtx() is valid
 // inside dispatched callbacks. This is required by SPEC_ADDENDUM.md:90 which
@@ -230,12 +233,9 @@ func (s *Session) executeDispatch(fn func()) {
 		// Execute the dispatched function
 		fn()
 
-		// Run pending effects (scheduled by signal updates)
-		s.owner.RunPendingEffects()
+		// Commit render + effects after dispatch
+		s.flush()
 	})
-
-	// Re-render dirty components (outside WithCtx, same as handleEvent)
-	s.renderDirty()
 }
 
 // Start starts all session loops.

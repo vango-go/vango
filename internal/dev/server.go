@@ -43,6 +43,7 @@ type Server struct {
 	compiler      *Compiler
 	watcher       *Watcher
 	reloadServer  *ReloadServer
+	changeCh      chan Change
 	tailwind      *tailwind.Runner
 	errorRecovery *ErrorRecovery
 	httpServer    *http.Server
@@ -50,12 +51,14 @@ type Server struct {
 	mu            sync.Mutex
 	running       bool
 	appPort       int
+	hotReload     bool
 }
 
 // NewServer creates a new development server.
 func NewServer(options ServerOptions) *Server {
 	cfg := options.Config
 	projectDir := cfg.Dir()
+	hotReload := cfg.Dev.HotReload
 
 	// Create compiler
 	compiler := NewCompiler(CompilerConfig{
@@ -65,14 +68,7 @@ func NewServer(options ServerOptions) *Server {
 	})
 
 	// Create watcher
-	watchPaths := []string{
-		filepath.Join(projectDir, "app"),
-		filepath.Join(projectDir, "pkg"),
-		filepath.Join(projectDir, "internal"),
-		filepath.Join(projectDir, "main.go"),
-	}
-	// Add custom watch paths
-	watchPaths = append(watchPaths, cfg.Dev.Watch...)
+	watchPaths := CollectWatchPaths(cfg)
 
 	watcher := NewWatcher(WatcherConfig{
 		Paths:    watchPaths,
@@ -81,7 +77,10 @@ func NewServer(options ServerOptions) *Server {
 	})
 
 	// Create reload server
-	reloadServer := NewReloadServer()
+	var reloadServer *ReloadServer
+	if hotReload {
+		reloadServer = NewReloadServer()
+	}
 
 	// Create tailwind runner if enabled
 	var tw *tailwind.Runner
@@ -106,6 +105,7 @@ func NewServer(options ServerOptions) *Server {
 		tailwind:      tw,
 		errorRecovery: errorRecovery,
 		appPort:       appPort,
+		hotReload:     hotReload,
 	}
 }
 
@@ -124,7 +124,7 @@ func (s *Server) Start(ctx context.Context) error {
 	result := s.compiler.Build(ctx)
 	if !result.Success {
 		s.logError("Build failed:\n%s", result.Output)
-		s.reloadServer.NotifyError(result.Output)
+		s.notifyError(result.Output)
 	} else {
 		s.log("Built in %s", result.Duration.Round(time.Millisecond))
 	}
@@ -156,16 +156,23 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// Set up watcher callback
+	s.changeCh = make(chan Change, 64)
 	s.watcher.OnChange(func(change Change) {
-		s.handleChange(ctx, change)
+		select {
+		case s.changeCh <- change:
+		default:
+		}
 	})
 
 	// Start watcher in background
 	go s.watcher.Start(ctx)
+	go s.processChanges(ctx)
 
 	// Set up HTTP server
 	mux := http.NewServeMux()
-	mux.HandleFunc("/_vango/reload", s.reloadServer.HandleWebSocket)
+	if s.reloadEnabled() {
+		mux.HandleFunc("/_vango/reload", s.reloadServer.HandleWebSocket)
+	}
 	mux.HandleFunc("/", s.proxyHandler)
 
 	s.httpServer = &http.Server{
@@ -176,11 +183,27 @@ func (s *Server) Start(ctx context.Context) error {
 	// Start HTTP server
 	s.log("Server running at %s", s.config.DevURL())
 
-	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return err
-	}
+	errCh := make(chan error, 1)
+	go func() {
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
 
-	return nil
+	select {
+	case <-ctx.Done():
+		s.Stop()
+		return nil
+	case err := <-errCh:
+		if err != nil {
+			s.Stop()
+			return err
+		}
+		s.Stop()
+		return nil
+	}
 }
 
 // Stop stops the development server.
@@ -195,7 +218,9 @@ func (s *Server) Stop() {
 	s.running = false
 	s.watcher.Stop()
 	s.compiler.Stop()
-	s.reloadServer.Close()
+	if s.reloadServer != nil {
+		s.reloadServer.Close()
+	}
 
 	if s.tailwind != nil {
 		s.tailwind.Stop()
@@ -208,97 +233,179 @@ func (s *Server) Stop() {
 	}
 }
 
-// handleChange handles a file change.
-func (s *Server) handleChange(ctx context.Context, change Change) {
-	s.log("Changed: %s", change.Path)
+// processChanges serializes file change handling and coalesces bursts.
+func (s *Server) processChanges(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case change := <-s.changeCh:
+			changes := []Change{change}
+			draining := true
+			for draining {
+				select {
+				case next := <-s.changeCh:
+					changes = append(changes, next)
+				default:
+					draining = false
+				}
+			}
+			s.handleChanges(ctx, changes)
+		}
+	}
+}
 
-	switch change.Type {
-	case ChangeGo:
-		// Check if this is a route file change - if so, regenerate routes_gen.go
-		if s.isRouteFile(change.Path) {
+// handleChanges handles a batch of file changes.
+func (s *Server) handleChanges(ctx context.Context, changes []Change) {
+	if len(changes) == 0 {
+		return
+	}
+
+	hasGo := false
+	hasCSS := false
+	hasAsset := false
+	hasTemplate := false
+
+	for _, change := range changes {
+		s.log("Changed: %s", change.Path)
+		switch change.Type {
+		case ChangeGo:
+			hasGo = true
+		case ChangeCSS:
+			hasCSS = true
+		case ChangeTemplate:
+			hasTemplate = true
+		case ChangeAsset:
+			hasAsset = true
+		}
+	}
+
+	if hasGo {
+		s.handleGoChange(ctx, changes)
+		return
+	}
+
+	if hasCSS {
+		s.handleCSSChange(changes)
+		return
+	}
+
+	if hasAsset || hasTemplate {
+		s.handleAssetChange()
+	}
+}
+
+func (s *Server) handleGoChange(ctx context.Context, changes []Change) {
+	for _, change := range changes {
+		if change.Type == ChangeGo && s.isRouteFile(change.Path) {
 			s.regenerateRoutesIfNeeded()
+			break
 		}
+	}
 
-		// Rebuild and restart
-		if s.options.OnBuildStart != nil {
-			s.options.OnBuildStart()
-		}
+	if s.options.OnBuildStart != nil {
+		s.options.OnBuildStart()
+	}
 
-		s.log("Rebuilding...")
-		result := s.compiler.Build(ctx)
+	s.log("Rebuilding...")
+	result := s.compiler.Build(ctx)
 
-		if s.options.OnBuildComplete != nil {
-			s.options.OnBuildComplete(result)
-		}
+	if s.options.OnBuildComplete != nil {
+		s.options.OnBuildComplete(result)
+	}
 
-		if !result.Success {
-			// Attempt automatic error recovery
-			if IsRecoverableError(result.Output) && s.errorRecovery != nil {
-				s.log("Attempting automatic recovery...")
-				recovery := s.errorRecovery.AttemptRecovery(result.Output)
-				if recovery.Recovered {
-					s.log("Recovery: %s (%s)", recovery.Action, recovery.Details)
+	if !result.Success {
+		if IsRecoverableError(result.Output) && s.errorRecovery != nil {
+			s.log("Attempting automatic recovery...")
+			recovery := s.errorRecovery.AttemptRecovery(result.Output)
+			if recovery.Recovered {
+				s.log("Recovery: %s (%s)", recovery.Action, recovery.Details)
 
-					// Retry the build
-					s.log("Retrying build...")
-					result = s.compiler.Build(ctx)
-					if s.options.OnBuildComplete != nil {
-						s.options.OnBuildComplete(result)
-					}
+				s.log("Retrying build...")
+				result = s.compiler.Build(ctx)
+				if s.options.OnBuildComplete != nil {
+					s.options.OnBuildComplete(result)
+				}
 
-					if result.Success {
-						s.log("Build succeeded after recovery")
-						// Continue to restart app below
-					} else {
-						s.logError("Build still failing after recovery:\n%s", result.Output)
-						s.reloadServer.NotifyError(result.Output)
-						return
-					}
-				} else {
-					s.logError("Build failed:\n%s", result.Output)
-					s.reloadServer.NotifyError(result.Output)
+				if !result.Success {
+					s.logError("Build still failing after recovery:\n%s", result.Output)
+					s.notifyError(result.Output)
 					return
 				}
 			} else {
 				s.logError("Build failed:\n%s", result.Output)
-				s.reloadServer.NotifyError(result.Output)
+				s.notifyError(result.Output)
 				return
 			}
-		}
-
-		s.log("Built in %s", result.Duration.Round(time.Millisecond))
-		s.reloadServer.ClearError()
-
-		// Restart app
-		if err := s.restartApp(ctx); err != nil {
-			s.logError("Failed to restart app: %v", err)
+		} else {
+			s.logError("Build failed:\n%s", result.Output)
+			s.notifyError(result.Output)
 			return
 		}
-
-		// Wait a bit for app to start
-		time.Sleep(100 * time.Millisecond)
-
-		// Notify browsers
-		s.reloadServer.NotifyReload()
-
-		if s.options.OnReload != nil {
-			s.options.OnReload(s.reloadServer.ClientCount())
-		}
-
-		s.log("Reloaded %d browsers", s.reloadServer.ClientCount())
-
-	case ChangeCSS:
-		// CSS-only reload (if not using Tailwind which handles its own reload)
-		if s.tailwind == nil {
-			s.reloadServer.NotifyCSS(change.Path)
-			s.log("CSS reloaded")
-		}
-
-	case ChangeAsset, ChangeTemplate:
-		// Full reload for assets and templates
-		s.reloadServer.NotifyReload()
-		s.log("Reloaded %d browsers", s.reloadServer.ClientCount())
 	}
+
+	s.log("Built in %s", result.Duration.Round(time.Millisecond))
+	s.clearReloadError()
+
+	if err := s.restartApp(ctx); err != nil {
+		s.logError("Failed to restart app: %v", err)
+		return
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	s.notifyReload()
+}
+
+func (s *Server) handleCSSChange(changes []Change) {
+	var cssPath string
+	if s.tailwind != nil {
+		outputPath := s.tailwindOutputPath()
+		var publicCSS string
+		for _, change := range changes {
+			if change.Type != ChangeCSS {
+				continue
+			}
+			if outputPath != "" && isSamePath(change.Path, outputPath) {
+				cssPath = change.Path
+				break
+			}
+			if publicCSS == "" && isWithinDir(change.Path, s.config.PublicPath()) {
+				publicCSS = change.Path
+			}
+		}
+		if cssPath == "" {
+			if publicCSS == "" {
+				s.log("CSS change detected (waiting for Tailwind output)")
+				return
+			}
+			cssPath = publicCSS
+		}
+	} else {
+		for _, change := range changes {
+			if change.Type == ChangeCSS {
+				cssPath = change.Path
+				break
+			}
+		}
+	}
+
+	if !s.reloadEnabled() {
+		s.log("CSS changed (hot reload disabled)")
+		return
+	}
+
+	s.reloadServer.NotifyCSS(cssPath)
+	s.log("CSS reloaded")
+}
+
+func (s *Server) handleAssetChange() {
+	if !s.reloadEnabled() {
+		s.log("Asset changed (hot reload disabled)")
+		return
+	}
+
+	s.reloadServer.NotifyReload()
+	s.log("Reloaded %d browsers", s.reloadServer.ClientCount())
 }
 
 // startApp starts the application process.
@@ -311,16 +418,7 @@ func (s *Server) startApp(ctx context.Context) error {
 
 // isRouteFile checks if a file path is within the routes directory.
 func (s *Server) isRouteFile(path string) bool {
-	routesPath := s.config.RoutesPath()
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	absRoutesPath, err := filepath.Abs(routesPath)
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(absPath, absRoutesPath)
+	return isWithinDir(path, s.config.RoutesPath())
 }
 
 // regenerateRoutesIfNeeded scans routes and regenerates routes_gen.go if the manifest changed.
@@ -397,6 +495,9 @@ func (s *Server) proxyToApp(w http.ResponseWriter, r *http.Request) {
 
 	// Modify response to inject dev client script
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		if !s.reloadEnabled() {
+			return nil
+		}
 		contentType := resp.Header.Get("Content-Type")
 		if !strings.Contains(contentType, "text/html") {
 			return nil
@@ -430,6 +531,10 @@ func (s *Server) proxyToApp(w http.ResponseWriter, r *http.Request) {
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusBadGateway)
+		reloadScript := ""
+		if s.reloadEnabled() {
+			reloadScript = DevClientScript
+		}
 		fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head><title>Vango Dev Server</title></head>
@@ -444,7 +549,7 @@ func (s *Server) proxyToApp(w http.ResponseWriter, r *http.Request) {
 <p style="color: #888;">The page will automatically reload when the app is ready.</p>
 %s
 </body>
-</html>`, DevClientScript)
+</html>`, reloadScript)
 	}
 
 	proxy.ServeHTTP(w, r)
@@ -474,3 +579,73 @@ func (s *Server) logError(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "[%s] %s%s%s\n", timestamp, "\033[31m", fmt.Sprintf(format, args...), "\033[0m")
 }
 
+func (s *Server) tailwindOutputPath() string {
+	output := s.config.Tailwind.Output
+	if output == "" {
+		output = "public/styles.css"
+	}
+	return resolvePath(s.config.Dir(), output)
+}
+
+func (s *Server) reloadEnabled() bool {
+	return s.hotReload && s.reloadServer != nil
+}
+
+func (s *Server) notifyReload() {
+	if !s.reloadEnabled() {
+		s.log("Hot reload disabled; rebuild complete")
+		return
+	}
+
+	s.reloadServer.NotifyReload()
+	if s.options.OnReload != nil {
+		s.options.OnReload(s.reloadServer.ClientCount())
+	}
+	s.log("Reloaded %d browsers", s.reloadServer.ClientCount())
+}
+
+func (s *Server) notifyError(errMsg string) {
+	if !s.reloadEnabled() {
+		return
+	}
+	s.reloadServer.NotifyError(errMsg)
+}
+
+func (s *Server) clearReloadError() {
+	if !s.reloadEnabled() {
+		return
+	}
+	s.reloadServer.ClearError()
+}
+
+func isWithinDir(path, dir string) bool {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	absPath = filepath.Clean(absPath)
+	absDir = filepath.Clean(absDir)
+	if absPath == absDir {
+		return true
+	}
+	if !strings.HasSuffix(absDir, string(os.PathSeparator)) {
+		absDir += string(os.PathSeparator)
+	}
+	return strings.HasPrefix(absPath, absDir)
+}
+
+func isSamePath(a, b string) bool {
+	absA, err := filepath.Abs(a)
+	if err != nil {
+		return false
+	}
+	absB, err := filepath.Abs(b)
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(absA) == filepath.Clean(absB)
+}

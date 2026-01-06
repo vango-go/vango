@@ -57,6 +57,46 @@ func TestWatcher_Basic(t *testing.T) {
 	watcher.Stop()
 }
 
+func TestWatcher_NewFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	watcher := NewWatcher(WatcherConfig{
+		Paths:    []string{tmpDir},
+		Debounce: 50 * time.Millisecond,
+	})
+
+	changes := make(chan Change, 10)
+	watcher.OnChange(func(c Change) {
+		changes <- c
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go watcher.Start(ctx)
+
+	time.Sleep(100 * time.Millisecond)
+
+	newFile := filepath.Join(tmpDir, "new.go")
+	if err := os.WriteFile(newFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case change := <-changes:
+		if change.Type != ChangeGo {
+			t.Errorf("Expected Go change, got %v", change.Type)
+		}
+		if change.Path != newFile {
+			t.Errorf("Expected path %q, got %q", newFile, change.Path)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Timeout waiting for new file change")
+	}
+
+	watcher.Stop()
+}
+
 func TestWatcher_Ignore(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -74,6 +114,20 @@ func TestWatcher_Ignore(t *testing.T) {
 	}
 	if watcher.shouldIgnore(filepath.Join(tmpDir, "main.go")) {
 		t.Error("Should not ignore main.go")
+	}
+}
+
+func TestWatcher_IgnoreSegments(t *testing.T) {
+	watcher := NewWatcher(WatcherConfig{
+		Paths:  []string{"."},
+		Ignore: []string{"tmp"},
+	})
+
+	if !watcher.shouldIgnore(filepath.Join("foo", "tmp", "bar.go")) {
+		t.Error("Should ignore tmp directory segment")
+	}
+	if watcher.shouldIgnore(filepath.Join("foo", "attempt.go")) {
+		t.Error("Should not ignore substring match")
 	}
 }
 

@@ -84,10 +84,10 @@ type Session struct {
 	hidGen      *vdom.HIDGenerator // Hydration ID generator
 
 	// Channels
-	events     chan *Event    // Incoming events
-	renderCh   chan struct{}  // Signal for re-render
-	dispatchCh chan func()    // Functions to run on event loop (ctx.Dispatch)
-	done       chan struct{}  // Shutdown signal
+	events     chan *Event   // Incoming events
+	renderCh   chan struct{} // Signal for re-render
+	dispatchCh chan func()   // Functions to run on event loop (ctx.Dispatch)
+	done       chan struct{} // Shutdown signal
 
 	// Configuration
 	config *SessionConfig
@@ -190,6 +190,12 @@ func (s *Session) MountRoot(component Component) {
 		"handlers", len(s.handlers),
 		"components", len(s.components),
 		"hid_counter", s.hidGen.Current())
+
+	// Run mount effects after initial commit
+	ctx := s.createRenderContext()
+	vango.WithCtx(ctx, func() {
+		s.flush()
+	})
 }
 
 // collectHandlers walks the VNode tree and collects event handlers.
@@ -327,12 +333,9 @@ func (s *Session) handleEvent(event *Event) {
 		// Execute handler with panic recovery
 		s.safeExecute(handler, event)
 
-		// Run pending effects (scheduled by signal updates)
-		s.owner.RunPendingEffects()
+		// Commit render + effects after handler
+		s.flush()
 	})
-
-	// Re-render dirty components
-	s.renderDirty()
 }
 
 // safeExecute runs a handler with panic recovery.
@@ -412,6 +415,44 @@ func (s *Session) renderDirty() {
 	if len(allPatches) > 0 || len(urlPatches) > 0 {
 		s.sendPatchesWithURL(allPatches, urlPatches)
 	}
+}
+
+// hasDirtyComponents returns true if any component is marked dirty.
+func (s *Session) hasDirtyComponents() bool {
+	for comp := range s.allComponents {
+		if comp.IsDirty() {
+			return true
+		}
+	}
+
+	if s.root != nil && s.root.IsDirty() {
+		return true
+	}
+
+	return false
+}
+
+// flush runs render/effect cycles until the system is stable or a safety cap is reached.
+// Assumes a valid runtime context has been set via vango.WithCtx.
+func (s *Session) flush() {
+	const maxCycles = 10
+
+	for i := 0; i < maxCycles; i++ {
+		// Commit current dirty state
+		s.renderDirty()
+
+		// Run pending effects after commit
+		if s.owner != nil {
+			s.owner.RunPendingEffects()
+		}
+
+		// Continue if effects or signal writes created new work
+		if s.owner == nil || (!s.owner.HasPendingEffects() && !s.hasDirtyComponents()) {
+			return
+		}
+	}
+
+	s.logger.Warn("flush exceeded max cycles", "max", maxCycles)
 }
 
 // renderComponent re-renders a single component and returns patches.

@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/vango-go/vango/internal/errors"
@@ -53,7 +52,7 @@ type BuildResult struct {
 // Compiler handles Go compilation and process management.
 type Compiler struct {
 	config  CompilerConfig
-	process *os.Process
+	process *processHandle
 	mu      sync.Mutex
 }
 
@@ -152,28 +151,18 @@ func (c *Compiler) Start(ctx context.Context) error {
 
 	// Kill existing process
 	if c.process != nil {
-		c.killProcess()
+		stopProcess(c.process)
 	}
-
-	// Start new process
-	cmd := exec.CommandContext(ctx, c.config.BinaryPath)
-	cmd.Dir = c.config.ProjectPath
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
 	// Set up environment for dev mode
-	cmd.Env = append(os.Environ(), "VANGO_DEV=1")
+	env := append(os.Environ(), "VANGO_DEV=1")
 
-	// Start in new process group so we can kill children
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
-
-	if err := cmd.Start(); err != nil {
+	proc, err := startProcess(ctx, c.config.BinaryPath, c.config.ProjectPath, env)
+	if err != nil {
 		return errors.New("E142").Wrap(err)
 	}
 
-	c.process = cmd.Process
+	c.process = proc
 	return nil
 }
 
@@ -181,50 +170,16 @@ func (c *Compiler) Start(ctx context.Context) error {
 func (c *Compiler) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.killProcess()
+	if c.process != nil {
+		stopProcess(c.process)
+		c.process = nil
+	}
 }
 
 // Restart stops the current process and starts a new one.
 func (c *Compiler) Restart(ctx context.Context) error {
 	c.Stop()
 	return c.Start(ctx)
-}
-
-// killProcess kills the current process and its children.
-func (c *Compiler) killProcess() {
-	if c.process == nil {
-		return
-	}
-
-	// Kill process group
-	pgid, err := syscall.Getpgid(c.process.Pid)
-	if err == nil {
-		syscall.Kill(-pgid, syscall.SIGTERM)
-	} else {
-		c.process.Kill()
-	}
-
-	// Wait for process to exit
-	done := make(chan struct{})
-	go func() {
-		c.process.Wait()
-		close(done)
-	}()
-
-	// Give it time to gracefully shutdown
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		// Force kill
-		if pgid > 0 {
-			syscall.Kill(-pgid, syscall.SIGKILL)
-		} else {
-			c.process.Kill()
-		}
-		<-done
-	}
-
-	c.process = nil
 }
 
 // IsRunning returns whether the process is running.

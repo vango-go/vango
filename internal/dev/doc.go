@@ -31,6 +31,12 @@
 //	    log.Fatal(err)
 //	}
 //
+// # Configuration
+//
+// Hot reload can be disabled via vango.json (dev.hotReload=false).
+// Watch paths are derived from project config (routes, components, static, etc.)
+// plus any entries in dev.watch.
+//
 // # Hot Reload Protocol
 //
 // The browser connects to /_vango/reload via WebSocket.

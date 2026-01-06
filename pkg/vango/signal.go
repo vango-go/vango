@@ -117,13 +117,25 @@ type Signal[T any] struct {
 //	cursor := vango.NewSignal(Point{0, 0}, vango.Transient())   // Not persisted
 //	userID := vango.NewSignal(0, vango.PersistKey("user_id"))   // Custom key
 func NewSignal[T any](initial T, opts ...SignalOption) *Signal[T] {
+	owner := getCurrentOwner()
+	inRender := owner != nil && isInRender()
+
 	// Track hook call for dev-mode order validation
-	if owner := getCurrentOwner(); owner != nil {
+	if owner != nil {
 		owner.TrackHook(HookSignal)
+		if inRender {
+			if slot := owner.UseHookSlot(); slot != nil {
+				sig, ok := slot.(*Signal[T])
+				if !ok {
+					panic("vango: hook slot type mismatch for Signal")
+				}
+				return sig
+			}
+		}
 	}
 
 	options := applyOptions(opts)
-	return &Signal[T]{
+	sig := &Signal[T]{
 		base: signalBase{
 			id: nextID(),
 		},
@@ -131,6 +143,12 @@ func NewSignal[T any](initial T, opts ...SignalOption) *Signal[T] {
 		transient:  options.transient,
 		persistKey: options.persistKey,
 	}
+
+	if inRender {
+		owner.SetHookSlot(sig)
+	}
+
+	return sig
 }
 
 // Get returns the current value and subscribes the current listener.

@@ -134,44 +134,62 @@ func NewAction[A any, R any](
 	do func(ctx context.Context, arg A) (R, error),
 	opts ...ActionOption,
 ) *Action[A, R] {
+	owner := getCurrentOwner()
+	inRender := owner != nil && isInRender()
+
 	// Track hook call for dev-mode order validation
 	TrackHook(HookAction)
 
-	// Use hook slot for stable identity across renders
-	slot := UseHookSlot()
-	if slot != nil {
-		// Subsequent render: return existing instance
-		// Warn in dev mode if options differ (per spec §A.1.3)
-		return slot.(*Action[A, R])
+	var a *Action[A, R]
+	first := true
+	if inRender {
+		// Use hook slot for stable identity across renders
+		if slot := owner.UseHookSlot(); slot != nil {
+			existing, ok := slot.(*Action[A, R])
+			if !ok {
+				panic("vango: hook slot type mismatch for Action")
+			}
+			a = existing
+			first = false
+		}
 	}
 
-	// First render: create new instance
-	ctx := UseCtx()
-	if ctx == nil {
-		panic("NewAction: UseCtx() returned nil - must be called during render or effect")
+	if a == nil {
+		a = &Action[A, R]{
+			policy: PolicyCancelLatest, // Default
+		}
+		if inRender {
+			owner.SetHookSlot(a)
+		}
 	}
 
-	a := &Action[A, R]{
-		do:     do,
-		state:  NewSignal(ActionIdle),
-		result: NewSignal(*new(R)),
-		err:    NewSignal[error](nil),
-		ctx:    ctx,
-		policy: PolicyCancelLatest, // Default
+	// Always update do function in case closures changed
+	a.do = do
+
+	// Signals are hook-slot stabilized when called during render
+	a.state = NewSignal(ActionIdle)
+	a.result = NewSignal(*new(R))
+	a.err = NewSignal[error](nil)
+
+	if a.ctx == nil {
+		ctx := UseCtx()
+		if ctx == nil {
+			panic("NewAction: UseCtx() returned nil - must be called during render or effect")
+		}
+		a.ctx = ctx
 	}
 
-	// Apply options
-	for _, opt := range opts {
-		opt.applyAction(a)
-	}
+	if first {
+		// Apply options only on first creation
+		for _, opt := range opts {
+			opt.applyAction(a)
+		}
 
-	// Initialize queue condition if using queue policy
-	if a.policy == PolicyQueue && a.queueMax > 0 {
-		a.queueCond = sync.NewCond(&a.queueMu)
+		// Initialize queue condition if using queue policy
+		if a.policy == PolicyQueue && a.queueMax > 0 {
+			a.queueCond = sync.NewCond(&a.queueMu)
+		}
 	}
-
-	// Store in hook slot for subsequent renders
-	SetHookSlot(a)
 
 	return a
 }

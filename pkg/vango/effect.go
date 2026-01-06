@@ -9,9 +9,10 @@ import (
 // Effects are created using the Effect function and are automatically tracked
 // for dependencies during their execution.
 //
-// Effects run immediately when created, and re-run whenever any signal or memo
-// they read during execution changes. They can return a Cleanup function that
-// will be called before the effect re-runs or when the effect is disposed.
+// Effects run after commit when created during render, and re-run whenever any
+// signal or memo they read during execution changes. If created outside render,
+// they run immediately. They can return a Cleanup function that will be called
+// before the effect re-runs or when the effect is disposed.
 type Effect struct {
 	id uint64
 
@@ -181,7 +182,7 @@ type EffectOption interface {
 
 type effectOptionFunc func(*Effect)
 
-func (f effectOptionFunc) isEffectOption()         {}
+func (f effectOptionFunc) isEffectOption()       {}
 func (f effectOptionFunc) applyEffect(e *Effect) { f(e) }
 
 // AllowWrites marks an effect as intentionally performing signal writes.
@@ -214,10 +215,11 @@ func EffectTxName(name string) EffectOption {
 	})
 }
 
-// CreateEffect creates and runs a new effect within the current owner context.
-// The effect function runs immediately and re-runs when any signal or memo
-// it reads changes. If the function returns a Cleanup, it will be called
-// before the effect re-runs or when the effect is disposed.
+// CreateEffect creates a new effect within the current owner context.
+// If called during render, the effect is scheduled to run after commit.
+// If called outside render, it runs immediately. The effect re-runs when any
+// signal or memo it reads changes. If the function returns a Cleanup, it will
+// be called before the effect re-runs or when the effect is disposed.
 //
 // Options:
 //   - AllowWrites() - Allow signal writes during effect body without warning
@@ -231,10 +233,22 @@ func EffectTxName(name string) EffectOption {
 //	})
 func CreateEffect(fn func() Cleanup, opts ...EffectOption) *Effect {
 	owner := getCurrentOwner()
+	inRender := owner != nil && isInRender()
 
 	// Track hook call for dev-mode order validation
 	if owner != nil {
 		owner.TrackHook(HookEffect)
+		if inRender {
+			if slot := owner.UseHookSlot(); slot != nil {
+				e, ok := slot.(*Effect)
+				if !ok {
+					panic("vango: hook slot type mismatch for Effect")
+				}
+				// Update function in case closures changed
+				e.fn = fn
+				return e
+			}
+		}
 	}
 
 	e := &Effect{
@@ -243,7 +257,7 @@ func CreateEffect(fn func() Cleanup, opts ...EffectOption) *Effect {
 		owner: owner,
 	}
 
-	// Apply options
+	// Apply options (creation-time)
 	for _, opt := range opts {
 		opt.applyEffect(e)
 	}
@@ -252,7 +266,15 @@ func CreateEffect(fn func() Cleanup, opts ...EffectOption) *Effect {
 		owner.registerEffect(e)
 	}
 
-	// Run immediately
+	if inRender {
+		// Schedule after commit
+		e.pending.Store(true)
+		owner.scheduleEffect(e)
+		owner.SetHookSlot(e)
+		return e
+	}
+
+	// Run immediately outside render
 	e.run()
 
 	return e
@@ -312,4 +334,3 @@ func OnUpdate(deps func(), callback func()) {
 		return nil
 	})
 }
-

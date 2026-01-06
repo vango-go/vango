@@ -170,49 +170,63 @@ func Param[T any](key string, defaultValue T, opts ...URLParamOption) *URLParam[
 
 	// Use hook slot for stable identity across renders
 	slot := vango.UseHookSlot()
+	var u *URLParam[T]
+	first := false
 	if slot != nil {
-		// Subsequent render: return existing instance
-		return slot.(*URLParam[T])
+		existing, ok := slot.(*URLParam[T])
+		if !ok {
+			panic("vango: hook slot type mismatch for URLParam")
+		}
+		u = existing
+	} else {
+		first = true
+		u = &URLParam[T]{}
+		vango.SetHookSlot(u)
 	}
 
-	// First render: create new instance
 	var config urlParamConfig
-	for _, opt := range opts {
-		opt.applyURLParam(&config)
+	if first {
+		for _, opt := range opts {
+			opt.applyURLParam(&config)
+		}
+	} else {
+		config = u.config
 	}
 
 	// Determine initial value from URL or default
 	// This is NOT a reactive write - we compute initial value before signal creation
 	initial := defaultValue
-	if initialCtx := vango.GetContext(InitialParamsKey); initialCtx != nil {
-		if state, ok := initialCtx.(*InitialURLState); ok {
-			if params := state.Consume(); params != nil {
-				// Try to parse the initial value from URL params
-				temp := &URLParam[T]{key: key, config: config}
-				if parsed, err := temp.deserialize(params); err == nil {
-					initial = parsed
+	if first {
+		if initialCtx := vango.GetContext(InitialParamsKey); initialCtx != nil {
+			if state, ok := initialCtx.(*InitialURLState); ok {
+				if params := state.Consume(); params != nil {
+					// Try to parse the initial value from URL params
+					temp := &URLParam[T]{key: key, config: config}
+					if parsed, err := temp.deserialize(params); err == nil {
+						initial = parsed
+					}
 				}
 			}
 		}
 	}
 
-	u := &URLParam[T]{
-		key:      key,
-		value:    initial,
-		defaults: defaultValue,
-		config:   config,
-		signal:   vango.NewSignal(initial), // Uses computed initial, no Set() call
+	if first {
+		u.key = key
+		u.defaults = defaultValue
+		u.config = config
 	}
 
-	// Wire navigator from context for URL updates
-	if navCtx := vango.GetContext(NavigatorKey); navCtx != nil {
-		if nav, ok := navCtx.(*Navigator); ok {
-			u.SetNavigator(nav.Navigate)
+	// Signals are hook-slot stabilized when called during render
+	u.signal = vango.NewSignal(initial) // Uses computed initial, no Set() call
+
+	// Wire navigator from context for URL updates (first render only)
+	if first {
+		if navCtx := vango.GetContext(NavigatorKey); navCtx != nil {
+			if nav, ok := navCtx.(*Navigator); ok {
+				u.SetNavigator(nav.Navigate)
+			}
 		}
 	}
-
-	// Store in hook slot for subsequent renders
-	vango.SetHookSlot(u)
 
 	return u
 }
