@@ -231,9 +231,10 @@ func runCreate(name string, opts createOptions) error {
 	}
 
 	if cfg.HasDatabase {
-		fmt.Println("  Database setup:")
+		fmt.Println("  Database scaffolding created at db/db.go")
+		fmt.Println("  This is EXAMPLE CODE - replace with your database implementation.")
 		fmt.Println()
-		fmt.Printf("    Configure your %s database in db/db.go\n", cfg.DatabaseType)
+		fmt.Println("  See: https://vango.dev/docs/database")
 		fmt.Println()
 	}
 

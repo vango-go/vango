@@ -21,16 +21,55 @@ export class PatchApplier {
     }
 
     /**
+     * Check if a patch type requires a target DOM node.
+     * URL/NAV patches operate on browser history, not DOM elements.
+     * Per spec Section 9.6.1: These must not trigger self-heal.
+     */
+    _requiresTargetNode(patchType) {
+        switch (patchType) {
+            // URL/NAV patches have no HID (operate on browser history)
+            case PatchType.URL_PUSH:
+            case PatchType.URL_REPLACE:
+            case PatchType.NAV_PUSH:
+            case PatchType.NAV_REPLACE:
+                return false;
+            // INSERT_NODE checks parent separately
+            case PatchType.INSERT_NODE:
+                return false;
+            // All other patches require a target node
+            default:
+                return true;
+        }
+    }
+
+    /**
+     * Trigger self-heal recovery per spec Section 9.6.1.
+     * If navigation in progress: location.assign(pendingPath)
+     * Else: location.reload()
+     */
+    _triggerSelfHeal() {
+        // NOTE: Correct reference is eventCapture, not events
+        const pendingPath = this.client.eventCapture?.pendingNavPath;
+        if (pendingPath) {
+            console.log('[Vango] Self-heal: navigating to pending path:', pendingPath);
+            location.assign(pendingPath);
+        } else {
+            console.log('[Vango] Self-heal: reloading page');
+            location.reload();
+        }
+    }
+
+    /**
      * Apply single patch
      */
     applyPatch(patch) {
         const el = this.client.getNode(patch.hid);
 
-        // Some patches don't require the target element to exist
-        if (!el && patch.type !== PatchType.INSERT_NODE) {
-            if (this.client.options.debug) {
-                console.warn('[Vango] Node not found:', patch.hid);
-            }
+        // Only trigger self-heal for patches that require a target node
+        if (!el && this._requiresTargetNode(patch.type)) {
+            // Per spec 9.6.1: Patch mismatch = client/server DOM drift
+            console.error('[Vango] Patch target not found (HID:', patch.hid, 'type:', patch.type, ')');
+            this._triggerSelfHeal();
             return;
         }
 
@@ -249,9 +288,9 @@ export class PatchApplier {
     _insertNode(parentHid, index, vnode) {
         const parentEl = this.client.getNode(parentHid);
         if (!parentEl) {
-            if (this.client.options.debug) {
-                console.warn('[Vango] Parent node not found:', parentHid);
-            }
+            // Per spec 9.6.1: Missing parent = DOM drift, trigger self-heal
+            console.error('[Vango] INSERT_NODE parent not found (parentHID:', parentHid, ')');
+            this._triggerSelfHeal();
             return;
         }
 
@@ -290,9 +329,9 @@ export class PatchApplier {
     _moveNode(el, parentHid, index) {
         const parentEl = this.client.getNode(parentHid);
         if (!parentEl) {
-            if (this.client.options.debug) {
-                console.warn('[Vango] Parent node not found:', parentHid);
-            }
+            // Per spec 9.6.1: Missing parent = DOM drift, trigger self-heal
+            console.error('[Vango] MOVE_NODE parent not found (parentHID:', parentHid, ')');
+            this._triggerSelfHeal();
             return;
         }
 
@@ -443,8 +482,8 @@ export class PatchApplier {
         }
 
         // Clear any pending navigation tracking
-        if (this.client.events) {
-            this.client.events.pendingNavPath = null;
+        if (this.client.eventCapture) {
+            this.client.eventCapture.pendingNavPath = null;
         }
 
         // Scroll to top (default behavior for navigation)

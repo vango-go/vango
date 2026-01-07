@@ -33,13 +33,15 @@ const FrameType = {
 
 /**
  * Control message subtypes
+ * Must match vango/pkg/protocol/control.go
  */
 const ControlType = {
     PING: 0x01,
     PONG: 0x02,
-    RESYNC: 0x03,
-    CLOSE: 0x04,
-    RESYNC_FULL: 0x12, // Server sends full HTML to replace body
+    RESYNC_REQUEST: 0x10,  // Client -> Server: request missed patches
+    RESYNC_PATCHES: 0x11,  // Server -> Client: replay missed patches (not used with frame replay)
+    RESYNC_FULL: 0x12,     // Server -> Client: full HTML replacement
+    CLOSE: 0x20,
 };
 
 /**
@@ -61,7 +63,12 @@ export class VangoClient {
         this.codec = new BinaryCodec();
         this.nodeMap = new Map(); // hid -> DOM node
         this.connected = false;
-        this.seq = 0;
+        this.seq = 0; // Event sequence number
+
+        // Patch sequence tracking (Phase 2)
+        this.patchSeq = 0;              // Last successfully applied patch sequence
+        this.expectedPatchSeq = 1;      // Next expected patch sequence
+        this.pendingResync = false;     // Debounce resync requests
 
         // Sub-systems
         this.wsManager = new WebSocketManager(this, this.options);
@@ -185,6 +192,26 @@ export class VangoClient {
 
         if (this.options.debug) {
             console.log('[Vango] Decoded', patches.length, 'patches, seq:', seq);
+        }
+
+        // Handle duplicate/replayed frame (seq < expected)
+        if (seq < this.expectedPatchSeq) {
+            if (this.options.debug) {
+                console.log('[Vango] Ignoring duplicate patch seq:', seq, 'expected:', this.expectedPatchSeq);
+            }
+            return;
+        }
+
+        // Check for sequence gap (seq > expected means we missed some)
+        if (seq > this.expectedPatchSeq) {
+            console.warn('[Vango] Patch sequence gap detected',
+                'expected:', this.expectedPatchSeq,
+                'received:', seq);
+            this._requestResync(this.patchSeq);
+            return; // Don't apply out-of-order patches
+        }
+
+        if (this.options.debug) {
             for (const p of patches) {
                 console.log('[Vango] Patch:', p);
             }
@@ -199,6 +226,14 @@ export class VangoClient {
 
         // Re-initialize hooks on new elements
         this.hooks.updateFromDOM();
+
+        // Update sequence tracking
+        this.patchSeq = seq;
+        this.expectedPatchSeq = seq + 1;
+        this.pendingResync = false; // Clear resync flag on successful apply
+
+        // Send ACK to server
+        this._sendAck(seq);
     }
 
     /**
@@ -216,27 +251,19 @@ export class VangoClient {
                     console.log('[Vango] Pong received');
                 }
                 break;
-            case ControlType.RESYNC:
-                this._handleResync();
-                break;
             case ControlType.RESYNC_FULL:
+                // Server sends full HTML to replace body
                 this._handleResyncFull(buffer.slice(1));
                 break;
             case ControlType.CLOSE:
                 // Server requesting close
                 this.wsManager.close();
                 break;
+            default:
+                if (this.options.debug) {
+                    console.log('[Vango] Unknown control type:', controlType);
+                }
         }
-    }
-
-    /**
-     * Handle resync (full page refresh needed)
-     */
-    _handleResync() {
-        if (this.options.debug) {
-            console.log('[Vango] Resync requested, reloading page');
-        }
-        location.reload();
     }
 
     /**
@@ -274,27 +301,86 @@ export class VangoClient {
 
         // Reinitialize hooks on new elements
         this.hooks.initializeFromDOM();
+
+        // Reset patch sequence tracking after full resync
+        this.patchSeq = 0;
+        this.expectedPatchSeq = 1;
+        this.pendingResync = false;
+    }
+
+    /**
+     * Send ACK for received patches
+     * Format: [lastSeq:varint][window:varint]
+     */
+    _sendAck(lastSeq) {
+        if (!this.connected) return;
+
+        const payload = this.codec.encodeAck(lastSeq, 100); // window = 100
+        const frame = this._encodeFrame(FrameType.ACK, payload);
+        this.wsManager.send(frame);
+
+        if (this.options.debug) {
+            console.log('[Vango] Sent ACK for seq:', lastSeq);
+        }
+    }
+
+    /**
+     * Request resync for missed patches (with debouncing)
+     * Format: [controlType:1][lastSeq:varint]
+     */
+    _requestResync(lastSeq) {
+        // Debounce: only one resync request at a time
+        if (this.pendingResync) {
+            if (this.options.debug) {
+                console.log('[Vango] Resync already pending, skipping');
+            }
+            return;
+        }
+        this.pendingResync = true;
+
+        if (this.options.debug) {
+            console.log('[Vango] Requesting resync from seq:', lastSeq);
+        }
+
+        const payload = this.codec.encodeResyncRequest(lastSeq);
+        const frame = this._encodeFrame(FrameType.CONTROL, payload);
+        this.wsManager.send(frame);
     }
 
     /**
      * Handle server error
+     *
+     * Per spec Section 9.6.2 (error wire format):
+     * Wire format: [uint16:code][varint-string:message][bool:fatal]
+     * See vango/pkg/protocol/error.go for encoding.
      */
     _handleServerError(buffer) {
-        // Error format: [code:2][fatal:1][message...]
         if (buffer.length < 3) return;
 
+        // Decode code (2 bytes, big-endian)
         const code = (buffer[0] << 8) | buffer[1];
-        const fatal = buffer[2] === 1;
-        const messageBytes = buffer.slice(3);
-        const { value: message } = this.codec.decodeString(messageBytes, 0);
 
+        // Decode varint-length string starting at offset 2
+        const { value: message, bytesRead } = this.codec.decodeString(buffer, 2);
+
+        // Fatal flag is 1 byte after the message
+        const fatalOffset = 2 + bytesRead;
+        const fatal = fatalOffset < buffer.length ? buffer[fatalOffset] === 1 : false;
+
+        // Error code registry - matches vango/pkg/protocol/error.go
         const errorMessages = {
-            0x0001: 'Session expired',
+            0x0000: 'Unknown error',
+            0x0001: 'Invalid frame',
             0x0002: 'Invalid event',
-            0x0003: 'Rate limited',
-            0x0004: 'Server error',
-            0x0005: 'Handler panic',
-            0x0006: 'Invalid CSRF',
+            0x0003: 'Handler not found',
+            0x0004: 'Handler panic',
+            0x0005: 'Session expired',
+            0x0006: 'Rate limited',
+            0x0100: 'Server error',
+            0x0101: 'Not authorized',
+            0x0102: 'Not found',
+            0x0103: 'Validation failed',
+            0x0104: 'Route error',
         };
 
         const errorMessage = errorMessages[code] || message || `Unknown error: ${code}`;

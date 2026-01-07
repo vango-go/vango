@@ -625,3 +625,81 @@ func TestCtxGetQueryURL(t *testing.T) {
 		t.Error("Query should work with minimal request")
 	}
 }
+
+// =============================================================================
+// QueryParam Tests (Phase 3: API Surface Alignment)
+// =============================================================================
+
+func TestCtxQueryParam(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test?foo=bar&count=5&empty=", nil)
+	c := newCtx(httptest.NewRecorder(), req, slog.Default())
+
+	// Single value
+	if c.QueryParam("foo") != "bar" {
+		t.Errorf("QueryParam(foo) = %s, want bar", c.QueryParam("foo"))
+	}
+	if c.QueryParam("count") != "5" {
+		t.Errorf("QueryParam(count) = %s, want 5", c.QueryParam("count"))
+	}
+
+	// Empty value (key present but empty)
+	if c.QueryParam("empty") != "" {
+		t.Errorf("QueryParam(empty) = %s, want empty string", c.QueryParam("empty"))
+	}
+
+	// Missing key
+	if c.QueryParam("missing") != "" {
+		t.Errorf("QueryParam(missing) = %s, want empty string", c.QueryParam("missing"))
+	}
+}
+
+func TestCtxQueryParamMultiValue(t *testing.T) {
+	// QueryParam returns first value when multiple values present
+	req := httptest.NewRequest("GET", "/test?tags=go&tags=web&tags=api", nil)
+	c := newCtx(httptest.NewRecorder(), req, slog.Default())
+
+	// QueryParam returns first value
+	if c.QueryParam("tags") != "go" {
+		t.Errorf("QueryParam(tags) = %s, want 'go' (first value)", c.QueryParam("tags"))
+	}
+
+	// Query() still returns all values
+	if len(c.Query()["tags"]) != 3 {
+		t.Errorf("Query()[tags] length = %d, want 3", len(c.Query()["tags"]))
+	}
+}
+
+func TestCtxQueryParamURLEncoding(t *testing.T) {
+	// Test URL-encoded values
+	req := httptest.NewRequest("GET", "/search?q=hello+world&filter=a%26b", nil)
+	c := newCtx(httptest.NewRecorder(), req, slog.Default())
+
+	if c.QueryParam("q") != "hello world" {
+		t.Errorf("QueryParam(q) = %s, want 'hello world'", c.QueryParam("q"))
+	}
+	if c.QueryParam("filter") != "a&b" {
+		t.Errorf("QueryParam(filter) = %s, want 'a&b'", c.QueryParam("filter"))
+	}
+}
+
+func TestCtxQueryParamEmptyQueryString(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	c := newCtx(httptest.NewRecorder(), req, slog.Default())
+
+	// Should return empty string, not panic
+	if c.QueryParam("any") != "" {
+		t.Errorf("QueryParam on empty query should return empty string")
+	}
+}
+
+func TestCtxQueryParamInterface(t *testing.T) {
+	// Verify QueryParam is part of the Ctx interface
+	req := httptest.NewRequest("GET", "/test?key=value", nil)
+	c := newCtx(httptest.NewRecorder(), req, slog.Default())
+
+	// Cast to Ctx interface and call QueryParam
+	var ctxInterface Ctx = c
+	if ctxInterface.QueryParam("key") != "value" {
+		t.Error("QueryParam should be accessible via Ctx interface")
+	}
+}

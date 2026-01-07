@@ -60,20 +60,21 @@ export class WebSocketManager {
     }
 
     /**
-     * Send binary ClientHello handshake
+     * Send binary ClientHello handshake wrapped in frame header.
+     * Per spec: All protocol messages use consistent framing.
      */
     _sendHandshake() {
-        const helloBuffer = this.client.codec.encodeClientHello({
+        const helloFrame = this.client.codec.encodeClientHelloFrame({
             csrf: this._getCSRFToken(),
             sessionId: this.sessionId || '',
             viewportW: window.innerWidth,
             viewportH: window.innerHeight,
         });
 
-        this.ws.send(helloBuffer);
+        this.ws.send(helloFrame);
 
         if (this.client.options.debug) {
-            console.log('[Vango] Sent binary ClientHello');
+            console.log('[Vango] Sent framed ClientHello');
         }
     }
 
@@ -153,6 +154,10 @@ export class WebSocketManager {
 
     /**
      * Handle WebSocket close
+     *
+     * Per spec Section 9.6.3 (Connection Loss During Navigation):
+     * If WebSocket closes while awaiting navigation response,
+     * complete the navigation via location.assign(pendingPath).
      */
     _onClose(event) {
         const wasConnected = this.connected;
@@ -162,6 +167,15 @@ export class WebSocketManager {
 
         if (this.client.options.debug) {
             console.log('[Vango] WebSocket closed:', event.code, event.reason);
+        }
+
+        // Per spec 9.6.3: If navigation was in progress, complete it via hard nav
+        // NOTE: Correct reference is eventCapture, not events
+        const pendingPath = this.client.eventCapture?.pendingNavPath;
+        if (wasConnected && pendingPath) {
+            console.log('[Vango] Connection lost during navigation, completing via location.assign:', pendingPath);
+            location.assign(pendingPath);
+            return; // Don't reconnect, we're navigating away
         }
 
         if (wasConnected) {

@@ -1,23 +1,15 @@
-// Package urlstate provides synchronization between component state and URL parameters.
+// Package urlstate is EXPERIMENTAL and not part of the v1 public API.
 //
-// It enables deep linking, browser navigation integration, and shareable URLs by
-// binding reactive signals to query parameters or the URL hash.
+// For URL query state synchronization, use the urlparam package instead:
 //
-// Features:
-//   - Type-safe parameter handling (generics)
-//   - Automatic type coercion
-//   - Debounced updates
-//   - Serialization/Deserialization customization
-//   - History management (push vs replace)
+//	import "github.com/vango-go/vango"
 //
-// Usage:
+//	// Use vango.URLParam for URL query state
+//	search := vango.URLParam(ctx, "search", "")
 //
-//	// Bind "search" query param to a string signal
-//	search := urlstate.Use("search", "")
+// This package may be completed for hash-based routing in future versions.
+// The implementation is incomplete: URL reading and writing are not integrated
+// with the router/navigator system.
 //
-//	// Update signal -> updates URL
-//	search.Set("new query")
-//
-//	// Read signal <- reflects URL changes
-//	val := search.Get()
+// DO NOT USE IN PRODUCTION.
 package urlstate

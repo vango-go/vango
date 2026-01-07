@@ -109,8 +109,12 @@ type Ctx interface {
 	// Method returns the HTTP method.
 	Method() string
 
-	// Query returns the URL query parameters.
+	// Query returns the URL query parameters as url.Values.
 	Query() url.Values
+
+	// QueryParam returns a single query parameter value by key.
+	// Returns an empty string if the key is not present.
+	QueryParam(key string) string
 
 	// Param returns a route parameter by key.
 	Param(key string) string
@@ -358,6 +362,12 @@ func (c *ctx) Method() string {
 // Query returns the URL query parameters.
 func (c *ctx) Query() url.Values {
 	return c.request.URL.Query()
+}
+
+// QueryParam returns a single query parameter value by key.
+// Returns an empty string if the key is not present.
+func (c *ctx) QueryParam(key string) string {
+	return c.request.URL.Query().Get(key)
 }
 
 // Param returns a route parameter by key.

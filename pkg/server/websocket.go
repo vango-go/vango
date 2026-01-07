@@ -122,6 +122,7 @@ func (s *Session) handleControlFrame(payload []byte) {
 }
 
 // handleAckFrame handles acknowledgment messages.
+// ACKs are used for garbage collection of the patch history buffer.
 func (s *Session) handleAckFrame(payload []byte) {
 	ack, err := protocol.DecodeAck(payload)
 	if err != nil {
@@ -131,18 +132,88 @@ func (s *Session) handleAckFrame(payload []byte) {
 
 	// Update acknowledged sequence
 	s.ackSeq.Store(ack.LastSeq)
-	s.logger.Debug("received ack", "seq", ack.LastSeq)
+
+	// Garbage collect old patch history
+	// Patches with seq <= ackSeq are no longer needed for resync
+	if s.patchHistory != nil {
+		s.patchHistory.GarbageCollect(ack.LastSeq)
+	}
+
+	s.logger.Debug("received ack", "seq", ack.LastSeq, "window", ack.Window)
 }
 
 // handleResyncRequest handles a client request for missed patches.
-// For now, we send a full resync since we don't store patch history.
+// If the requested patches are still in the history buffer, they are replayed.
+// Otherwise, a full resync (complete HTML) is sent.
 func (s *Session) handleResyncRequest(lastSeq uint64) {
-	s.logger.Info("resync requested", "last_seq", lastSeq)
+	currentSeq := s.sendSeq.Load()
+	s.logger.Info("resync requested",
+		"last_seq", lastSeq,
+		"current_seq", currentSeq)
 
-	// For now, we don't have patch history, so we'd need to do a full reload
-	// In production, this would send missed patches from a buffer
-	// For now, just log it
-	s.logger.Warn("patch history not implemented, client should reload")
+	// Nothing to resync if client is up to date
+	if lastSeq >= currentSeq {
+		s.logger.Debug("resync not needed, client up to date")
+		return
+	}
+
+	// Check if we can recover from patch history
+	if s.patchHistory == nil {
+		s.logger.Warn("resync: no patch history available, sending full resync")
+		if err := s.SendResyncFull(); err != nil {
+			s.logger.Error("resync full failed", "error", err)
+		}
+		return
+	}
+
+	if !s.patchHistory.CanRecover(lastSeq) {
+		s.logger.Warn("resync: patch history insufficient",
+			"requested", lastSeq,
+			"min_available", s.patchHistory.MinSeq(),
+			"max_available", s.patchHistory.MaxSeq())
+		if err := s.SendResyncFull(); err != nil {
+			s.logger.Error("resync full failed", "error", err)
+		}
+		return
+	}
+
+	// Get missed frames and replay them
+	frames := s.patchHistory.GetFrames(lastSeq, currentSeq)
+	if frames == nil {
+		s.logger.Warn("resync: failed to get frames from history, sending full resync")
+		if err := s.SendResyncFull(); err != nil {
+			s.logger.Error("resync full failed", "error", err)
+		}
+		return
+	}
+
+	// Replay the original FramePatches frames
+	// Client will process them as normal patch frames
+	s.replayPatchFrames(frames)
+}
+
+// replayPatchFrames re-sends previously sent patch frames to the client.
+// This is used for resync when a client misses some patches.
+func (s *Session) replayPatchFrames(frames [][]byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed.Load() || s.conn == nil {
+		return
+	}
+
+	for i, frame := range frames {
+		s.conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+		if err := s.conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+			s.logger.Error("replay patch frame failed",
+				"frame_index", i,
+				"total_frames", len(frames),
+				"error", err)
+			return
+		}
+	}
+
+	s.logger.Info("replayed patch frames", "count", len(frames))
 }
 
 // sendPong sends a pong response.

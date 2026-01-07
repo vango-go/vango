@@ -10,11 +10,12 @@
 //   - form: Type-safe form binding with validation
 //   - resource: Async data loading with loading/error/success states
 //   - context: Dependency injection through the component tree
-//   - urlstate: Sync component state with URL query parameters
 //   - hooks: Client-side 60fps interactions with server state
 //   - shared: Session-scoped and global shared state
 //   - optimistic: Instant visual feedback for interactions
 //   - islands: Third-party JavaScript library integration
+//
+// Note: For URL query state, use the urlparam package (vango.URLParam).
 //
 // # Usage
 //

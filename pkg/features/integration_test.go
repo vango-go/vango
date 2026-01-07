@@ -9,7 +9,6 @@ import (
 	"github.com/vango-go/vango/pkg/features/form"
 	"github.com/vango-go/vango/pkg/features/resource"
 	"github.com/vango-go/vango/pkg/features/store"
-	"github.com/vango-go/vango/pkg/features/urlstate"
 	"github.com/vango-go/vango/pkg/vango"
 	"github.com/vango-go/vango/pkg/vdom"
 )
@@ -306,41 +305,6 @@ func TestGlobalStoreSharedAcrossSessions(t *testing.T) {
 	}
 }
 
-// TestURLStateWithSerializer tests URL state with custom serializers.
-func TestURLStateWithSerializer(t *testing.T) {
-	type Filter struct {
-		Category string
-		MinPrice int
-		MaxPrice int
-	}
-
-	// Custom serializer for Filter
-	filterState := urlstate.Use("filter", Filter{}).
-		Serialize(func(f Filter) string {
-			return f.Category + "," + urlstate.DefaultSerializer(0)(f.MinPrice) + "," + urlstate.DefaultSerializer(0)(f.MaxPrice)
-		}).
-		Deserialize(func(s string) Filter {
-			// Would parse "category,min,max"
-			// For testing, just return a default
-			return Filter{Category: "parsed", MinPrice: 0, MaxPrice: 100}
-		})
-
-	// Set value
-	filterState.Set(Filter{Category: "electronics", MinPrice: 10, MaxPrice: 500})
-
-	// Get returns the signal value
-	filter := filterState.Get()
-	if filter.Category != "electronics" {
-		t.Errorf("Expected category 'electronics', got '%s'", filter.Category)
-	}
-
-	// Reset
-	filterState.Reset()
-	if filterState.IsSet() {
-		t.Error("Should not be set after reset")
-	}
-}
-
 // TestFormArrayWorkflow tests dynamic form arrays.
 func TestFormArrayWorkflow(t *testing.T) {
 	type OrderForm struct {
@@ -465,29 +429,6 @@ func TestContextWithFallback(t *testing.T) {
 			t.Errorf("Expected empty APIKey outside provider scope, got '%s'", config.APIKey)
 		}
 	})
-}
-
-// TestURLStateDebounceWorkflow tests debounced URL state updates.
-func TestURLStateDebounceWorkflow(t *testing.T) {
-	search := urlstate.Use("q", "").Debounce(50 * time.Millisecond)
-
-	// Rapid updates should be debounced
-	search.Set("a")
-	search.Set("ab")
-	search.Set("abc")
-
-	// Immediate get shows latest value (signal is updated immediately)
-	if search.Get() != "abc" {
-		t.Errorf("Expected 'abc', got '%s'", search.Get())
-	}
-
-	// Wait for debounce to settle
-	time.Sleep(100 * time.Millisecond)
-
-	// Value should still be the same
-	if search.Get() != "abc" {
-		t.Errorf("Expected 'abc' after debounce, got '%s'", search.Get())
-	}
 }
 
 // TestFormDirtyState tests form dirty tracking.

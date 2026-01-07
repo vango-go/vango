@@ -790,7 +790,7 @@ export class BinaryCodec {
     }
 
     /**
-     * Encode ClientHello for handshake
+     * Encode ClientHello for handshake (raw payload, no frame header)
      * Format: [major:1][minor:1][csrf:string][sessionID:string][lastSeq:4][viewportW:2][viewportH:2][tzOffset:2]
      */
     encodeClientHello(options = {}) {
@@ -820,22 +820,42 @@ export class BinaryCodec {
     }
 
     /**
+     * Encode ClientHello wrapped in frame header for consistent framing.
+     * Format: [type:1][flags:1][len:2][payload...]
+     *
+     * Per spec: All protocol messages should use the same frame format.
+     */
+    encodeClientHelloFrame(options = {}) {
+        const payload = this.encodeClientHello(options);
+        const frame = new Uint8Array(4 + payload.length);
+        frame[0] = 0x00; // FrameHandshake
+        frame[1] = 0x00; // No flags
+        frame[2] = (payload.length >> 8) & 0xFF; // Length high byte (big-endian)
+        frame[3] = payload.length & 0xFF; // Length low byte
+        frame.set(payload, 4);
+        return frame;
+    }
+
+    /**
      * Decode ServerHello from handshake response
-     * Response is wrapped in Frame: [type:1][payload...]
+     * Frame format: [type:1][flags:1][len:2][payload...]
      * ServerHello payload: [status:1][sessionID:string][nextSeq:4][serverTime:8][flags:2]
      */
     decodeServerHello(buffer) {
-        if (buffer.length < 2) {
+        // Need at least 4-byte header + 1-byte status
+        if (buffer.length < 5) {
             return { error: 'Buffer too short' };
         }
 
-        // Frame type should be 0x00 (Handshake)
+        // Frame header: [type:1][flags:1][len:2]
         const frameType = buffer[0];
         if (frameType !== 0x00) {
             return { error: `Unexpected frame type: ${frameType}` };
         }
+        // Skip flags (buffer[1]) and length (buffer[2-3])
 
-        let offset = 1;
+        // Start at payload (offset 4)
+        let offset = 4;
 
         // Status byte
         const status = buffer[offset++];
@@ -866,54 +886,79 @@ export class BinaryCodec {
     }
 
     /**
-     * Encode uint16 little-endian
+     * Encode uint16 big-endian (matches Go protocol)
      */
     encodeUint16(value) {
-        return new Uint8Array([value & 0xFF, (value >> 8) & 0xFF]);
+        return new Uint8Array([(value >> 8) & 0xFF, value & 0xFF]);
     }
 
     /**
-     * Decode uint16 little-endian
+     * Decode uint16 big-endian (matches Go protocol)
      */
     decodeUint16(buffer, offset) {
-        return buffer[offset] | (buffer[offset + 1] << 8);
+        return (buffer[offset] << 8) | buffer[offset + 1];
     }
 
     /**
-     * Encode int16 little-endian
+     * Encode int16 big-endian (matches Go protocol)
      */
     encodeInt16(value) {
         return this.encodeUint16(value & 0xFFFF);
     }
 
     /**
-     * Encode uint32 little-endian
+     * Encode uint32 big-endian (matches Go protocol)
      */
     encodeUint32(value) {
         return new Uint8Array([
-            value & 0xFF,
-            (value >> 8) & 0xFF,
-            (value >> 16) & 0xFF,
             (value >> 24) & 0xFF,
+            (value >> 16) & 0xFF,
+            (value >> 8) & 0xFF,
+            value & 0xFF,
         ]);
     }
 
     /**
-     * Decode uint32 little-endian
+     * Decode uint32 big-endian (matches Go protocol)
      */
     decodeUint32(buffer, offset) {
-        return buffer[offset] |
-            (buffer[offset + 1] << 8) |
-            (buffer[offset + 2] << 16) |
-            (buffer[offset + 3] << 24);
+        return (buffer[offset] << 24) |
+            (buffer[offset + 1] << 16) |
+            (buffer[offset + 2] << 8) |
+            buffer[offset + 3];
     }
 
     /**
-     * Decode uint64 little-endian (returns as Number, may lose precision for large values)
+     * Decode uint64 big-endian (returns as Number, may lose precision for large values)
+     * Matches Go protocol encoding.
      */
     decodeUint64(buffer, offset) {
-        const low = this.decodeUint32(buffer, offset);
-        const high = this.decodeUint32(buffer, offset + 4);
-        return low + high * 0x100000000;
+        const high = this.decodeUint32(buffer, offset);
+        const low = this.decodeUint32(buffer, offset + 4);
+        return high * 0x100000000 + low;
+    }
+
+    /**
+     * Encode ACK payload
+     * Format: [lastSeq:varint][window:varint]
+     * Matches vango/pkg/protocol/ack.go
+     */
+    encodeAck(lastSeq, window = 100) {
+        return concat([
+            this.encodeUvarint(lastSeq),
+            this.encodeUvarint(window)
+        ]);
+    }
+
+    /**
+     * Encode ResyncRequest control payload
+     * Format: [controlType:1][lastSeq:varint]
+     * Matches vango/pkg/protocol/control.go ControlResyncRequest (0x10)
+     */
+    encodeResyncRequest(lastSeq) {
+        return concat([
+            new Uint8Array([0x10]), // ControlResyncRequest
+            this.encodeUvarint(lastSeq)
+        ]);
     }
 }

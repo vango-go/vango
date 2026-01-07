@@ -45,6 +45,7 @@ func (m *mockCtx) Request() *http.Request {
 func (m *mockCtx) Path() string                         { return m.path }
 func (m *mockCtx) Method() string                       { return "GET" }
 func (m *mockCtx) Query() url.Values                    { return nil }
+func (m *mockCtx) QueryParam(key string) string         { return "" }
 func (m *mockCtx) Param(key string) string              { return "" }
 func (m *mockCtx) Header(key string) string             { return "" }
 func (m *mockCtx) Cookie(name string) (*http.Cookie, error) { return nil, nil }

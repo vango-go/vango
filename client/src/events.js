@@ -232,22 +232,50 @@ export class EventCapture {
 
     /**
      * Handle click event
+     *
+     * Per spec Section 5.2 (Interception Decision Table):
+     * - MUST NOT intercept if defaultPrevented
+     * - MUST NOT intercept right/middle click (button !== 0)
+     * - MUST NOT intercept if modifier keys held
+     * - MUST NOT intercept if WebSocket not connected
+     * - For anchors: respect target, download, cross-origin
      */
     _handleClick(event) {
+        // Per spec 5.2: Check decision table before intercepting
+        if (event.defaultPrevented) return;
+        if (event.button !== 0) return;
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        if (!this.client.connected) return;
+
         // Find the closest HID element with a click event in data-ve, bubbling up through ancestors
         const el = this._findHidElementWithEvent(event.target, 'click');
         if (!el) return;
+
+        // For anchor elements, check closest anchor (el might be child of anchor)
+        // Important: Use event.target.closest, not el, to catch clicks inside anchors
+        const anchor = event.target.closest('a[href]');
+        if (anchor) {
+            const target = anchor.getAttribute('target');
+            if (target && target !== '_self') return;
+            if (anchor.hasAttribute('download')) return;
+            const href = anchor.getAttribute('href');
+            if (href) {
+                try {
+                    const url = new URL(href, location.href);
+                    if (url.origin !== location.origin) return;
+                } catch {
+                    return; // Invalid URL, let browser handle
+                }
+            }
+        }
 
         // Apply modifiers (may skip if Self modifier fails)
         if (!this._applyModifiers(event, el, 'click')) {
             return;
         }
 
-        // Default preventDefault for click events (unless passive)
-        const mods = this._getModifiers(el, 'click');
-        if (!mods.preventDefault && !mods.passive) {
-            event.preventDefault();
-        }
+        // Only preventDefault when we're actually intercepting
+        event.preventDefault();
 
         // Apply optimistic updates if configured
         this.client.optimistic.applyOptimistic(el, 'click');
@@ -343,10 +371,19 @@ export class EventCapture {
 
     /**
      * Handle form submit
+     *
+     * Per spec Section 5.2 (Progressive Enhancement):
+     * When WebSocket is unavailable, forms MUST fall back to normal HTTP submission.
      */
     _handleSubmit(event) {
         const form = event.target.closest('form[data-hid]');
         if (!form || !this._hasEvent(form, 'submit')) return;
+
+        // Progressive enhancement: let native submit work if WS not connected
+        if (!this.client.connected) return;
+
+        // Respect if another handler already prevented the event
+        if (event.defaultPrevented) return;
 
         event.preventDefault();
 

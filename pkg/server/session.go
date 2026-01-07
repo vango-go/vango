@@ -70,6 +70,10 @@ type Session struct {
 	recvSeq atomic.Uint64 // Last received event sequence
 	ackSeq  atomic.Uint64 // Last acknowledged by client
 
+	// Patch history for resync (Phase 2)
+	// Stores recently sent patch frames for replay on client reconnection.
+	patchHistory *PatchHistory
+
 	// Component state
 	root          *ComponentInstance              // Root component
 	allComponents map[*ComponentInstance]struct{} // ALL mounted components (for dirty checking)
@@ -159,6 +163,7 @@ func newSession(conn *websocket.Conn, userID string, config *SessionConfig, logg
 		config:        config,
 		logger:        logger.With("session_id", id),
 		stormBudget:   createStormBudgetTracker(config.StormBudget),
+		patchHistory:  NewPatchHistory(config.MaxPatchHistory),
 	}
 
 	// Initialize session-scoped store for SharedSignal support.
@@ -916,6 +921,12 @@ func (s *Session) sendPatchesWithURL(vdomPatches []vdom.Patch, urlPatches []prot
 		s.logger.Error("write error", "error", err)
 		s.closeInternal()
 		return
+	}
+
+	// Store frame in patch history AFTER successful write
+	// This enables resync if client misses this frame
+	if s.patchHistory != nil {
+		s.patchHistory.Add(seq, frameData)
 	}
 
 	// Update metrics

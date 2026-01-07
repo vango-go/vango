@@ -286,8 +286,30 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse client hello
-	hello, err := protocol.DecodeClientHello(msg)
+	// Decode frame header first (consistent framing per spec)
+	// Frame format: [type:1][flags:1][len:2][payload...]
+	if len(msg) < protocol.FrameHeaderSize {
+		s.sendHandshakeError(conn, protocol.HandshakeInvalidFormat)
+		conn.Close()
+		return
+	}
+	frameType := protocol.FrameType(msg[0])
+	if frameType != protocol.FrameHandshake {
+		s.logger.Error("handshake frame type mismatch", "got", frameType, "expected", protocol.FrameHandshake)
+		s.sendHandshakeError(conn, protocol.HandshakeInvalidFormat)
+		conn.Close()
+		return
+	}
+	payloadLen := int(msg[2])<<8 | int(msg[3])
+	if len(msg) < protocol.FrameHeaderSize+payloadLen {
+		s.sendHandshakeError(conn, protocol.HandshakeInvalidFormat)
+		conn.Close()
+		return
+	}
+	payload := msg[protocol.FrameHeaderSize : protocol.FrameHeaderSize+payloadLen]
+
+	// Parse client hello from payload
+	hello, err := protocol.DecodeClientHello(payload)
 	if err != nil {
 		s.sendHandshakeError(conn, protocol.HandshakeInvalidFormat)
 		conn.Close()
