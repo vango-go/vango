@@ -10,12 +10,34 @@ import (
 	"github.com/vango-go/vango/pkg/vdom"
 )
 
+func newTestResource[T any](t *testing.T, build func() *Resource[T]) *Resource[T] {
+	t.Helper()
+
+	owner := vango.NewOwner(nil)
+	t.Cleanup(owner.Dispose)
+
+	var r *Resource[T]
+	vango.WithOwner(owner, func() {
+		owner.StartRender()
+		r = build()
+		owner.EndRender()
+	})
+	owner.RunPendingEffects(nil)
+
+	if r == nil {
+		t.Fatal("resource build returned nil")
+	}
+	return r
+}
+
 func TestNewResource(t *testing.T) {
 	fetcher := func() (string, error) {
 		return "data", nil
 	}
 
-	r := New(fetcher)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(fetcher)
+	})
 
 	// Initially it might be pending or loading depending on scheduler,
 	// but Fetch is called immediately in goroutine.
@@ -34,11 +56,13 @@ func TestResourceSuccess(t *testing.T) {
 		return "success", nil
 	}
 
-	r := New(fetcher).OnSuccess(func(data string) {
-		if data != "success" {
-			t.Errorf("Expected 'success', got '%s'", data)
-		}
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(fetcher).OnSuccess(func(data string) {
+			if data != "success" {
+				t.Errorf("Expected 'success', got '%s'", data)
+			}
+			close(done)
+		})
 	})
 
 	select {
@@ -65,11 +89,13 @@ func TestResourceError(t *testing.T) {
 		return "", expectedErr
 	}
 
-	r := New(fetcher).OnError(func(err error) {
-		if err != expectedErr {
-			t.Errorf("Expected error '%v', got '%v'", expectedErr, err)
-		}
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(fetcher).OnError(func(err error) {
+			if err != expectedErr {
+				t.Errorf("Expected error '%v', got '%v'", expectedErr, err)
+			}
+			close(done)
+		})
 	})
 
 	select {
@@ -93,13 +119,15 @@ func TestResourceStaleTime(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	r := New(fetcher).
-		StaleTime(100 * time.Millisecond).
-		OnSuccess(func(string) {
-			if calls == 1 {
-				close(done)
-			}
-		})
+	r := newTestResource(t, func() *Resource[string] {
+		return New(fetcher).
+			StaleTime(100 * time.Millisecond).
+			OnSuccess(func(string) {
+				if calls == 1 {
+					close(done)
+				}
+			})
+	})
 
 	// Wait for first fetch
 	<-done
@@ -134,10 +162,12 @@ func TestResourceRefetch(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	r := New(fetcher).OnSuccess(func(string) {
-		if calls == 1 {
-			close(done)
-		}
+	r := newTestResource(t, func() *Resource[string] {
+		return New(fetcher).OnSuccess(func(string) {
+			if calls == 1 {
+				close(done)
+			}
+		})
 	})
 
 	<-done
@@ -152,7 +182,9 @@ func TestResourceRefetch(t *testing.T) {
 }
 
 func TestResourceMutate(t *testing.T) {
-	r := New(func() (int, error) { return 0, nil })
+	r := newTestResource(t, func() *Resource[int] {
+		return New(func() (int, error) { return 0, nil })
+	})
 
 	// Wait for initial load
 	time.Sleep(10 * time.Millisecond)
@@ -172,8 +204,10 @@ func TestResourceMatch(t *testing.T) {
 		return "hello", nil
 	}
 
-	r := New(fetcher).OnSuccess(func(string) {
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(fetcher).OnSuccess(func(string) {
+			close(done)
+		})
 	})
 
 	<-done
@@ -201,9 +235,11 @@ func TestResourceMatch(t *testing.T) {
 
 func TestMatchLoadingOrPending(t *testing.T) {
 	// Create a resource that hangs
-	r := New(func() (string, error) {
-		time.Sleep(100 * time.Millisecond)
-		return "", nil
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			time.Sleep(100 * time.Millisecond)
+			return "", nil
+		})
 	})
 
 	textNode := func(s string) *vdom.VNode {
@@ -222,10 +258,12 @@ func TestMatchLoadingOrPending(t *testing.T) {
 
 func TestResourceState(t *testing.T) {
 	done := make(chan struct{})
-	r := New(func() (string, error) {
-		return "data", nil
-	}).OnSuccess(func(string) {
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "data", nil
+		}).OnSuccess(func(string) {
+			close(done)
+		})
 	})
 
 	<-done
@@ -238,9 +276,11 @@ func TestResourceState(t *testing.T) {
 
 func TestResourceIsLoading(t *testing.T) {
 	// Create a slow resource
-	r := New(func() (string, error) {
-		time.Sleep(50 * time.Millisecond)
-		return "data", nil
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			time.Sleep(50 * time.Millisecond)
+			return "data", nil
+		})
 	})
 
 	// Initially should be loading or pending
@@ -251,10 +291,12 @@ func TestResourceIsLoading(t *testing.T) {
 
 func TestResourceDataOr(t *testing.T) {
 	done := make(chan struct{})
-	r := New(func() (string, error) {
-		return "actual", nil
-	}).OnSuccess(func(string) {
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "actual", nil
+		}).OnSuccess(func(string) {
+			close(done)
+		})
 	})
 
 	// Before completion, should return fallback
@@ -275,9 +317,11 @@ func TestResourceDataOr(t *testing.T) {
 
 func TestResourceDataOrWhenNotReady(t *testing.T) {
 	// Create resource that takes time
-	r := New(func() (string, error) {
-		time.Sleep(100 * time.Millisecond)
-		return "data", nil
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			time.Sleep(100 * time.Millisecond)
+			return "data", nil
+		})
 	})
 
 	// Immediately check DataOr - should return fallback since not ready yet
@@ -291,14 +335,16 @@ func TestResourceInvalidate(t *testing.T) {
 	calls := 0
 	done := make(chan struct{}, 2)
 
-	r := New(func() (string, error) {
-		calls++
-		return "data", nil
-	}).
-		StaleTime(1 * time.Hour). // Long stale time
-		OnSuccess(func(string) {
-			done <- struct{}{}
-		})
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			calls++
+			return "data", nil
+		}).
+			StaleTime(1 * time.Hour). // Long stale time
+			OnSuccess(func(string) {
+				done <- struct{}{}
+			})
+	})
 
 	<-done // Wait for first fetch
 
@@ -324,17 +370,19 @@ func TestResourceRetryOnError(t *testing.T) {
 	attempts := 0
 	done := make(chan struct{})
 
-	r := New(func() (string, error) {
-		attempts++
-		if attempts < 3 {
-			return "", errors.New("temporary error")
-		}
-		return "success", nil
-	}).
-		RetryOnError(3, 5*time.Millisecond).
-		OnSuccess(func(string) {
-			close(done)
-		})
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			attempts++
+			if attempts < 3 {
+				return "", errors.New("temporary error")
+			}
+			return "success", nil
+		}).
+			RetryOnError(3, 5*time.Millisecond).
+			OnSuccess(func(string) {
+				close(done)
+			})
+	})
 
 	select {
 	case <-done:
@@ -353,14 +401,16 @@ func TestResourceRetryOnErrorExhausted(t *testing.T) {
 	attempts := 0
 	done := make(chan struct{})
 
-	r := New(func() (string, error) {
-		attempts++
-		return "", errors.New("permanent error")
-	}).
-		RetryOnError(2, 5*time.Millisecond).
-		OnError(func(err error) {
-			close(done)
-		})
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			attempts++
+			return "", errors.New("permanent error")
+		}).
+			RetryOnError(2, 5*time.Millisecond).
+			OnError(func(err error) {
+				close(done)
+			})
+	})
 
 	select {
 	case <-done:
@@ -383,10 +433,12 @@ func TestMatchPending(t *testing.T) {
 
 	// Create a resource that we control
 	done := make(chan struct{})
-	r := New(func() (string, error) {
-		return "data", nil
-	}).OnSuccess(func(string) {
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "data", nil
+		}).OnSuccess(func(string) {
+			close(done)
+		})
 	})
 	<-done
 
@@ -403,10 +455,12 @@ func TestMatchPending(t *testing.T) {
 
 func TestMatchError(t *testing.T) {
 	done := make(chan struct{})
-	r := New(func() (string, error) {
-		return "", errors.New("failed")
-	}).OnError(func(err error) {
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "", errors.New("failed")
+		}).OnError(func(err error) {
+			close(done)
+		})
 	})
 
 	<-done
@@ -427,10 +481,12 @@ func TestMatchError(t *testing.T) {
 
 func TestMatchNoHandlerMatches(t *testing.T) {
 	done := make(chan struct{})
-	r := New(func() (string, error) {
-		return "data", nil
-	}).OnSuccess(func(string) {
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "data", nil
+		}).OnSuccess(func(string) {
+			close(done)
+		})
 	})
 
 	<-done
@@ -450,9 +506,11 @@ func TestMatchNoHandlerMatches(t *testing.T) {
 
 func TestMatchLoading(t *testing.T) {
 	// Create a slow resource
-	r := New(func() (string, error) {
-		time.Sleep(100 * time.Millisecond)
-		return "data", nil
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			time.Sleep(100 * time.Millisecond)
+			return "data", nil
+		})
 	})
 
 	// Give it a moment to transition from Pending to Loading
@@ -478,14 +536,16 @@ func TestResourceOnSuccessOnError(t *testing.T) {
 	successCalled := false
 	done := make(chan struct{})
 
-	r := New(func() (string, error) {
-		return "data", nil
-	}).OnSuccess(func(data string) {
-		successCalled = true
-		if data != "data" {
-			t.Errorf("Expected 'data', got '%s'", data)
-		}
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "data", nil
+		}).OnSuccess(func(data string) {
+			successCalled = true
+			if data != "data" {
+				t.Errorf("Expected 'data', got '%s'", data)
+			}
+			close(done)
+		})
 	})
 
 	<-done
@@ -500,14 +560,16 @@ func TestResourceOnErrorCallback(t *testing.T) {
 	done := make(chan struct{})
 	expectedErr := errors.New("test error")
 
-	r := New(func() (string, error) {
-		return "", expectedErr
-	}).OnError(func(err error) {
-		errorCalled = true
-		if err != expectedErr {
-			t.Errorf("Expected error '%v', got '%v'", expectedErr, err)
-		}
-		close(done)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "", expectedErr
+		}).OnError(func(err error) {
+			errorCalled = true
+			if err != expectedErr {
+				t.Errorf("Expected error '%v', got '%v'", expectedErr, err)
+			}
+			close(done)
+		})
 	})
 
 	<-done
@@ -518,9 +580,11 @@ func TestResourceOnErrorCallback(t *testing.T) {
 }
 
 func TestResourceStaleTimeChaining(t *testing.T) {
-	r := New(func() (string, error) {
-		return "data", nil
-	}).StaleTime(5 * time.Second)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "data", nil
+		}).StaleTime(5 * time.Second)
+	})
 
 	// Verify chaining returns the resource
 	if r == nil {
@@ -529,9 +593,11 @@ func TestResourceStaleTimeChaining(t *testing.T) {
 }
 
 func TestResourceRetryOnErrorChaining(t *testing.T) {
-	r := New(func() (string, error) {
-		return "data", nil
-	}).RetryOnError(3, 100*time.Millisecond)
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "data", nil
+		}).RetryOnError(3, 100*time.Millisecond)
+	})
 
 	if r == nil {
 		t.Error("RetryOnError should return the resource for chaining")
@@ -539,9 +605,11 @@ func TestResourceRetryOnErrorChaining(t *testing.T) {
 }
 
 func TestResourceOnSuccessChaining(t *testing.T) {
-	r := New(func() (string, error) {
-		return "data", nil
-	}).OnSuccess(func(string) {})
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "data", nil
+		}).OnSuccess(func(string) {})
+	})
 
 	if r == nil {
 		t.Error("OnSuccess should return the resource for chaining")
@@ -549,9 +617,11 @@ func TestResourceOnSuccessChaining(t *testing.T) {
 }
 
 func TestResourceOnErrorChaining(t *testing.T) {
-	r := New(func() (string, error) {
-		return "", errors.New("error")
-	}).OnError(func(error) {})
+	r := newTestResource(t, func() *Resource[string] {
+		return New(func() (string, error) {
+			return "", errors.New("error")
+		}).OnError(func(error) {})
+	})
 
 	if r == nil {
 		t.Error("OnError should return the resource for chaining")

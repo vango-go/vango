@@ -83,7 +83,7 @@ func New[T any](fetcher func() (T, error)) *Resource[T] {
 	r.err = vango.NewSignal[error](nil)
 
 	// Schedule initial fetch via Effect (not during render)
-	// This avoids signal writes during the render phase
+	// This avoids signal writes during the render phase.
 	vango.CreateEffect(func() vango.Cleanup {
 		r.Fetch()
 		return nil
@@ -123,7 +123,7 @@ func NewWithKey[K comparable, T any](key func() K, fetcher func(K) (T, error)) *
 	}
 
 	// Setup effect to fetch initially and refetch when key changes
-	// Using Effect ensures no signal writes during render
+	// Using Effect ensures no signal writes during render.
 	vango.CreateEffect(func() vango.Cleanup {
 		key() // Track dependency
 		r.Fetch()

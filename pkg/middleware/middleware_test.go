@@ -42,38 +42,39 @@ func (m *mockCtx) Request() *http.Request {
 	return req.WithContext(m.stdCtx)
 }
 
-func (m *mockCtx) Path() string                         { return m.path }
-func (m *mockCtx) Method() string                       { return "GET" }
-func (m *mockCtx) Query() url.Values                    { return nil }
-func (m *mockCtx) QueryParam(key string) string         { return "" }
-func (m *mockCtx) Param(key string) string              { return "" }
-func (m *mockCtx) Header(key string) string             { return "" }
+func (m *mockCtx) Path() string                             { return m.path }
+func (m *mockCtx) Method() string                           { return "GET" }
+func (m *mockCtx) Query() url.Values                        { return nil }
+func (m *mockCtx) QueryParam(key string) string             { return "" }
+func (m *mockCtx) Param(key string) string                  { return "" }
+func (m *mockCtx) Header(key string) string                 { return "" }
 func (m *mockCtx) Cookie(name string) (*http.Cookie, error) { return nil, nil }
-func (m *mockCtx) Status(code int)                      {}
-func (m *mockCtx) Redirect(url string, code int)        {}
-func (m *mockCtx) SetHeader(key, value string)          {}
-func (m *mockCtx) SetCookie(cookie *http.Cookie)        {}
-func (m *mockCtx) Session() *server.Session             { return m.session }
-func (m *mockCtx) User() any                            { return m.user }
-func (m *mockCtx) SetUser(user any)                     { m.user = user }
-func (m *mockCtx) Logger() *slog.Logger                  { return nil }
-func (m *mockCtx) Done() <-chan struct{}                { return nil }
-func (m *mockCtx) SetValue(key, value any)              { m.values[key] = value }
-func (m *mockCtx) Value(key any) any                    { return m.values[key] }
-func (m *mockCtx) Emit(name string, data any)           {}
-func (m *mockCtx) StdContext() context.Context          { return m.stdCtx }
+func (m *mockCtx) Status(code int)                          {}
+func (m *mockCtx) Redirect(url string, code int)            {}
+func (m *mockCtx) SetHeader(key, value string)              {}
+func (m *mockCtx) SetCookie(cookie *http.Cookie)            {}
+func (m *mockCtx) Session() *server.Session                 { return m.session }
+func (m *mockCtx) User() any                                { return m.user }
+func (m *mockCtx) SetUser(user any)                         { m.user = user }
+func (m *mockCtx) Logger() *slog.Logger                     { return nil }
+func (m *mockCtx) Done() <-chan struct{}                    { return nil }
+func (m *mockCtx) SetValue(key, value any)                  { m.values[key] = value }
+func (m *mockCtx) Value(key any) any                        { return m.values[key] }
+func (m *mockCtx) Emit(name string, data any)               {}
+func (m *mockCtx) StdContext() context.Context              { return m.stdCtx }
 func (m *mockCtx) WithStdContext(ctx context.Context) server.Ctx {
 	clone := *m
 	clone.stdCtx = ctx
 	return &clone
 }
-func (m *mockCtx) Event() *server.Event     { return m.event }
-func (m *mockCtx) PatchCount() int          { return m.patchCount }
-func (m *mockCtx) AddPatchCount(count int)  { m.patchCount += count }
-func (m *mockCtx) Dispatch(fn func())                                   { fn() } // Execute inline for tests
-func (m *mockCtx) Navigate(path string, opts ...server.NavigateOption) {} // No-op for tests
-func (m *mockCtx) StormBudget() vango.StormBudgetChecker                { return nil }
-func (m *mockCtx) Mode() int                                            { return 0 } // ModeNormal
+func (m *mockCtx) Event() *server.Event                                { return m.event }
+func (m *mockCtx) PatchCount() int                                     { return m.patchCount }
+func (m *mockCtx) AddPatchCount(count int)                             { m.patchCount += count }
+func (m *mockCtx) Dispatch(fn func())                                  { fn() } // Execute inline for tests
+func (m *mockCtx) Navigate(path string, opts ...server.NavigateOption) {}       // No-op for tests
+func (m *mockCtx) StormBudget() vango.StormBudgetChecker               { return nil }
+func (m *mockCtx) Mode() int                                           { return 0 } // ModeNormal
+func (m *mockCtx) Asset(source string) string                          { return source }
 
 // =============================================================================
 // OpenTelemetry Tests

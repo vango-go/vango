@@ -13,6 +13,26 @@ import (
 	"github.com/vango-go/vango/pkg/vdom"
 )
 
+func newResourceInRender[T any](t *testing.T, build func() *resource.Resource[T]) *resource.Resource[T] {
+	t.Helper()
+
+	owner := vango.NewOwner(nil)
+	t.Cleanup(owner.Dispose)
+
+	var r *resource.Resource[T]
+	vango.WithOwner(owner, func() {
+		owner.StartRender()
+		r = build()
+		owner.EndRender()
+	})
+	owner.RunPendingEffects(nil)
+
+	if r == nil {
+		t.Fatal("resource build returned nil")
+	}
+	return r
+}
+
 // Integration tests verify that features packages work together correctly.
 // These test common workflows that span multiple packages.
 
@@ -86,11 +106,13 @@ func TestResourceMatchWorkflow(t *testing.T) {
 	done := make(chan struct{})
 
 	// Create a resource that simulates API call
-	users := resource.New(func() ([]string, error) {
-		time.Sleep(5 * time.Millisecond) // Simulate network
-		return []string{"Alice", "Bob", "Charlie"}, nil
-	}).OnSuccess(func(data []string) {
-		close(done)
+	users := newResourceInRender(t, func() *resource.Resource[[]string] {
+		return resource.New(func() ([]string, error) {
+			time.Sleep(5 * time.Millisecond) // Simulate network
+			return []string{"Alice", "Bob", "Charlie"}, nil
+		}).OnSuccess(func(data []string) {
+			close(done)
+		})
 	})
 
 	// Helper to create text nodes
@@ -151,10 +173,12 @@ func TestResourceErrorHandling(t *testing.T) {
 	done := make(chan struct{})
 	expectedErr := errors.New("API error: not found")
 
-	users := resource.New(func() (string, error) {
-		return "", expectedErr
-	}).OnError(func(err error) {
-		close(done)
+	users := newResourceInRender(t, func() *resource.Resource[string] {
+		return resource.New(func() (string, error) {
+			return "", expectedErr
+		}).OnError(func(err error) {
+			close(done)
+		})
 	})
 
 	select {
@@ -352,12 +376,14 @@ func TestResourceRefetchWithMutation(t *testing.T) {
 	calls := 0
 	done := make(chan struct{}, 2)
 
-	counter := resource.New(func() (int, error) {
-		calls++
-		result := calls * 10
-		// Signal completion after we know the fetch will return
-		defer func() { done <- struct{}{} }()
-		return result, nil
+	counter := newResourceInRender(t, func() *resource.Resource[int] {
+		return resource.New(func() (int, error) {
+			calls++
+			result := calls * 10
+			// Signal completion after we know the fetch will return
+			defer func() { done <- struct{}{} }()
+			return result, nil
+		})
 	})
 
 	// Wait for initial fetch to signal AND for data to be set
@@ -503,17 +529,19 @@ func TestResourceRetryWorkflow(t *testing.T) {
 	attempts := 0
 	done := make(chan struct{})
 
-	data := resource.New(func() (string, error) {
-		attempts++
-		if attempts < 3 {
-			return "", errors.New("temporary failure")
-		}
-		return "success", nil
-	}).
-		RetryOnError(3, 5*time.Millisecond).
-		OnSuccess(func(s string) {
-			close(done)
-		})
+	data := newResourceInRender(t, func() *resource.Resource[string] {
+		return resource.New(func() (string, error) {
+			attempts++
+			if attempts < 3 {
+				return "", errors.New("temporary failure")
+			}
+			return "success", nil
+		}).
+			RetryOnError(3, 5*time.Millisecond).
+			OnSuccess(func(s string) {
+				close(done)
+			})
+	})
 
 	select {
 	case <-done:
