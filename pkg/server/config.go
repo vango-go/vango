@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/vango-go/vango/pkg/assets"
 	"github.com/vango-go/vango/pkg/session"
 )
 
@@ -301,6 +302,28 @@ type ServerConfig struct {
 	// ReconnectConfig configures client-side reconnection behavior.
 	// Default: ReconnectConfig with sensible defaults.
 	ReconnectConfig *ReconnectConfig
+
+	// ==========================================================================
+	// Asset Resolution (DX Improvements)
+	// ==========================================================================
+
+	// AssetResolver is the resolver for fingerprinted asset paths.
+	// When set, ctx.Asset() will use this resolver to map source paths
+	// to their fingerprinted versions (e.g., "vango.js" → "vango.a1b2c3d4.min.js").
+	//
+	// If nil, ctx.Asset() returns paths unchanged.
+	//
+	// Example:
+	//
+	//     manifest, _ := vango.LoadAssetManifest("dist/manifest.json")
+	//     config.AssetResolver = vango.NewAssetResolver(manifest, "/public/")
+	//
+	// For development (no fingerprinting):
+	//
+	//     config.AssetResolver = vango.NewPassthroughResolver("/public/")
+	//
+	// Default: nil (passthrough behavior).
+	AssetResolver assets.Resolver
 }
 
 // ReconnectConfig configures client-side reconnection behavior.

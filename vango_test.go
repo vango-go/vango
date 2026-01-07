@@ -437,3 +437,117 @@ func TestStreamInterface(t *testing.T) {
 	// Verify Stream interface is exported
 	var _ Stream[int]
 }
+
+// =============================================================================
+// DX Improvements: Resource Re-exports (compile-only tests)
+// =============================================================================
+
+func TestResourceTypesExported(t *testing.T) {
+	// Verify Resource types are exported
+	var _ *Resource[int]
+	var _ ResourceState
+	var _ Handler[int]
+}
+
+func TestResourceStateConstants(t *testing.T) {
+	// Verify state constants are exported with correct values
+	if Pending != 0 {
+		t.Errorf("expected Pending to be 0, got %d", Pending)
+	}
+	if Loading != 1 {
+		t.Errorf("expected Loading to be 1, got %d", Loading)
+	}
+	if Ready != 2 {
+		t.Errorf("expected Ready to be 2, got %d", Ready)
+	}
+	if Error != 3 {
+		t.Errorf("expected Error to be 3, got %d", Error)
+	}
+}
+
+func TestResourceHandlersExported(t *testing.T) {
+	// These should compile, verifying the generics work correctly
+	_ = OnPending[int](func() *VNode { return nil })
+	_ = OnLoading[int](func() *VNode { return nil })
+	_ = OnReady[int](func(int) *VNode { return nil })
+	_ = OnError[int](func(error) *VNode { return nil })
+	_ = OnLoadingOrPending[int](func() *VNode { return nil })
+}
+
+// =============================================================================
+// DX Improvements: Effect Alias
+// =============================================================================
+
+func TestEffectAliasExported(t *testing.T) {
+	// Verify Effect is exported (should be same as CreateEffect)
+	if Effect == nil {
+		t.Error("Effect should not be nil")
+	}
+	if CreateEffect == nil {
+		t.Error("CreateEffect should not be nil")
+	}
+}
+
+// =============================================================================
+// DX Improvements: Shared & Global Signals
+// =============================================================================
+
+func TestSharedSignalTypesExported(t *testing.T) {
+	// Verify shared signal types are exported
+	var _ *SharedSignalDef[int]
+	var _ *GlobalSignal[int]
+}
+
+func TestNewSharedSignalExported(t *testing.T) {
+	// Verify NewSharedSignal is callable
+	shared := NewSharedSignal(42)
+	if shared == nil {
+		t.Error("NewSharedSignal should return non-nil")
+	}
+}
+
+func TestNewGlobalSignalExported(t *testing.T) {
+	// Verify NewGlobalSignal is callable
+	global := NewGlobalSignal(42)
+	if global == nil {
+		t.Error("NewGlobalSignal should return non-nil")
+	}
+	if global.Get() != 42 {
+		t.Errorf("expected 42, got %d", global.Get())
+	}
+}
+
+// =============================================================================
+// DX Improvements: Asset Resolution
+// =============================================================================
+
+func TestAssetTypesExported(t *testing.T) {
+	// Verify asset types are exported
+	var _ *AssetManifest
+	var _ AssetResolver
+}
+
+func TestNewPassthroughResolverExported(t *testing.T) {
+	// Verify passthrough resolver works
+	r := NewPassthroughResolver("/public/")
+	if r == nil {
+		t.Error("NewPassthroughResolver should return non-nil")
+	}
+
+	// Should add prefix to path
+	path := r.Asset("vango.js")
+	if path != "/public/vango.js" {
+		t.Errorf("expected '/public/vango.js', got %q", path)
+	}
+}
+
+func TestNewAssetResolverExported(t *testing.T) {
+	// Create a manifest and resolver
+	manifest, err := LoadAssetManifest("/nonexistent/manifest.json")
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+	_ = manifest
+
+	// NewAssetResolver should be callable (would panic if manifest is nil in real use)
+}

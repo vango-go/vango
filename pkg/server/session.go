@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/vango-go/vango/pkg/assets"
 	"github.com/vango-go/vango/pkg/features/store"
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/render"
@@ -128,6 +129,9 @@ type Session struct {
 	prefetchLimiter   *PrefetchRateLimiter
 	prefetchSemaphore *PrefetchSemaphore
 	prefetchConfig    *PrefetchConfig
+
+	// Asset resolver for fingerprinted asset paths (DX Improvements)
+	assetResolver assets.Resolver
 }
 
 // generateSessionID generates a cryptographically random session ID.
@@ -1249,10 +1253,11 @@ func (s *Session) BytesReceived(n int) {
 // This context is set via vango.WithCtx so UseCtx() works in handlers.
 func (s *Session) createEventContext(event *Event) Ctx {
 	return &ctx{
-		session: s,
-		event:   event,
-		logger:  s.logger,
-		stdCtx:  context.Background(),
+		session:       s,
+		event:         event,
+		logger:        s.logger,
+		stdCtx:        context.Background(),
+		assetResolver: s.assetResolver,
 	}
 }
 
@@ -1260,10 +1265,17 @@ func (s *Session) createEventContext(event *Event) Ctx {
 // This context is set via vango.WithCtx so UseCtx() works during render.
 func (s *Session) createRenderContext() Ctx {
 	return &ctx{
-		session: s,
-		logger:  s.logger,
-		stdCtx:  context.Background(),
+		session:       s,
+		logger:        s.logger,
+		stdCtx:        context.Background(),
+		assetResolver: s.assetResolver,
 	}
+}
+
+// SetAssetResolver sets the asset resolver for this session.
+// This is called by the server when a session is created or resumed.
+func (s *Session) SetAssetResolver(r assets.Resolver) {
+	s.assetResolver = r
 }
 
 // =============================================================================

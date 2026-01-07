@@ -363,6 +363,11 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Resume existing session with soft remount
 		session.Resume(conn, uint64(hello.LastSeq))
 
+		// Set asset resolver if configured
+		if s.config.AssetResolver != nil {
+			session.SetAssetResolver(s.config.AssetResolver)
+		}
+
 		// Rebuild handlers (soft remount - preserves signal state)
 		if err := session.RebuildHandlers(); err != nil {
 			s.logger.Error("rebuild handlers failed", "error", err)
@@ -426,6 +431,12 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// This enables EventNavigate and ctx.Navigate() to work
 	if s.router != nil {
 		session.SetRouter(s.router)
+	}
+
+	// Set asset resolver if configured (DX Improvements)
+	// This enables ctx.Asset() to resolve fingerprinted paths
+	if s.config.AssetResolver != nil {
+		session.SetAssetResolver(s.config.AssetResolver)
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════

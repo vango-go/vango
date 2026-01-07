@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/vango-go/vango/pkg/assets"
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/vango"
 )
@@ -303,6 +304,23 @@ type Ctx interface {
 	//         return // drop in prod
 	//     }
 	Mode() int
+
+	// ==========================================================================
+	// Asset Resolution (DX Improvements)
+	// ==========================================================================
+
+	// Asset resolves a source asset path to its fingerprinted path.
+	// Returns the original path if no manifest is configured or the asset is not found.
+	//
+	// This enables cache-busting via content-hashed filenames while keeping
+	// templates simple:
+	//
+	// Example:
+	//
+	//     <script src={ctx.Asset("vango.js")}></script>
+	//     // In dev: "/public/vango.js"
+	//     // In prod: "/public/vango.a1b2c3d4.min.js"
+	Asset(source string) string
 }
 
 // ctx is the concrete implementation of Ctx.
@@ -320,6 +338,9 @@ type ctx struct {
 	event      *Event          // Current WebSocket event (Phase 13)
 	patchCount int             // Number of patches sent (Phase 13)
 	mode       RenderMode      // Render mode (Phase 7: Prefetch)
+
+	// Asset resolver for fingerprinted asset paths (DX Improvements)
+	assetResolver assets.Resolver
 
 	// pendingNavigation is set by ctx.Navigate() and processed by flush().
 	// Per Section 4.4 (Programmatic Navigation), navigation is processed
@@ -776,6 +797,25 @@ func (c *ctx) setMode(mode RenderMode) {
 // This is a convenience method for checking if side effects should be suppressed.
 func (c *ctx) IsPrefetch() bool {
 	return c.mode == ModePrefetch
+}
+
+// =============================================================================
+// Asset Resolution (DX Improvements)
+// =============================================================================
+
+// Asset resolves a source asset path to its fingerprinted path.
+// Returns the original path if no resolver is configured or the asset is not found.
+func (c *ctx) Asset(source string) string {
+	if c.assetResolver == nil {
+		return source
+	}
+	return c.assetResolver.Asset(source)
+}
+
+// setAssetResolver sets the asset resolver for this context.
+// This is called internally when creating a context from a server with a configured resolver.
+func (c *ctx) setAssetResolver(r assets.Resolver) {
+	c.assetResolver = r
 }
 
 // =============================================================================
