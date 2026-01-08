@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -458,9 +459,26 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Send server hello
 	s.sendServerHello(conn, session)
 
-	// Mount root component if factory is set
+	// Mount root component. Prefer an explicit root factory, otherwise mount the current route.
 	if s.rootComponent != nil {
 		session.MountRoot(s.rootComponent())
+	} else if s.router != nil {
+		initialPath := r.URL.Query().Get("path")
+		if initialPath == "" {
+			initialPath = "/"
+		}
+		// Never treat internal endpoints as page routes.
+		if strings.HasPrefix(initialPath, "/_vango/") {
+			initialPath = "/"
+		}
+
+		root, canonicalPath, err := newRouteRootComponent(session, s.router, initialPath)
+		if err != nil {
+			s.logger.Warn("initial route mount failed", "path", initialPath, "error", err)
+		} else {
+			session.CurrentRoute = canonicalPath
+			session.MountRoot(root)
+		}
 	}
 
 	// Start session loops

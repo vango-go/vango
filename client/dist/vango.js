@@ -21,6 +21,8 @@ var Vango = (() => {
   // src/index.js
   var src_exports = {};
   __export(src_exports, {
+    ConnectionManager: () => ConnectionManager,
+    ConnectionState: () => ConnectionState,
     EventType: () => EventType,
     VangoClient: () => VangoClient,
     default: () => src_default
@@ -99,7 +101,13 @@ var Vango = (() => {
     REMOVE_STYLE: 20,
     SET_DATA: 21,
     DISPATCH: 32,
-    EVAL: 33
+    // NOTE: EVAL (0x21) has been REMOVED for security. Server never sends it.
+    // URL operations (Phase 12: URLParam 2.0)
+    URL_PUSH: 48,
+    URL_REPLACE: 49,
+    // Navigation operations (full route navigation)
+    NAV_PUSH: 50,
+    NAV_REPLACE: 51
   };
   var KeyMod = {
     CTRL: 1,
@@ -309,10 +317,26 @@ var Vango = (() => {
           patch.detail = detail;
           break;
         }
-        case PatchType.EVAL: {
-          const { value, bytesRead } = this.decodeString(buffer, offset);
-          patch.code = value;
-          offset += bytesRead;
+        case PatchType.URL_PUSH:
+        case PatchType.URL_REPLACE: {
+          const { value: count, bytesRead: countBytes } = this.decodeUvarint(buffer, offset);
+          offset += countBytes;
+          patch.params = {};
+          for (let i = 0; i < count; i++) {
+            const { value: key, bytesRead: keyBytes } = this.decodeString(buffer, offset);
+            offset += keyBytes;
+            const { value, bytesRead: valueBytes } = this.decodeString(buffer, offset);
+            offset += valueBytes;
+            patch.params[key] = value;
+          }
+          patch.op = patch.type;
+          break;
+        }
+        case PatchType.NAV_PUSH:
+        case PatchType.NAV_REPLACE: {
+          const { value: path, bytesRead: pathBytes } = this.decodeString(buffer, offset);
+          offset += pathBytes;
+          patch.path = path;
           break;
         }
         default:
@@ -483,9 +507,11 @@ var Vango = (() => {
     }
     /**
      * Encode keyboard event
+     * Per spec section 3.9.3, lines 1091-1103
      */
     encodeKeyboardEvent(parts, data) {
       parts.push(this.encodeString((data == null ? void 0 : data.key) || ""));
+      parts.push(this.encodeString((data == null ? void 0 : data.code) || ""));
       let modifiers = 0;
       if (data == null ? void 0 : data.ctrlKey)
         modifiers |= KeyMod.CTRL;
@@ -496,14 +522,22 @@ var Vango = (() => {
       if (data == null ? void 0 : data.metaKey)
         modifiers |= KeyMod.META;
       parts.push(new Uint8Array([modifiers]));
+      parts.push(new Uint8Array([(data == null ? void 0 : data.repeat) ? 1 : 0]));
+      parts.push(new Uint8Array([(data == null ? void 0 : data.location) || 0]));
     }
     /**
      * Encode mouse event
+     * Per spec section 3.9.3, lines 1059-1075
      */
     encodeMouseEvent(parts, data) {
       parts.push(this.encodeSvarint((data == null ? void 0 : data.clientX) || 0));
       parts.push(this.encodeSvarint((data == null ? void 0 : data.clientY) || 0));
+      parts.push(this.encodeSvarint((data == null ? void 0 : data.pageX) || 0));
+      parts.push(this.encodeSvarint((data == null ? void 0 : data.pageY) || 0));
+      parts.push(this.encodeSvarint((data == null ? void 0 : data.offsetX) || 0));
+      parts.push(this.encodeSvarint((data == null ? void 0 : data.offsetY) || 0));
       parts.push(new Uint8Array([(data == null ? void 0 : data.button) || 0]));
+      parts.push(new Uint8Array([(data == null ? void 0 : data.buttons) || 0]));
       let modifiers = 0;
       if (data == null ? void 0 : data.ctrlKey)
         modifiers |= KeyMod.CTRL;
@@ -531,14 +565,35 @@ var Vango = (() => {
     }
     /**
      * Encode touch event
+     * Per spec section 3.9.3, lines 1212-1225
      */
     encodeTouchEvent(parts, data) {
       const touches = (data == null ? void 0 : data.touches) || [];
       parts.push(this.encodeUvarint(touches.length));
       for (const touch of touches) {
-        parts.push(this.encodeSvarint(touch.id || 0));
+        parts.push(this.encodeSvarint(touch.identifier || touch.id || 0));
         parts.push(this.encodeSvarint(touch.clientX || 0));
         parts.push(this.encodeSvarint(touch.clientY || 0));
+        parts.push(this.encodeSvarint(touch.pageX || 0));
+        parts.push(this.encodeSvarint(touch.pageY || 0));
+      }
+      const targetTouches = (data == null ? void 0 : data.targetTouches) || [];
+      parts.push(this.encodeUvarint(targetTouches.length));
+      for (const touch of targetTouches) {
+        parts.push(this.encodeSvarint(touch.identifier || touch.id || 0));
+        parts.push(this.encodeSvarint(touch.clientX || 0));
+        parts.push(this.encodeSvarint(touch.clientY || 0));
+        parts.push(this.encodeSvarint(touch.pageX || 0));
+        parts.push(this.encodeSvarint(touch.pageY || 0));
+      }
+      const changedTouches = (data == null ? void 0 : data.changedTouches) || [];
+      parts.push(this.encodeUvarint(changedTouches.length));
+      for (const touch of changedTouches) {
+        parts.push(this.encodeSvarint(touch.identifier || touch.id || 0));
+        parts.push(this.encodeSvarint(touch.clientX || 0));
+        parts.push(this.encodeSvarint(touch.clientY || 0));
+        parts.push(this.encodeSvarint(touch.pageX || 0));
+        parts.push(this.encodeSvarint(touch.pageY || 0));
       }
     }
     /**
@@ -619,6 +674,136 @@ var Vango = (() => {
       new DataView(buffer).setFloat64(0, value, true);
       return new Uint8Array(buffer);
     }
+    /**
+     * Encode ClientHello for handshake (raw payload, no frame header)
+     * Format: [major:1][minor:1][csrf:string][sessionID:string][lastSeq:4][viewportW:2][viewportH:2][tzOffset:2]
+     */
+    encodeClientHello(options = {}) {
+      const parts = [];
+      parts.push(new Uint8Array([2, 0]));
+      parts.push(this.encodeString(options.csrf || ""));
+      parts.push(this.encodeString(options.sessionId || ""));
+      parts.push(this.encodeUint32(options.lastSeq || 0));
+      parts.push(this.encodeUint16(options.viewportW || window.innerWidth));
+      parts.push(this.encodeUint16(options.viewportH || window.innerHeight));
+      const tzOffset = (/* @__PURE__ */ new Date()).getTimezoneOffset();
+      parts.push(this.encodeInt16(-tzOffset));
+      return concat(parts);
+    }
+    /**
+     * Encode ClientHello wrapped in frame header for consistent framing.
+     * Format: [type:1][flags:1][len:2][payload...]
+     *
+     * Per spec: All protocol messages should use the same frame format.
+     */
+    encodeClientHelloFrame(options = {}) {
+      const payload = this.encodeClientHello(options);
+      const frame = new Uint8Array(4 + payload.length);
+      frame[0] = 0;
+      frame[1] = 0;
+      frame[2] = payload.length >> 8 & 255;
+      frame[3] = payload.length & 255;
+      frame.set(payload, 4);
+      return frame;
+    }
+    /**
+     * Decode ServerHello from handshake response
+     * Frame format: [type:1][flags:1][len:2][payload...]
+     * ServerHello payload: [status:1][sessionID:string][nextSeq:4][serverTime:8][flags:2]
+     */
+    decodeServerHello(buffer) {
+      if (buffer.length < 5) {
+        return { error: "Buffer too short" };
+      }
+      const frameType = buffer[0];
+      if (frameType !== 0) {
+        return { error: `Unexpected frame type: ${frameType}` };
+      }
+      let offset = 4;
+      const status = buffer[offset++];
+      const { value: sessionId, bytesRead: sessionBytes } = this.decodeString(buffer, offset);
+      offset += sessionBytes;
+      const nextSeq = this.decodeUint32(buffer, offset);
+      offset += 4;
+      const serverTime = this.decodeUint64(buffer, offset);
+      offset += 8;
+      const flags = this.decodeUint16(buffer, offset);
+      return {
+        status,
+        sessionId,
+        nextSeq,
+        serverTime,
+        flags,
+        ok: status === 0
+      };
+    }
+    /**
+     * Encode uint16 big-endian (matches Go protocol)
+     */
+    encodeUint16(value) {
+      return new Uint8Array([value >> 8 & 255, value & 255]);
+    }
+    /**
+     * Decode uint16 big-endian (matches Go protocol)
+     */
+    decodeUint16(buffer, offset) {
+      return buffer[offset] << 8 | buffer[offset + 1];
+    }
+    /**
+     * Encode int16 big-endian (matches Go protocol)
+     */
+    encodeInt16(value) {
+      return this.encodeUint16(value & 65535);
+    }
+    /**
+     * Encode uint32 big-endian (matches Go protocol)
+     */
+    encodeUint32(value) {
+      return new Uint8Array([
+        value >> 24 & 255,
+        value >> 16 & 255,
+        value >> 8 & 255,
+        value & 255
+      ]);
+    }
+    /**
+     * Decode uint32 big-endian (matches Go protocol)
+     */
+    decodeUint32(buffer, offset) {
+      return buffer[offset] << 24 | buffer[offset + 1] << 16 | buffer[offset + 2] << 8 | buffer[offset + 3];
+    }
+    /**
+     * Decode uint64 big-endian (returns as Number, may lose precision for large values)
+     * Matches Go protocol encoding.
+     */
+    decodeUint64(buffer, offset) {
+      const high = this.decodeUint32(buffer, offset);
+      const low = this.decodeUint32(buffer, offset + 4);
+      return high * 4294967296 + low;
+    }
+    /**
+     * Encode ACK payload
+     * Format: [lastSeq:varint][window:varint]
+     * Matches vango/pkg/protocol/ack.go
+     */
+    encodeAck(lastSeq, window2 = 100) {
+      return concat([
+        this.encodeUvarint(lastSeq),
+        this.encodeUvarint(window2)
+      ]);
+    }
+    /**
+     * Encode ResyncRequest control payload
+     * Format: [controlType:1][lastSeq:varint]
+     * Matches vango/pkg/protocol/control.go ControlResyncRequest (0x10)
+     */
+    encodeResyncRequest(lastSeq) {
+      return concat([
+        new Uint8Array([16]),
+        // ControlResyncRequest
+        this.encodeUvarint(lastSeq)
+      ]);
+    }
   };
   __name(_BinaryCodec, "BinaryCodec");
   var BinaryCodec = _BinaryCodec;
@@ -636,6 +821,7 @@ var Vango = (() => {
       };
       this.ws = null;
       this.connected = false;
+      this.handshakeComplete = false;
       this.sessionId = null;
       this.reconnectAttempts = 0;
       this.heartbeatTimer = null;
@@ -668,55 +854,100 @@ var Vango = (() => {
       this._startHeartbeat();
     }
     /**
-     * Send handshake message (JSON, not binary)
+     * Send binary ClientHello handshake wrapped in frame header.
+     * Per spec: All protocol messages use consistent framing.
      */
     _sendHandshake() {
-      const handshake = {
-        type: "handshake",
-        version: "1.0",
-        csrf: window.__VANGO_CSRF__ || "",
-        session: this.sessionId || "",
-        path: location.pathname,
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight
-        }
-      };
-      this.ws.send(JSON.stringify(handshake));
+      const helloFrame = this.client.codec.encodeClientHelloFrame({
+        csrf: this._getCSRFToken(),
+        sessionId: this.sessionId || "",
+        viewportW: window.innerWidth,
+        viewportH: window.innerHeight
+      });
+      this.ws.send(helloFrame);
+      if (this.client.options.debug) {
+        console.log("[Vango] Sent framed ClientHello");
+      }
+    }
+    /**
+     * Get CSRF token from window global or cookie (Double Submit Cookie pattern)
+     */
+    _getCSRFToken() {
+      if (window.__VANGO_CSRF__) {
+        return window.__VANGO_CSRF__;
+      }
+      const match = document.cookie.match(/(?:^|;\s*)__vango_csrf=([^;]*)/);
+      return match ? decodeURIComponent(match[1]) : "";
     }
     /**
      * Handle incoming message
      */
     _onMessage(event) {
-      if (!this.connected) {
-        try {
-          const ack = JSON.parse(event.data);
-          if (ack.type === "handshake_ack") {
-            this.connected = true;
-            this.sessionId = ack.session;
-            this.client._onConnected();
-            this._flushQueue();
-            if (this.client.options.debug) {
-              console.log("[Vango] Handshake complete, session:", this.sessionId);
-            }
-            return;
-          }
-        } catch (e) {
+      if (!(event.data instanceof ArrayBuffer)) {
+        if (this.client.options.debug) {
+          console.warn("[Vango] Received non-binary message:", event.data);
         }
+        return;
       }
-      if (event.data instanceof ArrayBuffer) {
-        this.client._handleBinaryMessage(new Uint8Array(event.data));
+      const buffer = new Uint8Array(event.data);
+      if (!this.handshakeComplete) {
+        const hello = this.client.codec.decodeServerHello(buffer);
+        if (hello.error) {
+          if (this.client.options.debug) {
+            console.error("[Vango] Handshake error:", hello.error);
+          }
+          this.client._onError(new Error(hello.error));
+          return;
+        }
+        if (!hello.ok) {
+          const errorMessages = {
+            1: "Version mismatch",
+            2: "Invalid CSRF token",
+            3: "Session expired",
+            4: "Server busy",
+            5: "Upgrade required",
+            6: "Invalid format",
+            7: "Not authorized",
+            8: "Internal error"
+          };
+          const msg = errorMessages[hello.status] || `Handshake failed: ${hello.status}`;
+          this.client._onError(new Error(msg));
+          this.ws.close();
+          return;
+        }
+        this.handshakeComplete = true;
+        this.connected = true;
+        this.sessionId = hello.sessionId;
+        this.client._onConnected();
+        this._flushQueue();
+        if (this.client.options.debug) {
+          console.log("[Vango] Handshake complete, session:", this.sessionId);
+        }
+        return;
       }
+      this.client._handleBinaryMessage(buffer);
     }
     /**
      * Handle WebSocket close
+     *
+     * Per spec Section 9.6.3 (Connection Loss During Navigation):
+     * If WebSocket closes while awaiting navigation response,
+     * complete the navigation via location.assign(pendingPath).
      */
     _onClose(event) {
+      var _a;
       const wasConnected = this.connected;
       this.connected = false;
+      this.handshakeComplete = false;
       this._stopHeartbeat();
       if (this.client.options.debug) {
         console.log("[Vango] WebSocket closed:", event.code, event.reason);
+      }
+      const pendingPath = (_a = this.client.eventCapture) == null ? void 0 : _a.pendingNavPath;
+      if (wasConnected && pendingPath) {
+        console.log("[Vango] Connection lost during navigation, completing via location.assign:", pendingPath);
+        location.assign(pendingPath);
+        return;
       }
       if (wasConnected) {
         this.client._onDisconnected();
@@ -772,8 +1003,21 @@ var Vango = (() => {
      */
     _sendPing() {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        const buffer = new Uint8Array([2, 1]);
-        this.ws.send(buffer);
+        const timestamp = Date.now();
+        const payload = new Uint8Array(9);
+        payload[0] = 1;
+        let ts = timestamp;
+        for (let i = 0; i < 8; i++) {
+          payload[1 + i] = ts & 255;
+          ts = Math.floor(ts / 256);
+        }
+        const frame = new Uint8Array(4 + payload.length);
+        frame[0] = 3;
+        frame[1] = 0;
+        frame[2] = payload.length >> 8 & 255;
+        frame[3] = payload.length & 255;
+        frame.set(payload, 4);
+        this.ws.send(frame);
       }
     }
     /**
@@ -819,6 +1063,7 @@ var Vango = (() => {
       this.handlers = /* @__PURE__ */ new Map();
       this.debounceTimers = /* @__PURE__ */ new Map();
       this.scrollThrottled = /* @__PURE__ */ new Set();
+      this.prefetchedPaths = /* @__PURE__ */ new Set();
     }
     /**
      * Attach event listeners to document
@@ -838,6 +1083,7 @@ var Vango = (() => {
       this._on("scroll", this._handleScroll.bind(this), true);
       this._on("click", this._handleLinkClick.bind(this));
       window.addEventListener("popstate", this._handlePopState.bind(this));
+      this._on("mouseenter", this._handlePrefetch.bind(this), true);
     }
     /**
      * Detach all event listeners
@@ -863,17 +1109,167 @@ var Vango = (() => {
      * Find closest element with data-hid
      */
     _findHidElement(target) {
+      if (!target || !target.closest) {
+        return null;
+      }
       return target.closest("[data-hid]");
+    }
+    _closest(target, selector) {
+      if (!target || typeof target.closest !== "function") {
+        return null;
+      }
+      return target.closest(selector);
+    }
+    /**
+     * Check if element has an event in its data-ve attribute.
+     * Parses data-ve="click,input,change" format per spec Section 5.2.
+     */
+    _hasEvent(el, eventName) {
+      const ve = (el.dataset.ve || "").split(",").map((s) => s.trim());
+      return ve.includes(eventName);
+    }
+    /**
+     * Get modifier options for an event on an element.
+     * Reads data-pd-{event}, data-sp-{event}, data-self-{event}, etc.
+     * Per spec section 3.9.3, lines 1299-1365.
+     */
+    _getModifiers(el, eventName) {
+      return {
+        preventDefault: el.dataset[`pd${this._capitalize(eventName)}`] === "true",
+        stopPropagation: el.dataset[`sp${this._capitalize(eventName)}`] === "true",
+        self: el.dataset[`self${this._capitalize(eventName)}`] === "true",
+        once: el.dataset[`once${this._capitalize(eventName)}`] === "true",
+        passive: el.dataset[`passive${this._capitalize(eventName)}`] === "true",
+        capture: el.dataset[`capture${this._capitalize(eventName)}`] === "true",
+        debounce: parseInt(el.dataset[`debounce${this._capitalize(eventName)}`] || el.dataset.debounce || "0", 10),
+        throttle: parseInt(el.dataset[`throttle${this._capitalize(eventName)}`] || el.dataset.throttle || "0", 10)
+      };
+    }
+    /**
+     * Capitalize first letter for dataset property access (click -> Click)
+     */
+    _capitalize(str) {
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+    /**
+     * Apply modifiers to an event.
+     * Returns false if the event should not be processed.
+     * Returns the modifiers object for additional checks by handlers.
+     */
+    _applyModifiers(event, el, eventName) {
+      const mods = this._getModifiers(el, eventName);
+      if (mods.self && event.target !== el) {
+        return false;
+      }
+      if (mods.passive) {
+        const originalPreventDefault = event.preventDefault.bind(event);
+        event.preventDefault = () => {
+          console.warn("[Vango] preventDefault() called on passive handler - ignored");
+        };
+        queueMicrotask(() => {
+          event.preventDefault = originalPreventDefault;
+        });
+      } else if (mods.preventDefault) {
+        event.preventDefault();
+      }
+      if (mods.stopPropagation) {
+        event.stopPropagation();
+      }
+      if (mods.once) {
+        const ve = (el.dataset.ve || "").split(",").map((s) => s.trim());
+        const filtered = ve.filter((e) => e !== eventName);
+        if (filtered.length > 0) {
+          el.dataset.ve = filtered.join(",");
+        } else {
+          delete el.dataset.ve;
+        }
+      }
+      return true;
+    }
+    /**
+     * Get debounce delay for an event on an element.
+     */
+    _getDebounce(el, eventName) {
+      const mods = this._getModifiers(el, eventName);
+      if (eventName === "input" && mods.debounce === 0) {
+        return 100;
+      }
+      return mods.debounce;
+    }
+    /**
+     * Get throttle delay for an event on an element.
+     */
+    _getThrottle(el, eventName) {
+      const mods = this._getModifiers(el, eventName);
+      if (eventName === "scroll" && mods.throttle === 0) {
+        return 100;
+      }
+      return mods.throttle;
+    }
+    /**
+     * Find closest element with data-hid that has a specific event in data-ve.
+     * Parses data-ve="click,input,change" format per spec Section 5.2.
+     * This handles event bubbling through nested HID elements.
+     */
+    _findHidElementWithEvent(target, eventName) {
+      if (!target || !target.closest) {
+        return null;
+      }
+      let el = target.closest("[data-hid]");
+      while (el) {
+        if (this._hasEvent(el, eventName)) {
+          return el;
+        }
+        const parent = el.parentElement;
+        if (!parent)
+          break;
+        el = parent.closest("[data-hid]");
+      }
+      return null;
     }
     /**
      * Handle click event
+     *
+     * Per spec Section 5.2 (Interception Decision Table):
+     * - MUST NOT intercept if defaultPrevented
+     * - MUST NOT intercept right/middle click (button !== 0)
+     * - MUST NOT intercept if modifier keys held
+     * - MUST NOT intercept if WebSocket not connected
+     * - For anchors: respect target, download, cross-origin
      */
     _handleClick(event) {
-      const el = this._findHidElement(event.target);
+      if (event.defaultPrevented)
+        return;
+      if (event.button !== 0)
+        return;
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+        return;
+      if (!this.client.connected)
+        return;
+      const el = this._findHidElementWithEvent(event.target, "click");
       if (!el)
         return;
-      if (!el.hasAttribute("data-on-click"))
+      const anchor = this._closest(event.target, "a[href]");
+      if (anchor) {
+        const target = anchor.getAttribute("target");
+        if (target && target !== "_self")
+          return;
+        if (anchor.hasAttribute("download"))
+          return;
+        const href = anchor.getAttribute("href");
+        if (href) {
+          try {
+            const url = new URL(href, location.href);
+            if (url.origin !== location.origin)
+              return;
+          } catch (e) {
+            return;
+          }
+        }
+      }
+      if (!this._applyModifiers(event, el, "click")) {
         return;
+      }
       event.preventDefault();
       this.client.optimistic.applyOptimistic(el, "click");
       this.client.sendEvent(EventType.CLICK, el.dataset.hid);
@@ -883,9 +1279,15 @@ var Vango = (() => {
      */
     _handleDblClick(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-dblclick"))
+      if (!el || !this._hasEvent(el, "dblclick"))
         return;
-      event.preventDefault();
+      if (!this._applyModifiers(event, el, "dblclick")) {
+        return;
+      }
+      const mods = this._getModifiers(el, "dblclick");
+      if (!mods.preventDefault && !mods.passive) {
+        event.preventDefault();
+      }
       this.client.sendEvent(EventType.DBLCLICK, el.dataset.hid);
     }
     /**
@@ -893,12 +1295,19 @@ var Vango = (() => {
      */
     _handleInput(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-input"))
+      if (!el || !this._hasEvent(el, "input"))
         return;
+      if (!this._applyModifiers(event, el, "input")) {
+        return;
+      }
       const hid = el.dataset.hid;
-      const debounceMs = parseInt(el.dataset.debounce || "100", 10);
+      const debounceMs = this._getDebounce(el, "input");
       if (this.debounceTimers.has(hid)) {
         clearTimeout(this.debounceTimers.get(hid));
+      }
+      if (debounceMs === 0) {
+        this.client.sendEvent(EventType.INPUT, hid, { value: el.value });
+        return;
       }
       const timer = setTimeout(() => {
         this.debounceTimers.delete(hid);
@@ -911,8 +1320,11 @@ var Vango = (() => {
      */
     _handleChange(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-change"))
+      if (!el || !this._hasEvent(el, "change"))
         return;
+      if (!this._applyModifiers(event, el, "change")) {
+        return;
+      }
       let value;
       if (el.type === "checkbox") {
         value = el.checked ? "true" : "false";
@@ -928,10 +1340,17 @@ var Vango = (() => {
     }
     /**
      * Handle form submit
+     *
+     * Per spec Section 5.2 (Progressive Enhancement):
+     * When WebSocket is unavailable, forms MUST fall back to normal HTTP submission.
      */
     _handleSubmit(event) {
-      const form = event.target.closest("form[data-hid]");
-      if (!form || !form.hasAttribute("data-on-submit"))
+      const form = this._closest(event.target, "form[data-hid]");
+      if (!form || !this._hasEvent(form, "submit"))
+        return;
+      if (!this.client.connected)
+        return;
+      if (event.defaultPrevented)
         return;
       event.preventDefault();
       const formData = new FormData(form);
@@ -946,8 +1365,11 @@ var Vango = (() => {
      */
     _handleFocus(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-focus"))
+      if (!el || !this._hasEvent(el, "focus"))
         return;
+      if (!this._applyModifiers(event, el, "focus")) {
+        return;
+      }
       this.client.sendEvent(EventType.FOCUS, el.dataset.hid);
     }
     /**
@@ -955,8 +1377,11 @@ var Vango = (() => {
      */
     _handleBlur(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-blur"))
+      if (!el || !this._hasEvent(el, "blur"))
         return;
+      if (!this._applyModifiers(event, el, "blur")) {
+        return;
+      }
       this.client.sendEvent(EventType.BLUR, el.dataset.hid);
     }
     /**
@@ -964,15 +1389,14 @@ var Vango = (() => {
      */
     _handleKeyDown(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-keydown"))
+      if (!el || !this._hasEvent(el, "keydown"))
         return;
       const keyFilter = el.dataset.keyFilter;
       if (keyFilter && !this._matchesKeyFilter(event, keyFilter)) {
         return;
       }
-      const shouldPrevent = el.dataset.preventDefault !== "false";
-      if (shouldPrevent) {
-        event.preventDefault();
+      if (!this._applyModifiers(event, el, "keydown")) {
+        return;
       }
       this.client.sendEvent(EventType.KEYDOWN, el.dataset.hid, {
         key: event.key,
@@ -980,7 +1404,9 @@ var Vango = (() => {
         ctrlKey: event.ctrlKey,
         shiftKey: event.shiftKey,
         altKey: event.altKey,
-        metaKey: event.metaKey
+        metaKey: event.metaKey,
+        repeat: event.repeat,
+        location: event.location
       });
     }
     /**
@@ -988,15 +1414,20 @@ var Vango = (() => {
      */
     _handleKeyUp(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-keyup"))
+      if (!el || !this._hasEvent(el, "keyup"))
         return;
+      if (!this._applyModifiers(event, el, "keyup")) {
+        return;
+      }
       this.client.sendEvent(EventType.KEYUP, el.dataset.hid, {
         key: event.key,
         code: event.code,
         ctrlKey: event.ctrlKey,
         shiftKey: event.shiftKey,
         altKey: event.altKey,
-        metaKey: event.metaKey
+        metaKey: event.metaKey,
+        repeat: event.repeat,
+        location: event.location
       });
     }
     /**
@@ -1004,8 +1435,11 @@ var Vango = (() => {
      */
     _handleMouseEnter(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-mouseenter"))
+      if (!el || !this._hasEvent(el, "mouseenter"))
         return;
+      if (!this._applyModifiers(event, el, "mouseenter")) {
+        return;
+      }
       this.client.sendEvent(EventType.MOUSEENTER, el.dataset.hid);
     }
     /**
@@ -1013,8 +1447,11 @@ var Vango = (() => {
      */
     _handleMouseLeave(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-mouseleave"))
+      if (!el || !this._hasEvent(el, "mouseleave"))
         return;
+      if (!this._applyModifiers(event, el, "mouseleave")) {
+        return;
+      }
       this.client.sendEvent(EventType.MOUSELEAVE, el.dataset.hid);
     }
     /**
@@ -1022,45 +1459,154 @@ var Vango = (() => {
      */
     _handleScroll(event) {
       const el = this._findHidElement(event.target);
-      if (!el || !el.hasAttribute("data-on-scroll"))
+      if (!el || !this._hasEvent(el, "scroll"))
         return;
-      const hid = el.dataset.hid;
-      const throttleMs = parseInt(el.dataset.throttle || "100", 10);
-      if (this.scrollThrottled.has(hid)) {
+      if (!this._applyModifiers(event, el, "scroll")) {
         return;
       }
-      this.scrollThrottled.add(hid);
-      setTimeout(() => {
-        this.scrollThrottled.delete(hid);
-      }, throttleMs);
+      const hid = el.dataset.hid;
+      const throttleMs = this._getThrottle(el, "scroll");
+      if (throttleMs > 0 && this.scrollThrottled.has(hid)) {
+        return;
+      }
+      if (throttleMs > 0) {
+        this.scrollThrottled.add(hid);
+        setTimeout(() => {
+          this.scrollThrottled.delete(hid);
+        }, throttleMs);
+      }
       this.client.sendEvent(EventType.SCROLL, hid, {
         scrollTop: el.scrollTop,
         scrollLeft: el.scrollLeft
       });
     }
     /**
-     * Handle link click for client-side navigation
+     * Handle link click for client-side navigation.
+     *
+     * Per Navigation Contract Section 4.5 (Link Click Navigation):
+     * 1. Do NOT update history immediately
+     * 2. Send EventNavigate { path, replace }
+     * 3. Wait for server response with NAV_* + DOM patches
+     * 4. Apply patches (URL update + DOM update)
+     *
+     * Per Progressive Enhancement Contract Section 5.1:
+     * A link click is intercepted ONLY when ALL conditions are true:
+     * 1. Element has data-vango-link attribute (canonical marker)
+     * 2. WebSocket connection is healthy
+     * 3. Link is same-origin
+     * 4. No modifier keys pressed (ctrl, meta, shift, alt)
+     * 5. No target attribute (or target="_self")
+     * 6. No download attribute
+     *
+     * Note: data-link is supported for backwards compatibility but deprecated.
      */
     _handleLinkClick(event) {
-      const link = event.target.closest("a[href]");
+      const link = this._closest(event.target, "a[href]");
       if (!link)
         return;
-      const href = link.getAttribute("href");
-      if (!href || href.startsWith("http") || href.startsWith("//")) {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
         return;
       }
-      if (link.hasAttribute("data-external") || link.target === "_blank") {
+      if (link.hasAttribute("download")) {
+        return;
+      }
+      const target = link.getAttribute("target");
+      if (target && target !== "_self") {
+        return;
+      }
+      const isVangoLink = link.hasAttribute("data-vango-link") || link.hasAttribute("data-link");
+      if (!isVangoLink) {
+        return;
+      }
+      const href = link.getAttribute("href");
+      if (!href)
+        return;
+      if (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//")) {
+        try {
+          const url = new URL(href, window.location.origin);
+          if (url.origin !== window.location.origin) {
+            return;
+          }
+        } catch (e) {
+          return;
+        }
+      }
+      if (link.hasAttribute("data-external")) {
+        return;
+      }
+      if (!this.client.connected) {
         return;
       }
       event.preventDefault();
-      history.pushState(null, "", href);
-      this.client.sendEvent(EventType.NAVIGATE, "nav", { path: href });
+      this.pendingNavPath = href;
+      this.client.sendEvent(EventType.NAVIGATE, "nav", { path: href, replace: false });
     }
     /**
-     * Handle browser back/forward
+     * Handle browser back/forward navigation (popstate).
+     *
+     * Per Navigation Contract Section 4.6:
+     * 1. Browser fires popstate event
+     * 2. Client sends EventNavigate { path, replace: true }
+     * 3. Server remounts and sends DOM patches
+     * 4. Server MAY omit NAV_REPLACE since URL already changed
+     *
+     * Note: popstate means the URL has already changed in the browser,
+     * so we use replace: true to avoid server sending NAV_* that would
+     * duplicate the history entry.
      */
     _handlePopState(event) {
-      this.client.sendEvent(EventType.NAVIGATE, "nav", { path: location.pathname });
+      if (!this.client.connected) {
+        return;
+      }
+      const path = location.pathname + location.search;
+      this.pendingNavPath = path;
+      this.client.sendEvent(EventType.NAVIGATE, "nav", { path, replace: true });
+    }
+    /**
+     * Handle prefetch on hover for links with data-prefetch attribute.
+     *
+     * Per Prefetch Contract Section 8.1:
+     * Client sends EventType.CUSTOM (0xFF) with:
+     * - Name: "prefetch"
+     * - Data: JSON-encoded { "path": "/target/path" }
+     *
+     * Wire format:
+     * [0xFF (CUSTOM)][name: "prefetch" (varint-len string)][data: JSON bytes (varint-len)]
+     *
+     * The server can use this to preload route data before the user clicks,
+     * making navigation feel instant.
+     */
+    _handlePrefetch(event) {
+      const link = this._closest(event.target, "a[data-prefetch][href]");
+      if (!link)
+        return;
+      const href = link.getAttribute("href");
+      if (!href)
+        return;
+      if (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//")) {
+        try {
+          const url = new URL(href, window.location.origin);
+          if (url.origin !== window.location.origin) {
+            return;
+          }
+        } catch (e) {
+          return;
+        }
+      }
+      if (this.prefetchedPaths.has(href)) {
+        return;
+      }
+      if (!this.client.connected) {
+        return;
+      }
+      this.prefetchedPaths.add(href);
+      const jsonData = JSON.stringify({ path: href });
+      const encoder = new TextEncoder();
+      const dataBytes = encoder.encode(jsonData);
+      this.client.sendEvent(EventType.CUSTOM, "prefetch", { name: "prefetch", data: dataBytes });
+      if (this.client.options.debug) {
+        console.log("[Vango] Prefetching:", href);
+      }
     }
     /**
      * Check if event matches key filter
@@ -1105,14 +1651,47 @@ var Vango = (() => {
       }
     }
     /**
+     * Check if a patch type requires a target DOM node.
+     * URL/NAV patches operate on browser history, not DOM elements.
+     * Per spec Section 9.6.1: These must not trigger self-heal.
+     */
+    _requiresTargetNode(patchType) {
+      switch (patchType) {
+        case PatchType.URL_PUSH:
+        case PatchType.URL_REPLACE:
+        case PatchType.NAV_PUSH:
+        case PatchType.NAV_REPLACE:
+          return false;
+        case PatchType.INSERT_NODE:
+          return false;
+        default:
+          return true;
+      }
+    }
+    /**
+     * Trigger self-heal recovery per spec Section 9.6.1.
+     * If navigation in progress: location.assign(pendingPath)
+     * Else: location.reload()
+     */
+    _triggerSelfHeal() {
+      var _a;
+      const pendingPath = (_a = this.client.eventCapture) == null ? void 0 : _a.pendingNavPath;
+      if (pendingPath) {
+        console.log("[Vango] Self-heal: navigating to pending path:", pendingPath);
+        location.assign(pendingPath);
+      } else {
+        console.log("[Vango] Self-heal: reloading page");
+        location.reload();
+      }
+    }
+    /**
      * Apply single patch
      */
     applyPatch(patch) {
       const el = this.client.getNode(patch.hid);
-      if (!el && patch.type !== PatchType.INSERT_NODE) {
-        if (this.client.options.debug) {
-          console.warn("[Vango] Node not found:", patch.hid);
-        }
+      if (!el && this._requiresTargetNode(patch.type)) {
+        console.error("[Vango] Patch target not found (HID:", patch.hid, "type:", patch.type, ")");
+        this._triggerSelfHeal();
         return;
       }
       switch (patch.type) {
@@ -1180,8 +1759,15 @@ var Vango = (() => {
         case PatchType.DISPATCH:
           this._dispatchEvent(el, patch.eventName, patch.detail);
           break;
-        case PatchType.EVAL:
-          this._evalCode(patch.code);
+        case PatchType.URL_PUSH:
+        case PatchType.URL_REPLACE:
+          if (this.client.urlManager) {
+            this.client.urlManager.applyPatch(patch);
+          }
+          break;
+        case PatchType.NAV_PUSH:
+        case PatchType.NAV_REPLACE:
+          this._applyNavPatch(patch);
           break;
         default:
           if (this.client.options.debug) {
@@ -1199,6 +1785,10 @@ var Vango = (() => {
      * Set attribute with special cases
      */
     _setAttr(el, key, value) {
+      if (key.length > 2 && key.substring(0, 2).toLowerCase() === "on") {
+        console.warn("[Vango] Blocked dangerous attribute:", key);
+        return;
+      }
       switch (key) {
         case "class":
           el.className = value;
@@ -1280,9 +1870,8 @@ var Vango = (() => {
     _insertNode(parentHid, index, vnode) {
       const parentEl = this.client.getNode(parentHid);
       if (!parentEl) {
-        if (this.client.options.debug) {
-          console.warn("[Vango] Parent node not found:", parentHid);
-        }
+        console.error("[Vango] INSERT_NODE parent not found (parentHID:", parentHid, ")");
+        this._triggerSelfHeal();
         return;
       }
       const newEl = this._createNode(vnode);
@@ -1310,9 +1899,8 @@ var Vango = (() => {
     _moveNode(el, parentHid, index) {
       const parentEl = this.client.getNode(parentHid);
       if (!parentEl) {
-        if (this.client.options.debug) {
-          console.warn("[Vango] Parent node not found:", parentHid);
-        }
+        console.error("[Vango] MOVE_NODE parent not found (parentHID:", parentHid, ")");
+        this._triggerSelfHeal();
         return;
       }
       if (index >= parentEl.children.length) {
@@ -1392,23 +1980,81 @@ var Vango = (() => {
           parsedDetail = detail;
         }
       }
+      if (eventName === "vango:navigate") {
+        this._handleNavigate(parsedDetail);
+        return;
+      }
+      const target = el || document;
       const event = new CustomEvent(eventName, {
         detail: parsedDetail,
         bubbles: true,
         cancelable: true
       });
-      el.dispatchEvent(event);
+      target.dispatchEvent(event);
     }
     /**
-     * Evaluate JavaScript code (use sparingly!)
+     * Handle server-initiated navigation via NAV_PUSH/NAV_REPLACE patches.
+     * This is the contract-compliant implementation that does NOT send
+     * EventNavigate back to the server (server already rendered the new page).
+     *
+     * Per spec Section 4.2 (Navigation Contract):
+     * 1. Receive NAV_* patch
+     * 2. Update history via pushState/replaceState with provided path
+     * 3. Apply subsequent DOM patches
+     * 4. Do NOT send EventNavigate back to server
      */
-    _evalCode(code) {
-      try {
-        new Function(code)();
-      } catch (e) {
-        console.error("[Vango] Eval error:", e);
+    _applyNavPatch(patch) {
+      const { path, type } = patch;
+      if (!path || !path.startsWith("/")) {
+        console.error("[Vango] Invalid navigation path (must start with /):", path);
+        return;
+      }
+      if (path.includes("://") || path.startsWith("//")) {
+        console.error("[Vango] Invalid navigation path (must be relative):", path);
+        return;
+      }
+      if (type === PatchType.NAV_REPLACE) {
+        history.replaceState(null, "", path);
+      } else {
+        history.pushState(null, "", path);
+      }
+      if (this.client.eventCapture) {
+        this.client.eventCapture.pendingNavPath = null;
+      }
+      window.scrollTo({ top: 0, behavior: "instant" });
+      if (this.client.options.debug) {
+        console.log("[Vango] Navigation applied:", path, type === PatchType.NAV_REPLACE ? "(replace)" : "(push)");
       }
     }
+    /**
+     * Handle server-initiated navigation via dispatch patch (DEPRECATED).
+     * This is the legacy mechanism using vango:navigate custom event.
+     * New code should use NAV_PUSH/NAV_REPLACE patches instead.
+     */
+    _handleNavigate(data) {
+      if (!data || !data.path) {
+        if (this.client.options.debug) {
+          console.warn("[Vango] Invalid navigate data:", data);
+        }
+        return;
+      }
+      const { path, replace, scroll } = data;
+      if (replace) {
+        history.replaceState(null, "", path);
+      } else {
+        history.pushState(null, "", path);
+      }
+      this.client.sendEvent(EventType.NAVIGATE, "nav", { path });
+      if (scroll !== false) {
+        window.scrollTo({ top: 0, behavior: "instant" });
+      }
+      if (this.client.options.debug) {
+        console.log("[Vango] Navigated to:", path, { replace, scroll });
+      }
+    }
+    // NOTE: _evalCode method has been REMOVED for security.
+    // Executing arbitrary JS from server is an XSS/RCE risk.
+    // Use client-side hooks or custom events for safe JS interop.
   };
   __name(_PatchApplier, "PatchApplier");
   var PatchApplier = _PatchApplier;
@@ -1420,29 +2066,30 @@ var Vango = (() => {
       this.pending = /* @__PURE__ */ new Map();
     }
     /**
-     * Apply optimistic update based on element data attributes
+     * Apply optimistic update based on element data attributes.
+     * Parses data-optimistic='{"class":"...","text":"...","attr":"...","value":"..."}' format
+     * per spec Section 5.2.
      */
     applyOptimistic(el, eventType) {
       const hid = el.dataset.hid;
       if (!hid)
         return;
-      const optimisticClass = el.dataset.optimisticClass;
-      if (optimisticClass) {
-        this._applyClassOptimistic(el, hid, optimisticClass);
-      }
-      const optimisticText = el.dataset.optimisticText;
-      if (optimisticText) {
-        this._applyTextOptimistic(el, hid, optimisticText);
-      }
-      const optimisticAttr = el.dataset.optimisticAttr;
-      const optimisticValue = el.dataset.optimisticValue;
-      if (optimisticAttr && optimisticValue !== void 0) {
-        this._applyAttrOptimistic(el, hid, optimisticAttr, optimisticValue);
-      }
-      const parentOptimisticClass = el.dataset.optimisticParentClass;
-      if (parentOptimisticClass && el.parentElement) {
-        const parentHid = el.parentElement.dataset.hid || `parent-${hid}`;
-        this._applyClassOptimistic(el.parentElement, parentHid, parentOptimisticClass);
+      const optimisticData = el.dataset.optimistic;
+      if (!optimisticData)
+        return;
+      try {
+        const config = JSON.parse(optimisticData);
+        if (config.class) {
+          this._applyClassOptimistic(el, hid, config.class);
+        }
+        if (config.text) {
+          this._applyTextOptimistic(el, hid, config.text);
+        }
+        if (config.attr && config.value !== void 0) {
+          this._applyAttrOptimistic(el, hid, config.attr, config.value);
+        }
+      } catch (e) {
+        console.warn("[Vango] Invalid optimistic config:", e);
       }
     }
     /**
@@ -1477,6 +2124,10 @@ var Vango = (() => {
      * Apply optimistic attribute change
      */
     _applyAttrOptimistic(el, hid, attr, value) {
+      if (attr.length > 2 && attr.substring(0, 2).toLowerCase() === "on") {
+        console.warn("[Vango] Blocked dangerous optimistic attribute:", attr);
+        return;
+      }
       const original = el.getAttribute(attr);
       if (value === "null" || value === "") {
         el.removeAttribute(attr);
@@ -1587,23 +2238,25 @@ var Vango = (() => {
       document.removeEventListener("touchend", this._onTouchEnd);
     }
     _handleMouseDown(e) {
+      var _a;
       const item = this._findItem(e.target);
       if (!item)
         return;
-      if (this.handle && !e.target.closest(this.handle))
+      if (this.handle && (typeof ((_a = e.target) == null ? void 0 : _a.closest) !== "function" || !e.target.closest(this.handle)))
         return;
       e.preventDefault();
-      this._startDrag(item, e.clientY);
+      this._startDrag(item, e.clientX, e.clientY);
     }
     _handleTouchStart(e) {
+      var _a;
       const item = this._findItem(e.target);
       if (!item)
         return;
-      if (this.handle && !e.target.closest(this.handle))
+      if (this.handle && (typeof ((_a = e.target) == null ? void 0 : _a.closest) !== "function" || !e.target.closest(this.handle)))
         return;
       e.preventDefault();
       const touch = e.touches[0];
-      this._startDrag(item, touch.clientY);
+      this._startDrag(item, touch.clientX, touch.clientY);
     }
     _findItem(target) {
       let item = target;
@@ -1612,20 +2265,28 @@ var Vango = (() => {
       }
       return item;
     }
-    _startDrag(item, y) {
+    _startDrag(item, x, y) {
       this.dragging = item;
-      this.startIndex = Array.from(this.el.children).indexOf(item);
+      this.activeContainer = item.parentElement;
+      this.initialContainer = this.activeContainer;
+      this.startIndex = Array.from(this.activeContainer.children).indexOf(item);
       this.startY = y;
+      this.startX = x;
       this.itemHeight = item.offsetHeight;
+      const rect = item.getBoundingClientRect();
+      this.ghostStartTop = rect.top;
+      this.ghostStartLeft = rect.left;
       this.ghost = item.cloneNode(true);
       this.ghost.classList.add(this.ghostClass);
       this.ghost.style.position = "fixed";
       this.ghost.style.zIndex = "9999";
       this.ghost.style.width = `${item.offsetWidth}px`;
-      this.ghost.style.left = `${item.getBoundingClientRect().left}px`;
-      this.ghost.style.top = `${item.getBoundingClientRect().top}px`;
+      this.ghost.style.height = `${item.offsetHeight}px`;
+      this.ghost.style.left = `${this.ghostStartLeft}px`;
+      this.ghost.style.top = `${this.ghostStartTop}px`;
       this.ghost.style.pointerEvents = "none";
       this.ghost.style.opacity = "0.8";
+      this.ghost.style.transition = "none";
       document.body.appendChild(this.ghost);
       item.classList.add(this.dragClass);
       item.style.opacity = "0.4";
@@ -1634,23 +2295,39 @@ var Vango = (() => {
       if (!this.dragging)
         return;
       e.preventDefault();
-      this._updateDrag(e.clientY);
+      this._updateDrag(e.clientX, e.clientY);
     }
     _handleTouchMove(e) {
       if (!this.dragging)
         return;
       e.preventDefault();
       const touch = e.touches[0];
-      this._updateDrag(touch.clientY);
+      this._updateDrag(touch.clientX, touch.clientY);
     }
-    _updateDrag(y) {
-      var _a;
+    _updateDrag(x, y) {
       const deltaY = y - this.startY;
-      const startTop = (_a = this.el.children[this.startIndex]) == null ? void 0 : _a.getBoundingClientRect().top;
-      if (startTop !== void 0 && this.ghost) {
-        this.ghost.style.top = `${startTop + deltaY}px`;
+      const deltaX = x - this.startX;
+      if (this.ghost) {
+        this.ghost.style.top = `${this.ghostStartTop + deltaY}px`;
+        this.ghost.style.left = `${this.ghostStartLeft + deltaX}px`;
       }
-      const children = Array.from(this.el.children);
+      this.ghost.style.display = "none";
+      const elUnderCursor = document.elementFromPoint(x, y);
+      this.ghost.style.display = "";
+      if (elUnderCursor) {
+        const targetContainer = elUnderCursor.closest('[data-hook="Sortable"]');
+        if (targetContainer && targetContainer !== this.activeContainer && targetContainer.dataset.hookConfig) {
+          try {
+            const targetConfig = JSON.parse(targetContainer.dataset.hookConfig);
+            if (targetConfig.group === this.config.group) {
+              this.activeContainer = targetContainer;
+              this.activeContainer.appendChild(this.dragging);
+            }
+          } catch (e) {
+          }
+        }
+      }
+      const children = Array.from(this.activeContainer.children);
       const currentIndex = children.indexOf(this.dragging);
       for (let i = 0; i < children.length; i++) {
         if (i === currentIndex)
@@ -1659,10 +2336,10 @@ var Vango = (() => {
         const rect = child.getBoundingClientRect();
         const midpoint = rect.top + rect.height / 2;
         if (y < midpoint && i < currentIndex) {
-          this.el.insertBefore(this.dragging, child);
+          this.activeContainer.insertBefore(this.dragging, child);
           break;
         } else if (y > midpoint && i > currentIndex) {
-          this.el.insertBefore(this.dragging, child.nextSibling);
+          this.activeContainer.insertBefore(this.dragging, child.nextSibling);
           break;
         }
       }
@@ -1678,22 +2355,27 @@ var Vango = (() => {
       this._endDrag();
     }
     _endDrag() {
-      const endIndex = Array.from(this.el.children).indexOf(this.dragging);
+      const endIndex = Array.from(this.activeContainer.children).indexOf(this.dragging);
+      const id = this.dragging.dataset.id || this.dragging.dataset.hid;
+      const targetContainerHid = this.activeContainer.dataset.hid;
       this.dragging.classList.remove(this.dragClass);
       this.dragging.style.opacity = "";
       if (this.ghost) {
         this.ghost.remove();
       }
-      if (endIndex !== this.startIndex) {
-        const id = this.dragging.dataset.id || this.dragging.dataset.hid;
+      if (this.activeContainer !== this.initialContainer || endIndex !== this.startIndex) {
         this.pushEvent("reorder", {
           id,
+          fromContainer: this.initialContainer.dataset.id || this.initialContainer.dataset.hid,
+          toContainer: this.activeContainer.dataset.id || this.activeContainer.dataset.hid,
           fromIndex: this.startIndex,
           toIndex: endIndex
         });
       }
       this.dragging = null;
       this.ghost = null;
+      this.activeContainer = null;
+      this.initialContainer = null;
     }
   };
   __name(_SortableHook, "SortableHook");
@@ -1840,6 +2522,177 @@ var Vango = (() => {
   };
   __name(_DraggableHook, "DraggableHook");
   var DraggableHook = _DraggableHook;
+
+  // src/hooks/droppable.js
+  var _DroppableHook = class _DroppableHook {
+    mounted(el, config, pushEvent) {
+      this.el = el;
+      this.config = config;
+      this.pushEvent = pushEvent;
+      this.hoverClass = config.hoverClass || "drag-over";
+      this._bind();
+    }
+    updated(el, config, pushEvent) {
+      this.config = config;
+      this.pushEvent = pushEvent;
+      this.hoverClass = config.hoverClass || "drag-over";
+    }
+    destroyed() {
+      this._unbind();
+    }
+    _bind() {
+      this._enter = (e) => {
+        e.preventDefault();
+        this.el.classList.add(this.hoverClass);
+      };
+      this._over = (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      };
+      this._leave = (e) => {
+        if (!this.el.contains(e.relatedTarget))
+          this.el.classList.remove(this.hoverClass);
+      };
+      this._drop = (e) => {
+        var _a, _b;
+        e.preventDefault();
+        this.el.classList.remove(this.hoverClass);
+        const data = { x: e.clientX, y: e.clientY };
+        if (window.__vango_dragging__) {
+          const d = window.__vango_dragging__;
+          data.id = d.dataset.id || d.dataset.hid;
+          window.__vango_dragging__ = null;
+        }
+        const files = (_a = e.dataTransfer) == null ? void 0 : _a.files;
+        if (files == null ? void 0 : files.length)
+          data.fileNames = Array.from(files).map((f) => f.name);
+        const text = (_b = e.dataTransfer) == null ? void 0 : _b.getData("text/plain");
+        if (text)
+          data.text = text;
+        this.pushEvent("drop", data);
+      };
+      this.el.addEventListener("dragenter", this._enter);
+      this.el.addEventListener("dragover", this._over);
+      this.el.addEventListener("dragleave", this._leave);
+      this.el.addEventListener("drop", this._drop);
+    }
+    _unbind() {
+      this.el.removeEventListener("dragenter", this._enter);
+      this.el.removeEventListener("dragover", this._over);
+      this.el.removeEventListener("dragleave", this._leave);
+      this.el.removeEventListener("drop", this._drop);
+    }
+  };
+  __name(_DroppableHook, "DroppableHook");
+  var DroppableHook = _DroppableHook;
+
+  // src/hooks/resizable.js
+  var _ResizableHook = class _ResizableHook {
+    mounted(el, config, pushEvent) {
+      this.el = el;
+      this.config = config;
+      this.pushEvent = pushEvent;
+      this.handles = (config.handles || "se").split(",").map((h) => h.trim());
+      this.resizing = false;
+      this._handleEls = [];
+      this._createHandles();
+      this._bind();
+    }
+    updated(el, config, pushEvent) {
+      this.config = config;
+      this.pushEvent = pushEvent;
+    }
+    destroyed() {
+      this._unbind();
+      this._handleEls.forEach((h) => h.remove());
+    }
+    _createHandles() {
+      if (getComputedStyle(this.el).position === "static") {
+        this.el.style.position = "relative";
+      }
+      const cursors = { n: "n", s: "s", e: "e", w: "w", ne: "ne", se: "se", sw: "sw", nw: "nw" };
+      for (const h of this.handles) {
+        if (!cursors[h])
+          continue;
+        const el = document.createElement("div");
+        el.dataset.handle = h;
+        el.style.cssText = `position:absolute;z-index:10;cursor:${h}-resize;` + this._pos(h);
+        this.el.appendChild(el);
+        this._handleEls.push(el);
+      }
+    }
+    _pos(h) {
+      const s = 8, hs = 4;
+      const m = {
+        n: `top:-${hs}px;left:25%;width:50%;height:${s}px`,
+        s: `bottom:-${hs}px;left:25%;width:50%;height:${s}px`,
+        e: `right:-${hs}px;top:25%;width:${s}px;height:50%`,
+        w: `left:-${hs}px;top:25%;width:${s}px;height:50%`,
+        ne: `top:-${hs}px;right:-${hs}px;width:${s}px;height:${s}px`,
+        se: `bottom:-${hs}px;right:-${hs}px;width:${s}px;height:${s}px`,
+        sw: `bottom:-${hs}px;left:-${hs}px;width:${s}px;height:${s}px`,
+        nw: `top:-${hs}px;left:-${hs}px;width:${s}px;height:${s}px`
+      };
+      return m[h] || "";
+    }
+    _bind() {
+      this._onDown = (e) => {
+        e.preventDefault();
+        this._start(e.target.dataset.handle, e.clientX, e.clientY);
+      };
+      this._onMove = (e) => {
+        if (this.resizing) {
+          e.preventDefault();
+          this._update(e.clientX, e.clientY);
+        }
+      };
+      this._onUp = () => {
+        if (this.resizing)
+          this._end();
+      };
+      this._handleEls.forEach((h) => h.addEventListener("mousedown", this._onDown));
+      document.addEventListener("mousemove", this._onMove);
+      document.addEventListener("mouseup", this._onUp);
+    }
+    _unbind() {
+      this._handleEls.forEach((h) => h.removeEventListener("mousedown", this._onDown));
+      document.removeEventListener("mousemove", this._onMove);
+      document.removeEventListener("mouseup", this._onUp);
+    }
+    _start(handle, x, y) {
+      this.resizing = true;
+      this._h = handle;
+      this._sx = x;
+      this._sy = y;
+      const r = this.el.getBoundingClientRect();
+      this._sw = r.width;
+      this._sh = r.height;
+    }
+    _update(x, y) {
+      const dx = x - this._sx, dy = y - this._sy;
+      let w = this._sw, h = this._sh;
+      if (this._h.includes("e"))
+        w = this._sw + dx;
+      if (this._h.includes("w"))
+        w = this._sw - dx;
+      if (this._h.includes("s"))
+        h = this._sh + dy;
+      if (this._h.includes("n"))
+        h = this._sh - dy;
+      const c = this.config;
+      w = Math.max(c.minWidth || 0, Math.min(c.maxWidth || Infinity, w));
+      h = Math.max(c.minHeight || 0, Math.min(c.maxHeight || Infinity, h));
+      this.el.style.width = w + "px";
+      this.el.style.height = h + "px";
+    }
+    _end() {
+      this.resizing = false;
+      const r = this.el.getBoundingClientRect();
+      this.pushEvent("resize", { width: Math.round(r.width), height: Math.round(r.height) });
+    }
+  };
+  __name(_ResizableHook, "ResizableHook");
+  var ResizableHook = _ResizableHook;
 
   // src/hooks/tooltip.js
   var _TooltipHook = class _TooltipHook {
@@ -1990,17 +2843,439 @@ var Vango = (() => {
   __name(_DropdownHook, "DropdownHook");
   var DropdownHook = _DropdownHook;
 
+  // src/hooks/collapsible.js
+  var _CollapsibleHook = class _CollapsibleHook {
+    mounted(el, config, pushEvent) {
+      this.el = el;
+      this.config = config;
+      this.pushEvent = pushEvent;
+      this.duration = config.duration || 200;
+      this.isOpen = !!config.open;
+      this.animating = false;
+      if (!this.isOpen) {
+        el.style.height = "0";
+        el.style.overflow = "hidden";
+      }
+    }
+    updated(el, config, pushEvent) {
+      this.pushEvent = pushEvent;
+      this.duration = config.duration || 200;
+      const newOpen = !!config.open;
+      if (newOpen !== this.isOpen) {
+        newOpen ? this._expand() : this._collapse();
+      }
+    }
+    destroyed() {
+    }
+    _expand() {
+      if (this.animating || this.isOpen)
+        return;
+      this.animating = true;
+      this.isOpen = true;
+      const el = this.el;
+      el.style.height = "auto";
+      const h = el.scrollHeight;
+      el.style.height = "0";
+      el.style.overflow = "hidden";
+      el.offsetHeight;
+      el.style.transition = `height ${this.duration}ms ease`;
+      el.style.height = h + "px";
+      setTimeout(() => {
+        el.style.transition = "";
+        el.style.height = "auto";
+        el.style.overflow = "";
+        this.animating = false;
+        this.pushEvent("toggle", { open: true });
+      }, this.duration);
+    }
+    _collapse() {
+      if (this.animating || !this.isOpen)
+        return;
+      this.animating = true;
+      this.isOpen = false;
+      const el = this.el;
+      el.style.height = el.scrollHeight + "px";
+      el.style.overflow = "hidden";
+      el.offsetHeight;
+      el.style.transition = `height ${this.duration}ms ease`;
+      el.style.height = "0";
+      setTimeout(() => {
+        el.style.transition = "";
+        this.animating = false;
+        this.pushEvent("toggle", { open: false });
+      }, this.duration);
+    }
+  };
+  __name(_CollapsibleHook, "CollapsibleHook");
+  var CollapsibleHook = _CollapsibleHook;
+
+  // src/hooks/focustrap.js
+  var _FocusTrapHook = class _FocusTrapHook {
+    mounted(el, config, pushEvent) {
+      this.el = el;
+      this.pushEvent = pushEvent;
+      this.active = config.active !== false;
+      this.restoreFocusTo = document.activeElement;
+      this._onKeyDown = this._handleKeyDown.bind(this);
+      this.el.addEventListener("keydown", this._onKeyDown);
+      if (this.active) {
+        this._focusFirst();
+      }
+    }
+    updated(el, config, pushEvent) {
+      this.active = config.active !== false;
+      this.pushEvent = pushEvent;
+    }
+    destroyed(el) {
+      this.el.removeEventListener("keydown", this._onKeyDown);
+      if (this.restoreFocusTo && typeof this.restoreFocusTo.focus === "function") {
+        this.restoreFocusTo.focus();
+      }
+    }
+    _handleKeyDown(e) {
+      if (!this.active || e.key !== "Tab")
+        return;
+      const focusable = this._getFocusableElements();
+      if (focusable.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    _focusFirst() {
+      const focusable = this._getFocusableElements();
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      } else {
+        this.el.setAttribute("tabindex", "-1");
+        this.el.focus();
+      }
+    }
+    _getFocusableElements() {
+      return this.el.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+    }
+  };
+  __name(_FocusTrapHook, "FocusTrapHook");
+  var FocusTrapHook = _FocusTrapHook;
+
+  // src/hooks/portal.js
+  var _PortalHook = class _PortalHook {
+    mounted(el, config, pushEvent) {
+      this.el = el;
+      this.pushEvent = pushEvent;
+      this.target = config.target || "body";
+      this.placeholder = document.createComment("portal-placeholder");
+      if (el.parentNode) {
+        el.parentNode.insertBefore(this.placeholder, el);
+      }
+      let portalRoot = document.getElementById("vango-portal-root");
+      if (!portalRoot) {
+        portalRoot = document.createElement("div");
+        portalRoot.id = "vango-portal-root";
+        portalRoot.style.cssText = "position: relative; z-index: 9999;";
+        document.body.appendChild(portalRoot);
+      }
+      portalRoot.appendChild(el);
+    }
+    updated(el, config, pushEvent) {
+      this.pushEvent = pushEvent;
+    }
+    destroyed(el) {
+      if (this.placeholder && this.placeholder.parentNode) {
+        this.placeholder.parentNode.insertBefore(this.el, this.placeholder);
+        this.placeholder.remove();
+      }
+    }
+  };
+  __name(_PortalHook, "PortalHook");
+  var PortalHook = _PortalHook;
+  function ensurePortalRoot() {
+    if (typeof document === "undefined")
+      return;
+    let portalRoot = document.getElementById("vango-portal-root");
+    if (!portalRoot) {
+      portalRoot = document.createElement("div");
+      portalRoot.id = "vango-portal-root";
+      portalRoot.style.cssText = "position: relative; z-index: 9999;";
+      document.body.appendChild(portalRoot);
+    }
+    return portalRoot;
+  }
+  __name(ensurePortalRoot, "ensurePortalRoot");
+
+  // src/hooks/dialog.js
+  var _DialogHook = class _DialogHook {
+    mounted(el, config, pushEvent) {
+      this.el = el;
+      this.config = config;
+      this.pushEvent = pushEvent;
+      this.previousFocus = document.activeElement;
+      this._onKeyDown = this._handleKeyDown.bind(this);
+      this._onClick = this._handleClick.bind(this);
+      document.addEventListener("keydown", this._onKeyDown);
+      if (config.closeOnOutside !== false) {
+        setTimeout(() => {
+          document.addEventListener("click", this._onClick);
+        }, 0);
+      }
+      this._focusFirst();
+      this._originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    updated(el, config, pushEvent) {
+      this.config = config;
+      this.pushEvent = pushEvent;
+    }
+    destroyed(el) {
+      document.removeEventListener("keydown", this._onKeyDown);
+      document.removeEventListener("click", this._onClick);
+      document.body.style.overflow = this._originalOverflow || "";
+      if (this.previousFocus && typeof this.previousFocus.focus === "function") {
+        this.previousFocus.focus();
+      }
+    }
+    _handleKeyDown(e) {
+      if (e.key === "Escape" && this.config.closeOnEscape !== false) {
+        e.preventDefault();
+        this.pushEvent("close", {});
+        return;
+      }
+      if (e.key === "Tab") {
+        this._trapFocus(e);
+      }
+    }
+    _handleClick(e) {
+      if (!this.el.contains(e.target)) {
+        this.pushEvent("close", {});
+      }
+    }
+    _focusFirst() {
+      if (this.config.initialFocus) {
+        const initial = this.el.querySelector(this.config.initialFocus);
+        if (initial) {
+          initial.focus();
+          return;
+        }
+      }
+      const focusable = this._getFocusableElements();
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      } else {
+        this.el.setAttribute("tabindex", "-1");
+        this.el.focus();
+      }
+    }
+    _trapFocus(e) {
+      const focusable = this._getFocusableElements();
+      if (focusable.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    _getFocusableElements() {
+      return this.el.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+    }
+  };
+  __name(_DialogHook, "DialogHook");
+  var DialogHook = _DialogHook;
+
+  // src/hooks/popover.js
+  var _PopoverHook = class _PopoverHook {
+    mounted(el, config, pushEvent) {
+      this.el = el;
+      this.config = config;
+      this.pushEvent = pushEvent;
+      this.trigger = el.querySelector("[data-popover-trigger]");
+      this.content = el.querySelector("[data-popover-content]");
+      if (!this.content) {
+        this.content = el;
+      }
+      this._onKeyDown = this._handleKeyDown.bind(this);
+      this._onClick = this._handleClick.bind(this);
+      this._onScroll = this._handleScroll.bind(this);
+      this._onResize = this._handleResize.bind(this);
+      document.addEventListener("keydown", this._onKeyDown);
+      if (config.closeOnOutside !== false) {
+        setTimeout(() => {
+          document.addEventListener("click", this._onClick);
+        }, 0);
+      }
+      window.addEventListener("scroll", this._onScroll, true);
+      window.addEventListener("resize", this._onResize);
+      this._position();
+    }
+    updated(el, config, pushEvent) {
+      this.config = config;
+      this.pushEvent = pushEvent;
+      this._position();
+    }
+    destroyed(el) {
+      document.removeEventListener("keydown", this._onKeyDown);
+      document.removeEventListener("click", this._onClick);
+      window.removeEventListener("scroll", this._onScroll, true);
+      window.removeEventListener("resize", this._onResize);
+    }
+    _handleKeyDown(e) {
+      if (e.key === "Escape" && this.config.closeOnEscape !== false) {
+        e.preventDefault();
+        this.pushEvent("close", {});
+      }
+    }
+    _handleClick(e) {
+      if (!this.el.contains(e.target)) {
+        this.pushEvent("close", {});
+      }
+    }
+    _handleScroll() {
+      this._position();
+    }
+    _handleResize() {
+      this._position();
+    }
+    _position() {
+      if (!this.trigger || !this.content)
+        return;
+      const triggerRect = this.trigger.getBoundingClientRect();
+      const contentRect = this.content.getBoundingClientRect();
+      const offset = this.config.offset || 4;
+      let side = this.config.side || "bottom";
+      let align = this.config.align || "center";
+      let top, left;
+      switch (side) {
+        case "top":
+          top = triggerRect.top - contentRect.height - offset;
+          if (top < 0) {
+            top = triggerRect.bottom + offset;
+            side = "bottom";
+          }
+          break;
+        case "bottom":
+          top = triggerRect.bottom + offset;
+          if (top + contentRect.height > window.innerHeight) {
+            top = triggerRect.top - contentRect.height - offset;
+            side = "top";
+          }
+          break;
+        case "left":
+          left = triggerRect.left - contentRect.width - offset;
+          if (left < 0) {
+            left = triggerRect.right + offset;
+            side = "right";
+          }
+          break;
+        case "right":
+          left = triggerRect.right + offset;
+          if (left + contentRect.width > window.innerWidth) {
+            left = triggerRect.left - contentRect.width - offset;
+            side = "left";
+          }
+          break;
+      }
+      if (side === "top" || side === "bottom") {
+        switch (align) {
+          case "start":
+            left = triggerRect.left;
+            break;
+          case "center":
+            left = triggerRect.left + (triggerRect.width - contentRect.width) / 2;
+            break;
+          case "end":
+            left = triggerRect.right - contentRect.width;
+            break;
+        }
+        if (left < 0)
+          left = 0;
+        if (left + contentRect.width > window.innerWidth) {
+          left = window.innerWidth - contentRect.width;
+        }
+      }
+      if (side === "left" || side === "right") {
+        switch (align) {
+          case "start":
+            top = triggerRect.top;
+            break;
+          case "center":
+            top = triggerRect.top + (triggerRect.height - contentRect.height) / 2;
+            break;
+          case "end":
+            top = triggerRect.bottom - contentRect.height;
+            break;
+        }
+        if (top < 0)
+          top = 0;
+        if (top + contentRect.height > window.innerHeight) {
+          top = window.innerHeight - contentRect.height;
+        }
+      }
+      this.content.style.position = "fixed";
+      this.content.style.top = `${top}px`;
+      this.content.style.left = `${left}px`;
+      this.content.dataset.side = side;
+    }
+  };
+  __name(_PopoverHook, "PopoverHook");
+  var PopoverHook = _PopoverHook;
+
   // src/hooks/manager.js
   var _HookManager = class _HookManager {
     constructor(client) {
       this.client = client;
       this.instances = /* @__PURE__ */ new Map();
+      this.pendingReverts = /* @__PURE__ */ new Map();
       this.hooks = {
         "Sortable": SortableHook,
         "Draggable": DraggableHook,
+        "Droppable": DroppableHook,
+        "Resizable": ResizableHook,
         "Tooltip": TooltipHook,
-        "Dropdown": DropdownHook
+        "Dropdown": DropdownHook,
+        "Collapsible": CollapsibleHook,
+        // VangoUI helper hooks
+        "FocusTrap": FocusTrapHook,
+        "Portal": PortalHook,
+        "Dialog": DialogHook,
+        "Popover": PopoverHook
       };
+      document.addEventListener("vango:hook-revert", (e) => {
+        var _a;
+        const hid = (_a = e.detail) == null ? void 0 : _a.hid;
+        if (hid && this.pendingReverts.has(hid)) {
+          const revertFn = this.pendingReverts.get(hid);
+          if (typeof revertFn === "function") {
+            revertFn();
+          }
+          this.pendingReverts.delete(hid);
+        }
+      });
     }
     /**
      * Register a custom hook
@@ -2061,7 +3336,10 @@ var Vango = (() => {
           console.warn("[Vango] Invalid hook config:", e);
         }
       }
-      const pushEvent = /* @__PURE__ */ __name((eventName, data = {}) => {
+      const pushEvent = /* @__PURE__ */ __name((eventName, data = {}, revertFn = null) => {
+        if (typeof revertFn === "function") {
+          this.pendingReverts.set(hid, revertFn);
+        }
         this.client.sendHookEvent(hid, eventName, data);
       }, "pushEvent");
       const instance = new HookClass();
@@ -2101,7 +3379,10 @@ var Vango = (() => {
     updateConfig(hid, config) {
       const entry = this.instances.get(hid);
       if (entry && entry.instance.updated) {
-        const pushEvent = /* @__PURE__ */ __name((eventName, data = {}) => {
+        const pushEvent = /* @__PURE__ */ __name((eventName, data = {}, revertFn = null) => {
+          if (typeof revertFn === "function") {
+            this.pendingReverts.set(hid, revertFn);
+          }
           this.client.sendHookEvent(hid, eventName, data);
         }, "pushEvent");
         entry.instance.updated(entry.el, config, pushEvent);
@@ -2111,18 +3392,746 @@ var Vango = (() => {
   __name(_HookManager, "HookManager");
   var HookManager = _HookManager;
 
+  // src/connection.js
+  var ConnectionState = {
+    CONNECTING: "connecting",
+    CONNECTED: "connected",
+    RECONNECTING: "reconnecting",
+    DISCONNECTED: "disconnected"
+  };
+  var CSS_CLASSES = {
+    [ConnectionState.CONNECTING]: "vango-connecting",
+    [ConnectionState.CONNECTED]: "vango-connected",
+    [ConnectionState.RECONNECTING]: "vango-reconnecting",
+    [ConnectionState.DISCONNECTED]: "vango-disconnected"
+  };
+  var _ConnectionManager = class _ConnectionManager {
+    constructor(options = {}) {
+      this.options = {
+        // Toast settings
+        toastOnReconnect: options.toastOnReconnect || false,
+        toastMessage: options.toastMessage || "Connection restored",
+        toastDuration: options.toastDuration || 3e3,
+        // Reconnection settings
+        maxRetries: options.maxRetries || 10,
+        baseDelay: options.baseDelay || 1e3,
+        maxDelay: options.maxDelay || 3e4,
+        // Debug mode
+        debug: options.debug || false,
+        ...options
+      };
+      this.state = ConnectionState.CONNECTING;
+      this.retryCount = 0;
+      this.previousState = null;
+      this._updateClasses();
+    }
+    /**
+     * Set connection state and update UI
+     */
+    setState(newState) {
+      if (this.state === newState)
+        return;
+      this.previousState = this.state;
+      this.state = newState;
+      this._updateClasses();
+      this._dispatchEvent(newState, this.previousState);
+      if (this.options.toastOnReconnect && newState === ConnectionState.CONNECTED && this.previousState !== ConnectionState.CONNECTED) {
+        this.showToast(this.options.toastMessage);
+      }
+      if (this.options.debug) {
+        console.log(`[Vango] Connection state: ${this.previousState} -> ${newState}`);
+      }
+    }
+    /**
+     * Update CSS classes on document.documentElement (<html>)
+     */
+    _updateClasses() {
+      const root = document.documentElement;
+      Object.values(CSS_CLASSES).forEach((cls) => {
+        root.classList.remove(cls);
+      });
+      const currentClass = CSS_CLASSES[this.state];
+      if (currentClass) {
+        root.classList.add(currentClass);
+      }
+    }
+    /**
+     * Dispatch custom event for connection state changes
+     */
+    _dispatchEvent(state, previousState) {
+      const event = new CustomEvent("vango:connection", {
+        detail: { state, previousState },
+        bubbles: true
+      });
+      document.dispatchEvent(event);
+    }
+    /**
+     * Handle connection established
+     */
+    onConnect() {
+      this.retryCount = 0;
+      this.setState(ConnectionState.CONNECTED);
+    }
+    /**
+     * Handle connection lost
+     */
+    onDisconnect() {
+      if (this.state === ConnectionState.CONNECTED) {
+        this.setState(ConnectionState.RECONNECTING);
+      }
+    }
+    /**
+     * Handle failed reconnection attempt
+     */
+    onReconnectFailed() {
+      this.retryCount++;
+      if (this.retryCount >= this.options.maxRetries) {
+        this.setState(ConnectionState.DISCONNECTED);
+        return false;
+      }
+      return true;
+    }
+    /**
+     * Calculate next retry delay with exponential backoff
+     */
+    getNextRetryDelay() {
+      const delay = Math.min(
+        this.options.baseDelay * Math.pow(2, this.retryCount),
+        this.options.maxDelay
+      );
+      return delay;
+    }
+    /**
+     * Get current state
+     */
+    getState() {
+      return this.state;
+    }
+    /**
+     * Check if currently connected
+     */
+    isConnected() {
+      return this.state === ConnectionState.CONNECTED;
+    }
+    /**
+     * Check if disconnected (gave up reconnecting)
+     */
+    isDisconnected() {
+      return this.state === ConnectionState.DISCONNECTED;
+    }
+    /**
+     * Reset state (e.g., for manual retry)
+     */
+    reset() {
+      this.retryCount = 0;
+      this.setState(ConnectionState.CONNECTED);
+    }
+    /**
+     * Show a toast notification
+     */
+    showToast(message, duration = this.options.toastDuration) {
+      if (typeof window.__VANGO_TOAST__ === "function") {
+        window.__VANGO_TOAST__(message, duration);
+        return;
+      }
+      const toast = document.createElement("div");
+      toast.className = "vango-toast";
+      toast.textContent = message;
+      toast.setAttribute("role", "alert");
+      toast.setAttribute("aria-live", "polite");
+      Object.assign(toast.style, {
+        position: "fixed",
+        bottom: "20px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        padding: "12px 24px",
+        backgroundColor: "hsl(var(--primary, 220 13% 18%))",
+        color: "hsl(var(--primary-foreground, 0 0% 100%))",
+        borderRadius: "var(--radius, 6px)",
+        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+        zIndex: "10001",
+        opacity: "0",
+        transition: "opacity 0.3s ease",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        fontSize: "14px"
+      });
+      document.body.appendChild(toast);
+      requestAnimationFrame(() => {
+        toast.style.opacity = "1";
+      });
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        setTimeout(() => {
+          if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+          }
+        }, 300);
+      }, duration);
+    }
+  };
+  __name(_ConnectionManager, "ConnectionManager");
+  var ConnectionManager = _ConnectionManager;
+  function injectDefaultStyles() {
+    if (document.getElementById("vango-connection-styles")) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.id = "vango-connection-styles";
+    style.textContent = `
+        /* Vango Connection State Styles */
+
+        /* Connecting indicator - pulsing bar at top */
+        html.vango-connecting::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--vango-primary, #3b82f6), transparent);
+            animation: vango-connect-pulse 1.5s ease-in-out infinite;
+            z-index: 9999;
+        }
+
+        @keyframes vango-connect-pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* Reconnecting indicator - pulsing bar at top */
+        html.vango-reconnecting::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--vango-primary, #3b82f6), transparent);
+            animation: vango-reconnect-pulse 1.5s ease-in-out infinite;
+            z-index: 9999;
+        }
+
+        @keyframes vango-reconnect-pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* Disconnected state - slight grayscale and overlay */
+        html.vango-disconnected {
+            filter: grayscale(0.3);
+        }
+
+        html.vango-disconnected::before {
+            content: 'Connection lost. Click to retry...';
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: hsl(var(--background, 0 0% 100%));
+            border: 1px solid hsl(var(--border, 0 0% 90%));
+            padding: 16px 32px;
+            border-radius: var(--radius, 6px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 10000;
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 14px;
+            color: hsl(var(--foreground, 0 0% 9%));
+            cursor: pointer;
+        }
+
+        /* Toast notifications */
+        .vango-toast {
+            animation: vango-toast-slide-up 0.3s ease-out;
+        }
+
+        @keyframes vango-toast-slide-up {
+            from {
+                transform: translateX(-50%) translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+  }
+  __name(injectDefaultStyles, "injectDefaultStyles");
+
+  // src/url.js
+  var _URLManager = class _URLManager {
+    constructor(client, options = {}) {
+      this.client = client;
+      this.options = {
+        debug: options.debug || false,
+        ...options
+      };
+      this.pending = /* @__PURE__ */ new Map();
+    }
+    /**
+     * Apply a URL patch
+     * @param {Object} patch - The URL patch with op and params
+     */
+    applyPatch(patch) {
+      const { op, params } = patch;
+      if (!params || typeof params !== "object") {
+        if (this.options.debug) {
+          console.warn("[Vango URL] Invalid params:", params);
+        }
+        return;
+      }
+      const url = new URL(window.location);
+      for (const [key, value] of Object.entries(params)) {
+        if (value === "" || value === null || value === void 0) {
+          url.searchParams.delete(key);
+        } else {
+          url.searchParams.set(key, value);
+        }
+      }
+      const isPush = op === 48;
+      if (this.options.debug) {
+        console.log("[Vango URL]", isPush ? "Push" : "Replace", url.toString());
+      }
+      if (isPush) {
+        history.pushState(null, "", url.toString());
+      } else {
+        history.replaceState(null, "", url.toString());
+      }
+      this._dispatchEvent(params, isPush);
+    }
+    /**
+     * Dispatch custom event for URL changes
+     */
+    _dispatchEvent(params, isPush) {
+      const event = new CustomEvent("vango:url", {
+        detail: {
+          params,
+          mode: isPush ? "push" : "replace",
+          url: window.location.href
+        },
+        bubbles: true
+      });
+      document.dispatchEvent(event);
+    }
+    /**
+     * Get current query parameters as an object
+     */
+    getParams() {
+      const params = {};
+      const searchParams = new URLSearchParams(window.location.search);
+      for (const [key, value] of searchParams) {
+        params[key] = value;
+      }
+      return params;
+    }
+    /**
+     * Get a specific query parameter
+     */
+    getParam(key) {
+      const searchParams = new URLSearchParams(window.location.search);
+      return searchParams.get(key);
+    }
+    /**
+     * Check if a query parameter exists
+     */
+    hasParam(key) {
+      const searchParams = new URLSearchParams(window.location.search);
+      return searchParams.has(key);
+    }
+  };
+  __name(_URLManager, "URLManager");
+  var URLManager = _URLManager;
+
+  // src/prefs.js
+  var MergeStrategy = {
+    DB_WINS: 0,
+    // Server value wins
+    LOCAL_WINS: 1,
+    // Local value wins
+    PROMPT: 2,
+    // Ask user to choose
+    LWW: 3
+    // Last-write-wins by timestamp
+  };
+  var _PrefManager = class _PrefManager {
+    constructor(client, options = {}) {
+      this.client = client;
+      this.options = {
+        channelName: "vango:prefs",
+        storagePrefix: "vango_pref_",
+        debug: options.debug || false,
+        ...options
+      };
+      this.prefs = /* @__PURE__ */ new Map();
+      this.channel = null;
+      if (typeof BroadcastChannel !== "undefined") {
+        this.channel = new BroadcastChannel(this.options.channelName);
+        this.channel.onmessage = (event) => this._handleBroadcast(event);
+      }
+      if (typeof window !== "undefined") {
+        window.addEventListener("storage", (event) => this._handleStorageEvent(event));
+      }
+    }
+    /**
+     * Register a preference
+     * @param {string} key - Unique preference key
+     * @param {*} defaultValue - Default value
+     * @param {Object} options - Configuration options
+     * @returns {Pref} Preference instance
+     */
+    register(key, defaultValue, options = {}) {
+      const pref = new Pref(this, key, defaultValue, options);
+      this.prefs.set(key, pref);
+      pref._loadFromStorage();
+      return pref;
+    }
+    /**
+     * Get a registered preference
+     */
+    get(key) {
+      return this.prefs.get(key);
+    }
+    /**
+     * Broadcast a preference change to other tabs
+     */
+    broadcast(key, value, updatedAt) {
+      if (this.channel) {
+        this.channel.postMessage({
+          type: "update",
+          key,
+          value,
+          updatedAt: updatedAt.toISOString()
+        });
+      }
+    }
+    /**
+     * Handle broadcast message from another tab
+     */
+    _handleBroadcast(event) {
+      const { type, key, value, updatedAt } = event.data;
+      if (type === "update") {
+        const pref = this.prefs.get(key);
+        if (pref) {
+          pref._setFromRemote(value, new Date(updatedAt));
+        }
+      }
+      if (this.options.debug) {
+        console.log("[Vango Prefs] Broadcast received:", event.data);
+      }
+    }
+    /**
+     * Handle storage event (fallback for cross-tab sync)
+     */
+    _handleStorageEvent(event) {
+      if (!event.key || !event.key.startsWith(this.options.storagePrefix)) {
+        return;
+      }
+      const prefKey = event.key.slice(this.options.storagePrefix.length);
+      const pref = this.prefs.get(prefKey);
+      if (pref && event.newValue) {
+        try {
+          const data = JSON.parse(event.newValue);
+          pref._setFromRemote(data.value, new Date(data.updatedAt));
+        } catch (e) {
+          if (this.options.debug) {
+            console.warn("[Vango Prefs] Failed to parse storage event:", e);
+          }
+        }
+      }
+    }
+    /**
+     * Save to LocalStorage
+     */
+    saveToStorage(key, value, updatedAt) {
+      if (typeof localStorage === "undefined")
+        return;
+      const storageKey = this.options.storagePrefix + key;
+      const data = {
+        value,
+        updatedAt: updatedAt.toISOString()
+      };
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(data));
+      } catch (e) {
+        if (this.options.debug) {
+          console.warn("[Vango Prefs] Failed to save to storage:", e);
+        }
+      }
+    }
+    /**
+     * Load from LocalStorage
+     */
+    loadFromStorage(key) {
+      if (typeof localStorage === "undefined")
+        return null;
+      const storageKey = this.options.storagePrefix + key;
+      try {
+        const data = localStorage.getItem(storageKey);
+        if (data) {
+          const parsed = JSON.parse(data);
+          return {
+            value: parsed.value,
+            updatedAt: new Date(parsed.updatedAt)
+          };
+        }
+      } catch (e) {
+        if (this.options.debug) {
+          console.warn("[Vango Prefs] Failed to load from storage:", e);
+        }
+      }
+      return null;
+    }
+    /**
+     * Remove from LocalStorage
+     */
+    removeFromStorage(key) {
+      if (typeof localStorage === "undefined")
+        return;
+      const storageKey = this.options.storagePrefix + key;
+      try {
+        localStorage.removeItem(storageKey);
+      } catch (e) {
+      }
+    }
+    /**
+     * Sync all preferences with server
+     * Called when user logs in
+     */
+    async syncWithServer(serverPrefs) {
+      for (const [key, serverData] of Object.entries(serverPrefs)) {
+        const pref = this.prefs.get(key);
+        if (pref) {
+          pref._mergeWithServer(serverData.value, new Date(serverData.updatedAt));
+        }
+      }
+    }
+    /**
+     * Get all preferences as an object for server sync
+     */
+    getAllForSync() {
+      const result = {};
+      for (const [key, pref] of this.prefs) {
+        if (pref.options.syncToServer !== false) {
+          result[key] = {
+            value: pref.value,
+            updatedAt: pref.updatedAt.toISOString()
+          };
+        }
+      }
+      return result;
+    }
+    /**
+     * Cleanup
+     */
+    destroy() {
+      if (this.channel) {
+        this.channel.close();
+        this.channel = null;
+      }
+    }
+  };
+  __name(_PrefManager, "PrefManager");
+  var PrefManager = _PrefManager;
+  var _Pref = class _Pref {
+    constructor(manager, key, defaultValue, options = {}) {
+      this.manager = manager;
+      this.key = key;
+      this.defaultValue = defaultValue;
+      this.value = defaultValue;
+      this.updatedAt = /* @__PURE__ */ new Date();
+      this.options = {
+        mergeStrategy: MergeStrategy.LWW,
+        persistLocal: true,
+        syncToServer: true,
+        onConflict: null,
+        // Custom conflict handler
+        onChange: null,
+        // Called when value changes
+        ...options
+      };
+      this.subscribers = /* @__PURE__ */ new Set();
+    }
+    /**
+     * Get the current value
+     */
+    get() {
+      return this.value;
+    }
+    /**
+     * Set a new value
+     */
+    set(value) {
+      if (this._isEqual(this.value, value)) {
+        return;
+      }
+      const oldValue = this.value;
+      this.value = value;
+      this.updatedAt = /* @__PURE__ */ new Date();
+      if (this.options.persistLocal) {
+        this.manager.saveToStorage(this.key, value, this.updatedAt);
+      }
+      this.manager.broadcast(this.key, value, this.updatedAt);
+      if (this.options.syncToServer && this.manager.client) {
+        this._syncToServer();
+      }
+      this._notifySubscribers(value, oldValue);
+      if (this.options.onChange) {
+        this.options.onChange(value, oldValue);
+      }
+    }
+    /**
+     * Reset to default value
+     */
+    reset() {
+      this.set(this.defaultValue);
+    }
+    /**
+     * Subscribe to value changes
+     * @param {Function} callback - Called with (newValue, oldValue)
+     * @returns {Function} Unsubscribe function
+     */
+    subscribe(callback) {
+      this.subscribers.add(callback);
+      return () => this.subscribers.delete(callback);
+    }
+    /**
+     * Load initial value from storage
+     */
+    _loadFromStorage() {
+      const stored = this.manager.loadFromStorage(this.key);
+      if (stored) {
+        this.value = stored.value;
+        this.updatedAt = stored.updatedAt;
+      }
+    }
+    /**
+     * Set value from remote source (another tab)
+     */
+    _setFromRemote(value, remoteUpdatedAt) {
+      const resolved = this._resolveConflict(this.value, value, this.updatedAt, remoteUpdatedAt);
+      if (!this._isEqual(this.value, resolved)) {
+        const oldValue = this.value;
+        this.value = resolved;
+        if (remoteUpdatedAt > this.updatedAt) {
+          this.updatedAt = remoteUpdatedAt;
+        }
+        if (this.options.persistLocal) {
+          this.manager.saveToStorage(this.key, this.value, this.updatedAt);
+        }
+        this._notifySubscribers(this.value, oldValue);
+        if (this.options.onChange) {
+          this.options.onChange(this.value, oldValue);
+        }
+      }
+    }
+    /**
+     * Merge with server value (called on login)
+     */
+    _mergeWithServer(serverValue, serverUpdatedAt) {
+      const resolved = this._resolveConflict(this.value, serverValue, this.updatedAt, serverUpdatedAt);
+      if (!this._isEqual(this.value, resolved)) {
+        const oldValue = this.value;
+        this.value = resolved;
+        if (serverUpdatedAt > this.updatedAt) {
+          this.updatedAt = serverUpdatedAt;
+        }
+        if (this.options.persistLocal) {
+          this.manager.saveToStorage(this.key, this.value, this.updatedAt);
+        }
+        this._notifySubscribers(this.value, oldValue);
+        if (this.options.onChange) {
+          this.options.onChange(this.value, oldValue);
+        }
+      }
+    }
+    /**
+     * Resolve conflict between local and remote values
+     */
+    _resolveConflict(local, remote, localTime, remoteTime) {
+      if (this.options.onConflict) {
+        return this.options.onConflict(local, remote, localTime, remoteTime);
+      }
+      switch (this.options.mergeStrategy) {
+        case MergeStrategy.DB_WINS:
+          return remote;
+        case MergeStrategy.LOCAL_WINS:
+          return local;
+        case MergeStrategy.LWW:
+          return remoteTime > localTime ? remote : local;
+        case MergeStrategy.PROMPT:
+          return remoteTime > localTime ? remote : local;
+        default:
+          return local;
+      }
+    }
+    /**
+     * Sync preference to server
+     */
+    _syncToServer() {
+      if (!this.manager.client || !this.manager.client.connected) {
+        return;
+      }
+      this.manager.client.sendEvent(
+        16,
+        // EventType.PREF (custom event type for preferences)
+        "",
+        // No HID needed
+        {
+          key: this.key,
+          value: this.value,
+          updatedAt: this.updatedAt.toISOString()
+        }
+      );
+    }
+    /**
+     * Notify all subscribers of value change
+     */
+    _notifySubscribers(newValue, oldValue) {
+      for (const callback of this.subscribers) {
+        try {
+          callback(newValue, oldValue);
+        } catch (e) {
+          console.error("[Vango Prefs] Subscriber error:", e);
+        }
+      }
+    }
+    /**
+     * Check if two values are equal
+     */
+    _isEqual(a, b) {
+      if (a === b)
+        return true;
+      if (typeof a !== typeof b)
+        return false;
+      if (typeof a === "object" && a !== null && b !== null) {
+        return JSON.stringify(a) === JSON.stringify(b);
+      }
+      return false;
+    }
+  };
+  __name(_Pref, "Pref");
+  var Pref = _Pref;
+
   // src/index.js
   var FrameType = {
-    EVENT: 0,
-    PATCHES: 1,
-    CONTROL: 2,
-    ERROR: 3
+    HANDSHAKE: 0,
+    EVENT: 1,
+    PATCHES: 2,
+    CONTROL: 3,
+    ACK: 4,
+    ERROR: 5
   };
   var ControlType = {
     PING: 1,
     PONG: 2,
-    RESYNC: 3,
-    CLOSE: 4
+    RESYNC_REQUEST: 16,
+    // Client -> Server: request missed patches
+    RESYNC_PATCHES: 17,
+    // Server -> Client: replay missed patches (not used with frame replay)
+    RESYNC_FULL: 18,
+    // Server -> Client: full HTML replacement
+    CLOSE: 32
   };
   var _VangoClient = class _VangoClient {
     constructor(options = {}) {
@@ -2139,16 +4148,31 @@ var Vango = (() => {
       this.nodeMap = /* @__PURE__ */ new Map();
       this.connected = false;
       this.seq = 0;
+      this.patchSeq = 0;
+      this.expectedPatchSeq = 1;
+      this.pendingResync = false;
       this.wsManager = new WebSocketManager(this, this.options);
       this.patchApplier = new PatchApplier(this);
       this.eventCapture = new EventCapture(this);
       this.optimistic = new OptimisticUpdates(this);
       this.hooks = new HookManager(this);
+      this.connection = new ConnectionManager({
+        toastOnReconnect: options.toastOnReconnect || window.__VANGO_TOAST_ON_RECONNECT__,
+        toastMessage: options.toastMessage || "Connection restored",
+        maxRetries: options.maxRetries || 10,
+        baseDelay: options.reconnectInterval || 1e3,
+        maxDelay: options.reconnectMaxInterval || 3e4,
+        debug: options.debug
+      });
+      this.urlManager = new URLManager(this, { debug: options.debug });
+      this.prefs = new PrefManager(this, { debug: options.debug });
       this.onConnect = options.onConnect || (() => {
       });
       this.onDisconnect = options.onDisconnect || (() => {
       });
       this.onError = options.onError || ((err) => console.error("[Vango]", err));
+      ensurePortalRoot();
+      injectDefaultStyles();
       this._buildNodeMap();
       this.wsManager.connect(this.options.wsUrl);
       this.eventCapture.attach();
@@ -2171,13 +4195,15 @@ var Vango = (() => {
      */
     _defaultWsUrl() {
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      return `${protocol}//${location.host}/_vango/live`;
+      const path = encodeURIComponent(location.pathname + location.search);
+      return `${protocol}//${location.host}/_vango/live?path=${path}`;
     }
     /**
      * Called when WebSocket connection established
      */
     _onConnected() {
       this.connected = true;
+      this.connection.onConnect();
       this.onConnect();
     }
     /**
@@ -2185,6 +4211,7 @@ var Vango = (() => {
      */
     _onDisconnected() {
       this.connected = false;
+      this.connection.onDisconnect();
       this.onDisconnect();
     }
     /**
@@ -2197,10 +4224,11 @@ var Vango = (() => {
      * Handle binary message from server
      */
     _handleBinaryMessage(buffer) {
-      if (buffer.length === 0)
+      if (buffer.length < 4)
         return;
       const frameType = buffer[0];
-      const payload = buffer.slice(1);
+      const length = buffer[2] << 8 | buffer[3];
+      const payload = buffer.slice(4, 4 + length);
       switch (frameType) {
         case FrameType.PATCHES:
           this._handlePatches(payload);
@@ -2221,13 +4249,43 @@ var Vango = (() => {
      * Handle patches frame
      */
     _handlePatches(buffer) {
+      if (this.options.debug) {
+        console.log("[Vango] Received patches buffer, length:", buffer.length);
+      }
       const { seq, patches } = this.codec.decodePatches(buffer);
       if (this.options.debug) {
+        console.log("[Vango] Decoded", patches.length, "patches, seq:", seq);
+      }
+      if (seq < this.expectedPatchSeq) {
+        if (this.options.debug) {
+          console.log("[Vango] Ignoring duplicate patch seq:", seq, "expected:", this.expectedPatchSeq);
+        }
+        return;
+      }
+      if (seq > this.expectedPatchSeq) {
+        console.warn(
+          "[Vango] Patch sequence gap detected",
+          "expected:",
+          this.expectedPatchSeq,
+          "received:",
+          seq
+        );
+        this._requestResync(this.patchSeq);
+        return;
+      }
+      if (this.options.debug) {
+        for (const p of patches) {
+          console.log("[Vango] Patch:", p);
+        }
         console.log("[Vango] Applying", patches.length, "patches (seq:", seq, ")");
       }
       this.optimistic.clearPending();
       this.patchApplier.apply(patches);
       this.hooks.updateFromDOM();
+      this.patchSeq = seq;
+      this.expectedPatchSeq = seq + 1;
+      this.pendingResync = false;
+      this._sendAck(seq);
     }
     /**
      * Handle control message
@@ -2242,40 +4300,103 @@ var Vango = (() => {
             console.log("[Vango] Pong received");
           }
           break;
-        case ControlType.RESYNC:
-          this._handleResync();
+        case ControlType.RESYNC_FULL:
+          this._handleResyncFull(buffer.slice(1));
           break;
         case ControlType.CLOSE:
           this.wsManager.close();
           break;
+        default:
+          if (this.options.debug) {
+            console.log("[Vango] Unknown control type:", controlType);
+          }
       }
     }
     /**
-     * Handle resync (full page refresh needed)
+     * Handle ResyncFull - replace body content with server-sent HTML
+     * Used during session resume to ensure client DOM matches server state
      */
-    _handleResync() {
+    _handleResyncFull(buffer) {
+      if (buffer.length === 0)
+        return;
+      const { value: html } = this.codec.decodeString(buffer, 0);
       if (this.options.debug) {
-        console.log("[Vango] Resync requested, reloading page");
+        console.log("[Vango] ResyncFull received, replacing body content");
       }
-      location.reload();
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      this.nodeMap.clear();
+      this.hooks.destroyAll();
+      document.body.innerHTML = "";
+      while (template.content.firstChild) {
+        document.body.appendChild(template.content.firstChild);
+      }
+      this._buildNodeMap();
+      this.hooks.initializeFromDOM();
+      this.patchSeq = 0;
+      this.expectedPatchSeq = 1;
+      this.pendingResync = false;
+    }
+    /**
+     * Send ACK for received patches
+     * Format: [lastSeq:varint][window:varint]
+     */
+    _sendAck(lastSeq) {
+      if (!this.connected)
+        return;
+      const payload = this.codec.encodeAck(lastSeq, 100);
+      const frame = this._encodeFrame(FrameType.ACK, payload);
+      this.wsManager.send(frame);
+      if (this.options.debug) {
+        console.log("[Vango] Sent ACK for seq:", lastSeq);
+      }
+    }
+    /**
+     * Request resync for missed patches (with debouncing)
+     * Format: [controlType:1][lastSeq:varint]
+     */
+    _requestResync(lastSeq) {
+      if (this.pendingResync) {
+        if (this.options.debug) {
+          console.log("[Vango] Resync already pending, skipping");
+        }
+        return;
+      }
+      this.pendingResync = true;
+      if (this.options.debug) {
+        console.log("[Vango] Requesting resync from seq:", lastSeq);
+      }
+      const payload = this.codec.encodeResyncRequest(lastSeq);
+      const frame = this._encodeFrame(FrameType.CONTROL, payload);
+      this.wsManager.send(frame);
     }
     /**
      * Handle server error
+     *
+     * Per spec Section 9.6.2 (error wire format):
+     * Wire format: [uint16:code][varint-string:message][bool:fatal]
+     * See vango/pkg/protocol/error.go for encoding.
      */
     _handleServerError(buffer) {
       if (buffer.length < 3)
         return;
       const code = buffer[0] << 8 | buffer[1];
-      const fatal = buffer[2] === 1;
-      const messageBytes = buffer.slice(3);
-      const { value: message } = this.codec.decodeString(messageBytes, 0);
+      const { value: message, bytesRead } = this.codec.decodeString(buffer, 2);
+      const fatalOffset = 2 + bytesRead;
+      const fatal = fatalOffset < buffer.length ? buffer[fatalOffset] === 1 : false;
       const errorMessages = {
-        1: "Session expired",
+        0: "Unknown error",
+        1: "Invalid frame",
         2: "Invalid event",
-        3: "Rate limited",
-        4: "Server error",
-        5: "Handler panic",
-        6: "Invalid CSRF"
+        3: "Handler not found",
+        4: "Handler panic",
+        5: "Session expired",
+        6: "Rate limited",
+        256: "Server error",
+        257: "Not authorized",
+        258: "Not found",
+        259: "Validation failed",
+        260: "Route error"
       };
       const errorMessage = errorMessages[code] || message || `Unknown error: ${code}`;
       const error = new Error(errorMessage);
@@ -2298,13 +4419,25 @@ var Vango = (() => {
       }
       this.seq++;
       const eventBuffer = this.codec.encodeEvent(this.seq, type, hid, data);
-      const frame = new Uint8Array(1 + eventBuffer.length);
-      frame[0] = FrameType.EVENT;
-      frame.set(eventBuffer, 1);
+      const frame = this._encodeFrame(FrameType.EVENT, eventBuffer);
       this.wsManager.send(frame);
       if (this.options.debug) {
         console.log("[Vango] Sent event:", { type, hid, data, seq: this.seq });
       }
+    }
+    /**
+     * Encode a frame with proper header
+     * Format: [type:1][flags:1][length:2 big-endian][payload]
+     */
+    _encodeFrame(frameType, payload) {
+      const length = payload.length;
+      const frame = new Uint8Array(4 + length);
+      frame[0] = frameType;
+      frame[1] = 0;
+      frame[2] = length >> 8 & 255;
+      frame[3] = length & 255;
+      frame.set(payload, 4);
+      return frame;
     }
     /**
      * Send hook event to server
@@ -2337,11 +4470,22 @@ var Vango = (() => {
       this.hooks.register(name, hookClass);
     }
     /**
+     * Register a preference
+     * @param {string} key - Unique preference key
+     * @param {*} defaultValue - Default value
+     * @param {Object} options - Configuration options
+     * @returns {Pref} Preference instance
+     */
+    registerPref(key, defaultValue, options = {}) {
+      return this.prefs.register(key, defaultValue, options);
+    }
+    /**
      * Disconnect and cleanup
      */
     destroy() {
       this.eventCapture.detach();
       this.hooks.destroyAll();
+      this.prefs.destroy();
       this.wsManager.close();
     }
   };

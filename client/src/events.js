@@ -88,6 +88,13 @@ export class EventCapture {
         return target.closest('[data-hid]');
     }
 
+    _closest(target, selector) {
+        if (!target || typeof target.closest !== 'function') {
+            return null;
+        }
+        return target.closest(selector);
+    }
+
     /**
      * Check if element has an event in its data-ve attribute.
      * Parses data-ve="click,input,change" format per spec Section 5.2.
@@ -253,7 +260,7 @@ export class EventCapture {
 
         // For anchor elements, check closest anchor (el might be child of anchor)
         // Important: Use event.target.closest, not el, to catch clicks inside anchors
-        const anchor = event.target.closest('a[href]');
+        const anchor = this._closest(event.target, 'a[href]');
         if (anchor) {
             const target = anchor.getAttribute('target');
             if (target && target !== '_self') return;
@@ -376,7 +383,7 @@ export class EventCapture {
      * When WebSocket is unavailable, forms MUST fall back to normal HTTP submission.
      */
     _handleSubmit(event) {
-        const form = event.target.closest('form[data-hid]');
+        const form = this._closest(event.target, 'form[data-hid]');
         if (!form || !this._hasEvent(form, 'submit')) return;
 
         // Progressive enhancement: let native submit work if WS not connected
@@ -564,7 +571,7 @@ export class EventCapture {
      * Note: data-link is supported for backwards compatibility but deprecated.
      */
     _handleLinkClick(event) {
-        const link = event.target.closest('a[href]');
+        const link = this._closest(event.target, 'a[href]');
         if (!link) return;
 
         // Don't intercept if modifier keys are held (allow open in new tab, etc.)
@@ -677,7 +684,7 @@ export class EventCapture {
      * making navigation feel instant.
      */
     _handlePrefetch(event) {
-        const link = event.target.closest('a[data-prefetch][href]');
+        const link = this._closest(event.target, 'a[data-prefetch][href]');
         if (!link) return;
 
         const href = link.getAttribute('href');

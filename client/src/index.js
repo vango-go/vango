@@ -124,7 +124,8 @@ export class VangoClient {
      */
     _defaultWsUrl() {
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${location.host}/_vango/live`;
+        const path = encodeURIComponent(location.pathname + location.search);
+        return `${protocol}//${location.host}/_vango/live?path=${path}`;
     }
 
     /**

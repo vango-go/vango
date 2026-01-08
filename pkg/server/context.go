@@ -372,23 +372,38 @@ func (c *ctx) Request() *http.Request {
 
 // Path returns the URL path.
 func (c *ctx) Path() string {
-	return c.request.URL.Path
+	if c.request != nil {
+		return c.request.URL.Path
+	}
+	if c.session != nil {
+		return c.session.CurrentRoute
+	}
+	return ""
 }
 
 // Method returns the HTTP method.
 func (c *ctx) Method() string {
-	return c.request.Method
+	if c.request != nil {
+		return c.request.Method
+	}
+	return http.MethodGet
 }
 
 // Query returns the URL query parameters.
 func (c *ctx) Query() url.Values {
-	return c.request.URL.Query()
+	if c.request != nil {
+		return c.request.URL.Query()
+	}
+	return nil
 }
 
 // QueryParam returns a single query parameter value by key.
 // Returns an empty string if the key is not present.
 func (c *ctx) QueryParam(key string) string {
-	return c.request.URL.Query().Get(key)
+	if c.request != nil {
+		return c.request.URL.Query().Get(key)
+	}
+	return ""
 }
 
 // Param returns a route parameter by key.
@@ -398,12 +413,18 @@ func (c *ctx) Param(key string) string {
 
 // Header returns a request header value.
 func (c *ctx) Header(key string) string {
-	return c.request.Header.Get(key)
+	if c.request != nil {
+		return c.request.Header.Get(key)
+	}
+	return ""
 }
 
 // Cookie returns a cookie by name.
 func (c *ctx) Cookie(name string) (*http.Cookie, error) {
-	return c.request.Cookie(name)
+	if c.request != nil {
+		return c.request.Cookie(name)
+	}
+	return nil, http.ErrNoCookie
 }
 
 // Status sets the HTTP response status code.
@@ -457,7 +478,13 @@ func (c *ctx) Logger() *slog.Logger {
 
 // Done returns a channel that's closed when the request is canceled.
 func (c *ctx) Done() <-chan struct{} {
-	return c.request.Context().Done()
+	if c.request != nil {
+		return c.request.Context().Done()
+	}
+	if c.stdCtx != nil {
+		return c.stdCtx.Done()
+	}
+	return nil
 }
 
 // setSession sets the session for WebSocket requests.

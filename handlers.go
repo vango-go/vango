@@ -66,6 +66,23 @@ func wrapPageHandler(handler any) router.PageHandler {
 	handlerVal := reflect.ValueOf(handler)
 	handlerType := handlerVal.Type()
 
+	valueOrZero := func(v any, t reflect.Type) reflect.Value {
+		if v == nil {
+			return reflect.Zero(t)
+		}
+		rv := reflect.ValueOf(v)
+		if !rv.IsValid() {
+			return reflect.Zero(t)
+		}
+		if rv.Type().AssignableTo(t) {
+			return rv
+		}
+		if rv.Type().ConvertibleTo(t) {
+			return rv.Convert(t)
+		}
+		return reflect.Zero(t)
+	}
+
 	// Validate it's a function
 	if handlerType.Kind() != reflect.Func {
 		panic(fmt.Sprintf("vango: page handler must be a function, got %T", handler))
@@ -80,47 +97,50 @@ func wrapPageHandler(handler any) router.PageHandler {
 	}
 
 	switch numIn {
-	case 1:
-		// func(ctx Ctx) *VNode - static page
-		// Type assert to the concrete function type
-		fn, ok := handler.(func(Ctx) *VNode)
-		if !ok {
-			// Try reflection fallback for interface type
-			return func(ctx server.Ctx, params any) vdom.Component {
-				results := handlerVal.Call([]reflect.Value{reflect.ValueOf(ctx)})
-				node := results[0].Interface().(*VNode)
-				return vdom.Func(func() *vdom.VNode { return node })
-			}
-		}
-		return func(ctx server.Ctx, params any) vdom.Component {
-			node := fn(ctx)
-			return vdom.Func(func() *vdom.VNode { return node })
-		}
-
-	case 2:
-		// func(ctx Ctx, p P) *VNode - dynamic page with params
-		paramsType := handlerType.In(1)
-		decoder := buildParamDecoder(paramsType)
-
-		return func(ctx server.Ctx, rawParams any) vdom.Component {
-			// Decode params from map[string]string to typed struct
-			paramsMap, ok := rawParams.(map[string]string)
+		case 1:
+			// func(ctx Ctx) *VNode - static page
+			// Type assert to the concrete function type
+			fn, ok := handler.(func(Ctx) *VNode)
 			if !ok {
-				paramsMap = make(map[string]string)
+				// Try reflection fallback for interface type
+				return func(ctx server.Ctx, params any) vdom.Component {
+					return vdom.Func(func() *vdom.VNode {
+						results := handlerVal.Call([]reflect.Value{valueOrZero(ctx, handlerType.In(0))})
+						return results[0].Interface().(*VNode)
+					})
+				}
 			}
-			paramsVal := decoder(paramsMap)
+			return func(ctx server.Ctx, params any) vdom.Component {
+				return vdom.Func(func() *vdom.VNode {
+					return fn(ctx)
+				})
+			}
 
-			// Call handler with decoded params
-			results := handlerVal.Call([]reflect.Value{
-				reflect.ValueOf(ctx),
-				paramsVal,
-			})
-			node := results[0].Interface().(*VNode)
-			return vdom.Func(func() *vdom.VNode { return node })
-		}
+		case 2:
+			// func(ctx Ctx, p P) *VNode - dynamic page with params
+			paramsType := handlerType.In(1)
+			decoder := buildParamDecoder(paramsType)
 
-	default:
-		panic(fmt.Sprintf("vango: page handler has invalid signature (expected 1 or 2 args, got %d)", numIn))
+			return func(ctx server.Ctx, rawParams any) vdom.Component {
+				// Decode params from map[string]string to typed struct
+				paramsMap, ok := rawParams.(map[string]string)
+				if !ok {
+					paramsMap = make(map[string]string)
+				}
+				paramsVal := decoder(paramsMap) // stable across renders
+
+				return vdom.Func(func() *vdom.VNode {
+					// Call handler with decoded params during render so signals track properly.
+					results := handlerVal.Call([]reflect.Value{
+						valueOrZero(ctx, handlerType.In(0)),
+						valueOrZero(paramsVal.Interface(), handlerType.In(1)),
+					})
+					return results[0].Interface().(*VNode)
+				})
+			}
+
+		default:
+			panic(fmt.Sprintf("vango: page handler has invalid signature (expected 1 or 2 args, got %d)", numIn))
 	}
 }
 

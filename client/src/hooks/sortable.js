@@ -66,7 +66,7 @@ export class SortableHook {
         if (!item) return;
 
         // Check handle
-        if (this.handle && !e.target.closest(this.handle)) return;
+        if (this.handle && (typeof e.target?.closest !== 'function' || !e.target.closest(this.handle))) return;
 
         e.preventDefault();
         this._startDrag(item, e.clientX, e.clientY);
@@ -76,7 +76,7 @@ export class SortableHook {
         const item = this._findItem(e.target);
         if (!item) return;
 
-        if (this.handle && !e.target.closest(this.handle)) return;
+        if (this.handle && (typeof e.target?.closest !== 'function' || !e.target.closest(this.handle))) return;
 
         e.preventDefault();
         const touch = e.touches[0];
