@@ -64,8 +64,8 @@ func TestErrorRecovery_UndefinedSymbols(t *testing.T) {
 	indexGo := `package routes
 
 import (
-	"github.com/vango-dev/vango"
-	. "github.com/vango-dev/vango/el"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
 )
 
 // HomePage handles the home page (was IndexPage).
@@ -80,7 +80,7 @@ func HomePage(ctx vango.Ctx) *vango.VNode {
 
 package routes
 
-import "github.com/vango-dev/vango/router"
+import "github.com/vango-go/vango/router"
 
 func Register(r *router.Router) {
 	r.Page("/", IndexPage) // This references the OLD name
@@ -151,7 +151,7 @@ func TestGetModulePath(t *testing.T) {
 go 1.22
 
 require (
-	github.com/vango-dev/vango v2.0.0
+	github.com/vango-go/vango v2.0.0
 )
 `
 	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644)

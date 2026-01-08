@@ -49,7 +49,7 @@ func TestOpenAPIGenerator_Generate(t *testing.T) {
 	// Create a sample API file
 	healthGo := `package api
 
-import "github.com/vango-dev/vango"
+import "github.com/vango-go/vango"
 
 // HealthResponse is the JSON response for health checks.
 type HealthResponse struct {
@@ -151,7 +151,7 @@ func TestOpenAPIGenerator_WithPathParams(t *testing.T) {
 	// Create API file with path parameter
 	usersGo := `package users
 
-import "github.com/vango-dev/vango"
+import "github.com/vango-go/vango"
 
 type UserResponse struct {
 	ID    string ` + "`json:\"id\"`" + `

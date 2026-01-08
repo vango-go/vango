@@ -254,7 +254,7 @@ type importDef struct {
 func (g *Generator) collectImports() []importDef {
 	// Always import router
 	imports := []importDef{
-		{path: "github.com/vango-dev/vango/router"},
+		{path: "github.com/vango-go/vango/router"},
 	}
 
 	// Collect unique packages from routes that need to be imported

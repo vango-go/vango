@@ -856,8 +856,8 @@ func generateRouteCode(packageName, pageFuncName string, params []paramInfo, mod
 
 	code.WriteString(fmt.Sprintf("package %s\n\n", packageName))
 	code.WriteString("import (\n")
-	code.WriteString("\t\"github.com/vango-dev/vango\"\n")
-	code.WriteString("\t. \"github.com/vango-dev/vango/el\"\n")
+	code.WriteString("\t\"github.com/vango-go/vango\"\n")
+	code.WriteString("\t. \"github.com/vango-go/vango/el\"\n")
 	code.WriteString(")\n\n")
 
 	// Generate Params struct if needed
@@ -899,7 +899,7 @@ func generateAPICode(packageName, resourceName string, methods []string, params 
 	var code strings.Builder
 
 	code.WriteString(fmt.Sprintf("package %s\n\n", packageName))
-	code.WriteString("import \"github.com/vango-dev/vango\"\n\n")
+	code.WriteString("import \"github.com/vango-go/vango\"\n\n")
 
 	// Generate response types
 	code.WriteString(fmt.Sprintf("// %sResponse is the JSON response type.\n", resourceName))
@@ -984,8 +984,8 @@ func generateComponentCode(packageName, componentName string) string {
 	return fmt.Sprintf(`package %s
 
 import (
-	"github.com/vango-dev/vango"
-	. "github.com/vango-dev/vango/el"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
 )
 
 // %s is a component.
@@ -1046,8 +1046,8 @@ func generateMiddlewareCode(name string) string {
 	return fmt.Sprintf(`package middleware
 
 import (
-	"github.com/vango-dev/vango"
-	"github.com/vango-dev/vango/router"
+	"github.com/vango-go/vango"
+	"github.com/vango-go/vango/router"
 )
 
 // %s is a middleware that...
