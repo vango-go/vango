@@ -234,6 +234,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Internal assets
+	if r.URL.Path == "/_vango/client.js" {
+		s.serveThinClient(w, r)
+		return
+	}
+
 	// Per Section 1.2.4 (Path Canonicalization):
 	// HTTP requests with non-canonical paths should redirect with 308 Permanent Redirect.
 	// This ensures consistent URL handling and prevents duplicate content issues.
