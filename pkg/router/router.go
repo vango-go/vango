@@ -54,16 +54,33 @@ func (r *Router) AddMiddleware(path string, mw ...Middleware) {
 
 // Page registers a page handler for a path.
 // This is the spec-compliant alias for AddPage.
-// Optional RouteOption arguments can specify parameter type constraints.
+// Optional RouteOption arguments can specify parameter type constraints or page layouts.
 //
 // Example:
 //
 //	r.Page("/users/:id", users.ShowPage)
 //	r.Page("/users/:id", users.ShowPage, router.WithParamType("id", "int"))
+//	r.Page("/app/dashboard", DashboardPage, router.WithPageLayouts(AppLayout))
 func (r *Router) Page(path string, handler PageHandler, opts ...RouteOption) {
 	node := r.root.insertRoute(path)
 	node.pageHandler = handler
-	r.applyRouteOptions(path, opts)
+
+	// Collect options first to handle pageLayouts
+	if len(opts) > 0 {
+		var options routeOptions
+		for _, opt := range opts {
+			opt(&options)
+		}
+
+		// Apply page layouts directly to the node
+		if options.hasPageLayouts {
+			node.hasPageLayouts = true
+			node.pageLayouts = options.pageLayouts
+		}
+
+		// Apply param type options via existing mechanism
+		r.applyRouteOptions(path, opts)
+	}
 }
 
 // Layout registers a layout handler for a path.
@@ -91,11 +108,13 @@ func (r *Router) Middleware(path string, mw ...Middleware) {
 }
 
 // RouteOption configures route registration.
-// Used for param type constraints, etc.
+// Used for param type constraints, page layouts, etc.
 type RouteOption func(*routeOptions)
 
 type routeOptions struct {
-	paramTypes map[string]string
+	paramTypes     map[string]string
+	pageLayouts    []LayoutHandler
+	hasPageLayouts bool
 }
 
 // WithParamType specifies the type constraint for a route parameter.
@@ -114,6 +133,24 @@ func WithParamType(param, typ string) RouteOption {
 			o.paramTypes = make(map[string]string)
 		}
 		o.paramTypes[param] = typ
+	}
+}
+
+// WithPageLayouts sets explicit layouts for a page (not inherited).
+// When set, these layouts are used instead of hierarchical layouts from app.Layout() calls.
+// This allows different sections of an app to use different layouts.
+//
+// Example:
+//
+//	// Marketing pages use MarketingLayout
+//	r.Page("/", HomePage, router.WithPageLayouts(MarketingLayout))
+//
+//	// App pages use AppLayout (completely different)
+//	r.Page("/app/dashboard", DashboardPage, router.WithPageLayouts(AppLayout))
+func WithPageLayouts(layouts ...LayoutHandler) RouteOption {
+	return func(o *routeOptions) {
+		o.hasPageLayouts = true
+		o.pageLayouts = layouts
 	}
 }
 
@@ -195,13 +232,9 @@ func (r *Router) Match(method, path string) (*MatchResult, bool) {
 		middleware: append([]Middleware{}, r.middleware...), // Copy global middleware
 	}
 
-	// Collect root layout and middleware if present
-	if r.root.layoutHandler != nil {
-		ctx.layouts = append(ctx.layouts, r.root.layoutHandler)
-	}
-	if len(r.root.middleware) > 0 {
-		ctx.middleware = append(ctx.middleware, r.root.middleware...)
-	}
+	// NOTE: We do NOT pre-collect root layout/middleware here.
+	// The match() function handles layout/middleware collection at every node,
+	// including the root. Pre-collecting here would cause duplication.
 
 	// Match against tree
 	node, matchCtx, ok := r.root.match(splitPath(path), params, ctx)
@@ -210,9 +243,11 @@ func (r *Router) Match(method, path string) (*MatchResult, bool) {
 	}
 
 	result := &MatchResult{
-		Params:     params,
-		Layouts:    matchCtx.layouts,
-		Middleware: matchCtx.middleware,
+		Params:         params,
+		Layouts:        matchCtx.layouts,
+		PageLayouts:    node.pageLayouts,
+		HasPageLayouts: node.hasPageLayouts,
+		Middleware:     matchCtx.middleware,
 	}
 
 	// Check for API handler

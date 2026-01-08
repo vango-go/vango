@@ -92,9 +92,14 @@ import (
 )
 
 func Register(app *vango.App) {
-	app.Page("/", IndexPage, Layout)
-	app.Page("/about", AboutPage, Layout)
+	// Register root layout - all pages inherit this
+	app.Layout("/", Layout)
 
+	// Pages (inherit root layout automatically)
+	app.Page("/", IndexPage)
+	app.Page("/about", AboutPage)
+
+	// API routes
 	app.API("GET", "/api/health", api.HealthGET)
 }
 `,
@@ -124,6 +129,7 @@ func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
 			shared.Navbar(ctx),
 			Main(Class("container"), children),
 			shared.AppFooter(),
+			VangoScripts(),
 		),
 	)
 }
@@ -141,9 +147,19 @@ import (
 )
 
 func IndexPage(ctx vango.Ctx) *vango.VNode {
+	count := vango.NewSignal(0)
+
 	return Div(Class("page"),
 		H1(Text("Welcome to Vango")),
 		P(Text("Build modern web apps with Go.")),
+
+		// Interactive counter demo
+		Div(Class("counter"),
+			Button(OnClick(count.Dec), Text("-")),
+			Span(Class("count"), Textf("%d", count.Get())),
+			Button(OnClick(count.Inc), Text("+")),
+		),
+
 		P(
 			Text("Try the "),
 			Link("/about", Text("About page")),
@@ -295,6 +311,35 @@ body {
 
 .page h1 { margin: 0 0 0.75rem; }
 .page p { margin: 0.5rem 0; color: var(--muted); }
+
+.counter {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.counter button {
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.counter button:hover {
+  background: var(--border);
+}
+
+.counter .count {
+  font-size: 1.5rem;
+  font-weight: 600;
+  min-width: 3rem;
+  text-align: center;
+}
 
 .footer {
   border-top: 1px solid var(--border);

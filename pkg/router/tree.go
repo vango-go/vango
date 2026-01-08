@@ -25,6 +25,14 @@ type RouteNode struct {
 	apiHandlers   map[string]APIHandler // method -> handler
 	middleware    []Middleware
 
+	// pageLayouts are layouts specified via Page() call - NOT inherited
+	// These are used instead of hierarchical layouts when hasPageLayouts is true
+	pageLayouts []LayoutHandler
+
+	// hasPageLayouts distinguishes "unset" vs "explicitly empty"
+	// This allows supporting "no layouts at all" use case
+	hasPageLayouts bool
+
 	// children are static segment children
 	children []*RouteNode
 

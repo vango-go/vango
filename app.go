@@ -143,12 +143,20 @@ func (a *App) renderPage(w http.ResponseWriter, r *http.Request, match *router.M
 	// Render component to VNode
 	pageNode := component.Render()
 
+	// Determine which layouts to use:
+	// - If page has explicit layouts (HasPageLayouts), use those only (no inheritance)
+	// - Otherwise, use hierarchical layouts from app.Layout() calls
+	layouts := match.Layouts
+	if match.HasPageLayouts {
+		layouts = match.PageLayouts
+	}
+
 	// Apply layouts (innermost to outermost)
 	// Layouts[0] is root, Layouts[len-1] is closest to page
 	// We apply from end to start: page → inner layout → ... → root layout
 	result := pageNode
-	for i := len(match.Layouts) - 1; i >= 0; i-- {
-		result = match.Layouts[i](ctx, result)
+	for i := len(layouts) - 1; i >= 0; i-- {
+		result = layouts[i](ctx, result)
 	}
 
 	// Render to HTML
@@ -215,14 +223,21 @@ func (a *App) Handler() http.Handler {
 //
 //	app.Page("/projects/:id", projects.ShowPage, RootLayout, ProjectsLayout)
 func (a *App) Page(path string, handler PageHandler, layouts ...LayoutHandler) {
-	// Wrap and register the page handler
-	a.router.Page(path, wrapPageHandler(handler))
+	wrappedHandler := wrapPageHandler(handler)
 
-	// Register layouts at this path
-	// Note: The router handles layout inheritance, so we register each layout
-	// at the path. The first layout is typically the root layout.
-	for _, layout := range layouts {
-		a.router.Layout(path, wrapLayoutHandler(layout))
+	if len(layouts) > 0 {
+		// Page has explicit layouts - store them separately (no inheritance)
+		wrappedLayouts := make([]router.LayoutHandler, 0, len(layouts))
+		for _, layout := range layouts {
+			if layout == nil {
+				continue
+			}
+			wrappedLayouts = append(wrappedLayouts, wrapLayoutHandler(layout))
+		}
+		a.router.Page(path, wrappedHandler, router.WithPageLayouts(wrappedLayouts...))
+	} else {
+		// No explicit layouts - will use hierarchical layouts from app.Layout()
+		a.router.Page(path, wrappedHandler)
 	}
 }
 

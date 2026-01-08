@@ -94,8 +94,16 @@ type MatchResult struct {
 	// APIHandler is the handler for API routes
 	APIHandler APIHandler
 
-	// Layouts are the layout handlers in order (root to leaf)
+	// Layouts are hierarchical layouts collected from app.Layout() calls (root to leaf)
 	Layouts []LayoutHandler
+
+	// PageLayouts are explicit layouts from app.Page(..., layouts)
+	// These are NOT inherited - they replace hierarchical layouts when HasPageLayouts is true
+	PageLayouts []LayoutHandler
+
+	// HasPageLayouts distinguishes "unset" vs "explicitly empty"
+	// When true, PageLayouts should be used instead of Layouts
+	HasPageLayouts bool
 
 	// Middleware is the combined middleware chain
 	Middleware []Middleware
