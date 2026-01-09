@@ -203,14 +203,21 @@ func (s *Session) MountRoot(component Component) {
 	// Register root component for dirty tracking
 	s.registerComponent(s.root)
 
-	// Render the component tree
-	tree := s.root.Render()
+	// Render the component tree, expanding any nested vdom.KindComponent nodes into
+	// their rendered output before assigning HIDs.
+	//
+	// This is required for SSR/WS alignment: SSR rendering expands nested components
+	// inline during traversal, so WS must assign HIDs in the same structural order
+	// or client events will reference HIDs the session didn't register.
+	tree := s.rerenderTree(s.root)
 
-	// Assign hydration IDs to interactive elements
+	// Assign hydration IDs to match SSR order.
 	vdom.AssignHIDs(tree, s.hidGen)
 
-	// Collect handlers from the tree
-	s.collectHandlers(tree, s.root)
+	// Collect handlers from all mounted component instances.
+	s.handlers = make(map[string]Handler)
+	s.components = make(map[string]*ComponentInstance)
+	s.collectHandlersFromInstances(s.root)
 
 	// Store the tree
 	s.currentTree = tree
@@ -227,6 +234,87 @@ func (s *Session) MountRoot(component Component) {
 	vango.WithCtx(ctx, func() {
 		s.flush()
 	})
+}
+
+// collectHandlersFromInstances collects event handlers from the mounted component
+// instance tree.
+//
+// This intentionally walks component instances (not vdom.KindComponent markers)
+// so handler ownership can remain correct even when nested components are expanded
+// into the parent VNode tree during mount/rebuild.
+func (s *Session) collectHandlersFromInstances(instance *ComponentInstance) {
+	if instance == nil {
+		return
+	}
+
+	// Collect from this instance's rendered tree first.
+	s.collectHandlersNoMount(instance.LastTree(), instance)
+
+	// Then recurse into children so deeper instances override ownership mapping.
+	for _, child := range instance.Children {
+		s.collectHandlersFromInstances(child)
+	}
+}
+
+// collectHandlersNoMount walks a VNode tree and collects handlers without mounting
+// or rendering nested component nodes.
+func (s *Session) collectHandlersNoMount(node *vdom.VNode, instance *ComponentInstance) {
+	if node == nil {
+		return
+	}
+
+	if node.HID != "" {
+		// Track that this component owns this HID (for cleanup and lookup).
+		s.components[node.HID] = instance
+
+		for key, value := range node.Props {
+			if value == nil {
+				continue
+			}
+
+			// Case 1: onhook handlers (from hooks.OnEvent, can be single or slice)
+			if key == "onhook" {
+				handlerKey := node.HID + "_onhook"
+
+				var handlers []Handler
+				if slice, ok := value.([]any); ok {
+					for _, h := range slice {
+						handlers = append(handlers, wrapHandler(h))
+					}
+				} else {
+					handlers = append(handlers, wrapHandler(value))
+				}
+
+				combinedHandler := func(e *Event) {
+					for _, h := range handlers {
+						h(e)
+					}
+				}
+				s.handlers[handlerKey] = combinedHandler
+				continue
+			}
+
+			// Case 2: Standard on* handlers (onclick, oninput, etc.)
+			if strings.HasPrefix(key, "on") {
+				handler := wrapHandler(value)
+				eventType := strings.ToLower(key)
+				handlerKey := node.HID + "_" + eventType
+				s.handlers[handlerKey] = handler
+				continue
+			}
+
+			// Case 3: EventHandler struct (DEPRECATED - legacy support)
+			if eh, ok := value.(vdom.EventHandler); ok {
+				handler := wrapHandler(eh.Handler)
+				handlerKey := node.HID + "_hook_" + eh.Event
+				s.handlers[handlerKey] = handler
+			}
+		}
+	}
+
+	for _, child := range node.Children {
+		s.collectHandlersNoMount(child, instance)
+	}
 }
 
 // collectHandlers walks the VNode tree and collects event handlers.
@@ -591,6 +679,13 @@ func (s *Session) renderComponent(comp *ComponentInstance) []vdom.Patch {
 	// Render new tree
 	newTree := comp.Render()
 
+	// Expand nested component nodes (KindComponent) into their rendered output.
+	// SSR does this inline during HTML generation; WS must do the same so:
+	//   - HIDs are assigned in the same structural order
+	//   - diffing operates on the real element tree
+	//   - event handlers are collected for nested components
+	s.rerenderChildren(newTree, comp)
+
 	// Try to copy HIDs from old tree to preserve them
 	// If structure changed significantly, this will return false for some nodes
 	// and we'll assign new HIDs to those
@@ -609,10 +704,45 @@ func (s *Session) renderComponent(comp *ComponentInstance) []vdom.Patch {
 	comp.SetLastTree(newTree)
 
 	// Re-collect handlers (they may have changed)
-	s.clearComponentHandlers(comp)
-	s.collectHandlers(newTree, comp)
+	s.clearSubtreeHandlers(comp)
+	s.collectHandlersFromInstances(comp)
 
 	return patches
+}
+
+func (s *Session) clearSubtreeHandlers(root *ComponentInstance) {
+	if root == nil {
+		return
+	}
+
+	subtree := make(map[*ComponentInstance]struct{})
+	var collect func(*ComponentInstance)
+	collect = func(n *ComponentInstance) {
+		if n == nil {
+			return
+		}
+		if _, ok := subtree[n]; ok {
+			return
+		}
+		subtree[n] = struct{}{}
+		for _, ch := range n.Children {
+			collect(ch)
+		}
+	}
+	collect(root)
+
+	for hid, inst := range s.components {
+		if _, ok := subtree[inst]; !ok {
+			continue
+		}
+		delete(s.components, hid)
+		prefix := hid + "_"
+		for key := range s.handlers {
+			if strings.HasPrefix(key, prefix) {
+				delete(s.handlers, key)
+			}
+		}
+	}
 }
 
 // clearComponentHandlers removes handlers for a component.
@@ -673,7 +803,7 @@ func (s *Session) RebuildHandlers() error {
 	vdom.AssignHIDs(tree, s.hidGen)
 
 	// 5. Collect handlers from fresh render (use existing instances)
-	s.collectHandlersPreserving(tree, s.root)
+	s.collectHandlersFromInstances(s.root)
 
 	// 6. Store new tree
 	s.currentTree = tree
@@ -707,42 +837,73 @@ func (s *Session) rerenderChildren(node *vdom.VNode, parent *ComponentInstance) 
 		return
 	}
 
-	for i, child := range node.Children {
-		if child.Kind == vdom.KindComponent && child.Comp != nil {
-			// Find existing child instance that matches this component
-			var existingChild *ComponentInstance
-			for _, existing := range parent.Children {
-				// Match by component type (pointer equality or interface match)
-				if existing.Component == child.Comp {
-					existingChild = existing
-					break
+	oldChildren := parent.Children
+	usedChildren := make([]*ComponentInstance, 0, len(oldChildren))
+	slot := 0
+
+	var walk func(*vdom.VNode)
+	walk = func(n *vdom.VNode) {
+		if n == nil {
+			return
+		}
+
+		for i, child := range n.Children {
+			if child.Kind == vdom.KindComponent && child.Comp != nil {
+				var childInstance *ComponentInstance
+				if slot < len(oldChildren) {
+					childInstance = oldChildren[slot]
+					if childInstance == nil {
+						childInstance = newComponentInstance(child.Comp, parent, s)
+						s.registerComponent(childInstance)
+					}
+					// Update component implementation each render so "props via closure"
+					// patterns (e.g., Counter(initial)) work while preserving owner state.
+					childInstance.Component = child.Comp
+				} else {
+					childInstance = newComponentInstance(child.Comp, parent, s)
+					s.registerComponent(childInstance)
 				}
-			}
 
-			if existingChild != nil {
-				// Re-render existing instance (preserving its state)
-				rendered := s.rerenderTree(existingChild)
-				node.Children[i] = rendered
-			} else {
-				// No existing instance found - this is a new component
-				// For soft remount, we should ideally skip this or handle gracefully
-				// For now, log a warning and render it fresh
-				s.logger.Warn("no existing child instance found during rebuild",
-					"parent", parent.InstanceID,
-					"component_type", fmt.Sprintf("%T", child.Comp))
+				// Ensure correct parent pointer (defensive; should already be set).
+				childInstance.Parent = parent
 
-				// Create new instance for the new component
-				childInstance := newComponentInstance(child.Comp, parent, s)
-				parent.AddChild(childInstance)
-				s.registerComponent(childInstance)
+				usedChildren = append(usedChildren, childInstance)
+				slot++
+
 				rendered := s.rerenderTree(childInstance)
-				node.Children[i] = rendered
+				n.Children[i] = rendered
+				continue
 			}
-		} else {
-			// Recurse into regular elements
-			s.rerenderChildren(child, parent)
+
+			// Recurse into regular nodes; any nested components discovered are
+			// still mounted as children of the same parent component instance.
+			walk(child)
 		}
 	}
+
+	walk(node)
+
+	// Dispose any instances that are no longer present at this component slot sequence.
+	for i := len(usedChildren); i < len(oldChildren); i++ {
+		s.disposeInstanceTree(oldChildren[i])
+	}
+
+	parent.Children = usedChildren
+}
+
+func (s *Session) disposeInstanceTree(instance *ComponentInstance) {
+	if instance == nil {
+		return
+	}
+
+	// Unregister descendants first.
+	for _, ch := range instance.Children {
+		s.disposeInstanceTree(ch)
+	}
+
+	s.clearSubtreeHandlers(instance)
+	s.unregisterComponent(instance)
+	instance.Dispose()
 }
 
 // collectHandlersPreserving walks the tree and collects handlers,

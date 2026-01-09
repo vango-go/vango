@@ -290,6 +290,10 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 		return nil, nil
 	}
 
+	// SSR expands nested components inline during HTML generation. For WS navigation,
+	// expand KindComponent nodes to match SSR tree shape before HID assignment and diffing.
+	newTree = expandComponents(newTree)
+
 	// Get old tree for diffing
 	oldTree := rn.session.currentTree
 
@@ -335,6 +339,9 @@ func (rn *RouteNavigator) useCachedTree(cachedTree *vdom.VNode, match RouteMatch
 
 	// Copy the cached tree (we need our own copy for HID assignment)
 	newTree := cachedTree
+
+	// Ensure cached trees are expanded so HID assignment and diffing match SSR.
+	newTree = expandComponents(newTree)
 
 	// Assign HIDs to the new tree
 	// Try to copy HIDs from old tree first to preserve stability
@@ -392,6 +399,35 @@ func (rn *RouteNavigator) collectHandlersFromTree(node *vdom.VNode) {
 	// Recurse to children
 	for _, child := range node.Children {
 		rn.collectHandlersFromTree(child)
+	}
+}
+
+// expandComponents replaces vdom.KindComponent nodes with their rendered output,
+// recursively, returning a tree equivalent to what SSR would render inline.
+func expandComponents(node *vdom.VNode) *vdom.VNode {
+	if node == nil {
+		return nil
+	}
+
+	switch node.Kind {
+	case vdom.KindComponent:
+		if node.Comp == nil {
+			return nil
+		}
+		return expandComponents(node.Comp.Render())
+	case vdom.KindElement, vdom.KindFragment:
+		if len(node.Children) > 0 {
+			expanded := make([]*vdom.VNode, 0, len(node.Children))
+			for _, child := range node.Children {
+				if c := expandComponents(child); c != nil {
+					expanded = append(expanded, c)
+				}
+			}
+			node.Children = expanded
+		}
+		return node
+	default:
+		return node
 	}
 }
 
