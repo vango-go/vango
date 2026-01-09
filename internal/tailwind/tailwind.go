@@ -228,6 +228,7 @@ func (b *Binary) download(ctx context.Context, progress func(msg string)) error 
 type Runner struct {
 	binary     *Binary
 	cmd        *exec.Cmd
+	stdinPipe  io.WriteCloser // Keep stdin open for watch mode
 	mu         sync.Mutex
 	running    bool
 	projectDir string
@@ -307,6 +308,14 @@ func (r *Runner) StartWatch(ctx context.Context, cfg RunnerConfig) error {
 	r.cmd.Stdout = os.Stdout
 	r.cmd.Stderr = os.Stderr
 
+	// Create a pipe for stdin to keep the process alive in watch mode.
+	// Tailwind v4 exits when stdin is closed, so we need to provide a
+	// pipe that stays open for the duration of the watch.
+	r.stdinPipe, err = r.cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
 	if err := r.cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start tailwind: %w", err)
 	}
@@ -331,6 +340,12 @@ func (r *Runner) Stop() {
 
 	if !r.running || r.cmd == nil || r.cmd.Process == nil {
 		return
+	}
+
+	// Close stdin pipe first
+	if r.stdinPipe != nil {
+		r.stdinPipe.Close()
+		r.stdinPipe = nil
 	}
 
 	r.cmd.Process.Kill()

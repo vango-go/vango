@@ -306,6 +306,39 @@ func Canvas(args ...any) *VNode {
 func Svg(args ...any) *VNode {
 	return vdom.Svg(args...)
 }
+
+// SVG child elements
+func Circle(args ...any) *VNode {
+	return vdom.Circle(args...)
+}
+func Ellipse(args ...any) *VNode {
+	return vdom.Ellipse(args...)
+}
+func Line(args ...any) *VNode {
+	return vdom.Line(args...)
+}
+func Path(args ...any) *VNode {
+	return vdom.Path(args...)
+}
+func Polygon(args ...any) *VNode {
+	return vdom.Polygon(args...)
+}
+func Polyline(args ...any) *VNode {
+	return vdom.Polyline(args...)
+}
+func Rect(args ...any) *VNode {
+	return vdom.Rect(args...)
+}
+func G(args ...any) *VNode {
+	return vdom.G(args...)
+}
+func Defs(args ...any) *VNode {
+	return vdom.Defs(args...)
+}
+func Use(args ...any) *VNode {
+	return vdom.Use(args...)
+}
+
 func Math(args ...any) *VNode {
 	return vdom.Math(args...)
 }

@@ -251,6 +251,19 @@ func Object(args ...any) *VNode  { return createElement("object", args) }
 func Param(args ...any) *VNode   { return createElement("param", args) }
 func Canvas(args ...any) *VNode  { return createElement("canvas", args) }
 func Svg(args ...any) *VNode     { return createElement("svg", args) }
+
+// SVG child elements
+func Circle(args ...any) *VNode   { return createElement("circle", args) }
+func Ellipse(args ...any) *VNode  { return createElement("ellipse", args) }
+func Line(args ...any) *VNode     { return createElement("line", args) }
+func Path(args ...any) *VNode     { return createElement("path", args) }
+func Polygon(args ...any) *VNode  { return createElement("polygon", args) }
+func Polyline(args ...any) *VNode { return createElement("polyline", args) }
+func Rect(args ...any) *VNode     { return createElement("rect", args) }
+func G(args ...any) *VNode        { return createElement("g", args) }
+func Defs(args ...any) *VNode     { return createElement("defs", args) }
+func Use(args ...any) *VNode      { return createElement("use", args) }
+
 func Math(args ...any) *VNode    { return createElement("math", args) }
 func Map_(args ...any) *VNode    { return createElement("map", args) }
 func Area(args ...any) *VNode    { return createElement("area", args) }
