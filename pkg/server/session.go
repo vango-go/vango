@@ -383,13 +383,21 @@ func (s *Session) handleEvent(event *Event) {
 	// Create context for this event so UseCtx() works in handlers
 	ctx := s.createEventContext(event)
 
-	// Execute handler and effects with context set
+	// Execute handler and effects with context and owner set.
+	// Shared signals and other context-bound primitives rely on a current Owner.
+	// We prefer the owner of the component that owns this HID.
+	owner := s.owner
+	if instance := s.components[event.HID]; instance != nil && instance.Owner != nil {
+		owner = instance.Owner
+	}
 	vango.WithCtx(ctx, func() {
-		// Execute handler with panic recovery
-		s.safeExecute(handler, event)
+		vango.WithOwner(owner, func() {
+			// Execute handler with panic recovery
+			s.safeExecute(handler, event)
 
-		// Commit render + effects after handler
-		s.flush()
+			// Commit render + effects after handler
+			s.flush()
+		})
 	})
 }
 
