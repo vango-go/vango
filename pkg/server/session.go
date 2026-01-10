@@ -68,6 +68,16 @@ type Session struct {
 	mu     sync.Mutex // Protects conn writes
 	closed atomic.Bool
 
+	// Connection lifecycle (ResumeWindow)
+	// A session becomes detached when the WebSocket drops. While detached, we keep
+	// signal/component state in memory so the client can resume within ResumeWindow.
+	detached atomic.Bool
+
+	// Loop lifecycle guards (prevent duplicate goroutines and allow resume to restart IO).
+	readLoopRunning  atomic.Bool
+	writeLoopRunning atomic.Bool
+	eventLoopRunning atomic.Bool
+
 	// Sequence numbers for reliable delivery
 	sendSeq atomic.Uint64 // Next patch sequence to send
 	recvSeq atomic.Uint64 // Last received event sequence
@@ -134,6 +144,12 @@ type Session struct {
 
 	// Asset resolver for fingerprinted asset paths (DX Improvements)
 	assetResolver assets.Resolver
+}
+
+// IsDetached reports whether the session currently has no active WebSocket
+// connection but is still kept in memory for ResumeWindow.
+func (s *Session) IsDetached() bool {
+	return s != nil && s.detached.Load()
 }
 
 // generateSessionID generates a cryptographically random session ID.
@@ -506,11 +522,23 @@ func (s *Session) handleEventNavigate(event *Event) {
 		fmt.Printf("[EVENT] Navigate: path=%s replace=%v\n", navData.Path, navData.Replace)
 	}
 
-	// Handle the navigation (matches route, remounts page, sends patches)
-	if err := s.HandleNavigate(navData.Path, navData.Replace); err != nil {
-		// Error already logged and sent to client
-		return
-	}
+	// Navigation events are their own "tick": we must establish a runtime context
+	// so mount effects run and reactive subscriptions are wired after the remount.
+	ctx := s.createEventContext(event)
+	vango.WithCtx(ctx, func() {
+		// Use the session owner so context-bound primitives (SharedSignal/GetContext)
+		// resolve correctly during any immediate effect work.
+		vango.WithOwner(s.owner, func() {
+			// Handle the navigation (matches route, remounts page, sends patches)
+			if err := s.HandleNavigate(navData.Path, navData.Replace); err != nil {
+				// Error already logged and sent to client
+				return
+			}
+
+			// Run mount effects (and any follow-up renders) after sending NAV + DOM patches.
+			s.flush()
+		})
+	})
 }
 
 // safeExecute runs a handler with panic recovery.

@@ -246,7 +246,12 @@ func (sm *SessionManager) cleanupExpired() {
 	var expired []string
 
 	for id, session := range sm.sessions {
-		if now.Sub(session.LastActive) > sm.config.IdleTimeout {
+		timeout := sm.config.IdleTimeout
+		if session != nil && session.IsDetached() {
+			// Detached sessions are only kept for ResumeWindow.
+			timeout = sm.ResumeWindow()
+		}
+		if now.Sub(session.LastActive) > timeout {
 			expired = append(expired, id)
 		}
 	}

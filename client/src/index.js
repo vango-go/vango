@@ -232,6 +232,7 @@ export class VangoClient {
         this.patchSeq = seq;
         this.expectedPatchSeq = seq + 1;
         this.pendingResync = false; // Clear resync flag on successful apply
+        this.wsManager.updateLastSeq(this.patchSeq);
 
         // Send ACK to server
         this._sendAck(seq);
@@ -307,6 +308,7 @@ export class VangoClient {
         this.patchSeq = 0;
         this.expectedPatchSeq = 1;
         this.pendingResync = false;
+        this.wsManager.updateLastSeq(0);
     }
 
     /**

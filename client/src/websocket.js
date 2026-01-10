@@ -19,9 +19,18 @@ export class WebSocketManager {
         this.connected = false;
         this.handshakeComplete = false;
         this.sessionId = null;
+        this.lastSeq = 0;
         this.reconnectAttempts = 0;
         this.heartbeatTimer = null;
         this.messageQueue = [];
+
+        // Session durability: persist sessionId across reloads within the same tab.
+        // Use sessionStorage (not localStorage) to preserve "one tab = one session".
+        const resume = this._loadResumeInfo();
+        if (resume) {
+            this.sessionId = resume.sessionId;
+            this.lastSeq = resume.lastSeq;
+        }
     }
 
     /**
@@ -67,6 +76,9 @@ export class WebSocketManager {
         const helloFrame = this.client.codec.encodeClientHelloFrame({
             csrf: this._getCSRFToken(),
             sessionId: this.sessionId || '',
+            // Last patch sequence we successfully applied. Used by the server to
+            // reason about resync/replay on resume.
+            lastSeq: this.lastSeq || this.client.patchSeq || 0,
             viewportW: window.innerWidth,
             viewportH: window.innerHeight,
         });
@@ -130,6 +142,15 @@ export class WebSocketManager {
                 };
                 const msg = errorMessages[hello.status] || `Handshake failed: ${hello.status}`;
                 this.client._onError(new Error(msg));
+
+                // If the stored resume info is no longer valid, clear it so the next
+                // connect attempt can establish a fresh session instead of looping.
+                if (hello.status === 0x03 /* Session expired */ || hello.status === 0x07 /* Not authorized */) {
+                    this._clearResumeInfo();
+                    this.sessionId = null;
+                    this.lastSeq = 0;
+                }
+
                 this.ws.close();
                 return;
             }
@@ -137,6 +158,7 @@ export class WebSocketManager {
             this.handshakeComplete = true;
             this.connected = true;
             this.sessionId = hello.sessionId;
+            this._persistResumeInfo(this.sessionId, this.lastSeq || this.client.patchSeq || 0);
             this.client._onConnected();
 
             // Send queued messages
@@ -300,6 +322,62 @@ export class WebSocketManager {
         if (this.ws) {
             this.ws.close(1000, 'Client closing');
             this.ws = null;
+        }
+    }
+
+    /**
+     * Update the last successfully applied patch sequence and persist it.
+     */
+    updateLastSeq(seq) {
+        const s = Number(seq);
+        if (!Number.isFinite(s) || s < 0) return;
+        this.lastSeq = s;
+        if (this.sessionId) {
+            this._persistResumeInfo(this.sessionId, this.lastSeq);
+        }
+    }
+
+    _storageAvailable() {
+        try {
+            return typeof sessionStorage !== 'undefined';
+        } catch {
+            return false;
+        }
+    }
+
+    _loadResumeInfo() {
+        if (!this._storageAvailable()) return null;
+        try {
+            const sessionId = sessionStorage.getItem('__vango_session_id') || '';
+            if (!sessionId) return null;
+            const rawSeq = sessionStorage.getItem('__vango_last_seq') || '0';
+            const lastSeq = Number(rawSeq);
+            return {
+                sessionId,
+                lastSeq: Number.isFinite(lastSeq) && lastSeq >= 0 ? lastSeq : 0,
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    _persistResumeInfo(sessionId, lastSeq) {
+        if (!this._storageAvailable()) return;
+        try {
+            sessionStorage.setItem('__vango_session_id', sessionId || '');
+            sessionStorage.setItem('__vango_last_seq', String(lastSeq || 0));
+        } catch {
+            // Ignore storage failures (private mode, quota, etc.)
+        }
+    }
+
+    _clearResumeInfo() {
+        if (!this._storageAvailable()) return;
+        try {
+            sessionStorage.removeItem('__vango_session_id');
+            sessionStorage.removeItem('__vango_last_seq');
+        } catch {
+            // Ignore
         }
     }
 }

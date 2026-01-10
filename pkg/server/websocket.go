@@ -14,14 +14,30 @@ import (
 // It decodes frames, processes control messages, and queues events.
 // This method blocks until the connection is closed or an error occurs.
 func (s *Session) ReadLoop() {
-	defer s.Close()
+	if s.readLoopRunning.Swap(true) {
+		// Already running
+		return
+	}
+	defer s.readLoopRunning.Store(false)
 
 	for {
+		// If the session is fully closed, exit.
+		if s.closed.Load() {
+			return
+		}
+
 		// Set read deadline
-		s.conn.SetReadDeadline(time.Now().Add(s.config.ReadTimeout))
+		s.mu.Lock()
+		conn := s.conn
+		s.mu.Unlock()
+		if conn == nil {
+			// Detached: nothing to read.
+			return
+		}
+		conn.SetReadDeadline(time.Now().Add(s.config.ReadTimeout))
 
 		// Read message
-		_, msg, err := s.conn.ReadMessage()
+		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err,
 				websocket.CloseGoingAway,
@@ -29,11 +45,13 @@ func (s *Session) ReadLoop() {
 				websocket.CloseNormalClosure) {
 				s.logger.Error("read error", "error", err)
 			}
+			s.detach("read", err)
 			return
 		}
 
 		// Update activity
 		s.UpdateLastActive()
+		s.detached.Store(false)
 		s.BytesReceived(len(msg))
 
 		// Decode frame
@@ -238,6 +256,12 @@ func (s *Session) sendPong(timestamp uint64) {
 // WriteLoop handles periodic tasks like heartbeats.
 // It runs until the session is closed.
 func (s *Session) WriteLoop() {
+	if s.writeLoopRunning.Swap(true) {
+		// Already running
+		return
+	}
+	defer s.writeLoopRunning.Store(false)
+
 	ticker := time.NewTicker(s.config.HeartbeatInterval)
 	defer ticker.Stop()
 
@@ -245,6 +269,7 @@ func (s *Session) WriteLoop() {
 		select {
 		case <-ticker.C:
 			if err := s.sendPing(); err != nil {
+				// If we have no connection, we're detached. Let ReadLoop handle detach.
 				return
 			}
 
@@ -257,6 +282,12 @@ func (s *Session) WriteLoop() {
 // EventLoop processes queued events, dispatch callbacks, and render signals.
 // It runs handlers, schedules effects, and triggers re-renders.
 func (s *Session) EventLoop() {
+	if s.eventLoopRunning.Swap(true) {
+		// Already running
+		return
+	}
+	defer s.eventLoopRunning.Store(false)
+
 	for {
 		select {
 		case event := <-s.events:
@@ -341,6 +372,7 @@ func (s *Session) Resume(conn *websocket.Conn, lastSeq uint64) {
 
 	// Update activity
 	s.LastActive = time.Now()
+	s.detached.Store(false)
 
 	// Reset closed flag if it was set
 	s.closed.Store(false)
@@ -374,11 +406,37 @@ func (s *Session) Resume(conn *websocket.Conn, lastSeq uint64) {
 // If the session's done channel was closed, goroutines have exited and
 // need to be restarted for the session to function.
 func (s *Session) NeedsRestart() bool {
-	select {
-	case <-s.done:
-		return true
-	default:
-		return false
+	// Any of the loop goroutines may have exited due to a detach/reconnect cycle.
+	// Start() is safe to call again; the loops guard against duplicates.
+	return !s.readLoopRunning.Load() || !s.writeLoopRunning.Load() || !s.eventLoopRunning.Load()
+}
+
+// detach transitions a session into the "detached" state: the WebSocket is gone,
+// but the session (signals/components) is kept in memory for ResumeWindow.
+//
+// This MUST NOT dispose the owner/component tree, otherwise resume cannot restore state.
+func (s *Session) detach(source string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed.Load() {
+		return
+	}
+
+	// Close and nil out the connection.
+	if s.conn != nil {
+		_ = s.conn.Close()
+		s.conn = nil
+	}
+
+	// Mark detached and update last active so ResumeWindow starts now.
+	s.detached.Store(true)
+	s.LastActive = time.Now()
+
+	if err != nil {
+		s.logger.Info("session detached", "source", source, "error", err)
+	} else {
+		s.logger.Info("session detached", "source", source)
 	}
 }
 

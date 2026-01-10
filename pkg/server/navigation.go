@@ -291,10 +291,10 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 		return nil, nil
 	}
 
-	// Create a render context for the page
+	// Create a render context for route middleware + page component construction.
+	// Note: The page handler returns a Component that captures this ctx and calls the
+	// user page function during render, so params/request MUST be correct here.
 	renderCtx := rn.session.createRenderContext()
-
-	// Set route params on context
 	if ctxImpl, ok := renderCtx.(*ctx); ok {
 		ctxImpl.setParams(match.GetParams())
 		if ctxImpl.request == nil {
@@ -308,29 +308,19 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 		}
 	}
 
-	// Render within vango.WithCtx for proper reactive context
-	var newTree *vdom.VNode
+	var page Component
 	var ranFinal bool
 	var middlewareErr error
+
+	// Run middleware under a valid runtime context. Set an Owner so context-bound
+	// primitives (e.g., NewSharedSignal via GetContext) can resolve session values
+	// if middleware/page-construction code touches them.
 	vango.WithCtx(renderCtx, func() {
-		ranFinal, middlewareErr = RunRouteMiddleware(renderCtx, match.GetMiddleware(), func() error {
-			// Call the page handler to get the component
-			comp := pageHandler(renderCtx, match.GetParams())
-			if comp == nil {
+		vango.WithOwner(rn.session.owner, func() {
+			ranFinal, middlewareErr = RunRouteMiddleware(renderCtx, match.GetMiddleware(), func() error {
+				page = pageHandler(renderCtx, match.GetParams())
 				return nil
-			}
-
-			// Render the component to VNode
-			newTree = comp.Render()
-
-			// Apply layouts root to leaf (reverse order so outermost is first)
-			layouts := match.GetLayoutHandlers()
-			for i := len(layouts) - 1; i >= 0; i-- {
-				layout := layouts[i]
-				newTree = layout(renderCtx, newTree)
-			}
-
-			return nil
+			})
 		})
 	})
 
@@ -347,43 +337,55 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 	if !ranFinal {
 		return nil, errors.New("route middleware aborted navigation without redirect")
 	}
-
-	if newTree == nil {
+	if page == nil {
 		return nil, nil
 	}
 
-	// SSR expands nested components inline during HTML generation. For WS navigation,
-	// expand KindComponent nodes to match SSR tree shape before HID assignment and diffing.
-	newTree = expandComponents(newTree)
+	// Build a new route root component and full-remount it as the session root.
+	// This ensures:
+	//   - a current Owner exists during render (SharedSignal, context, hooks)
+	//   - components subscribe as Listeners (signals mark dirty -> patches)
+	//   - per-page local state resets on navigation (owners disposed)
+	newRootComp := &routeRootComponent{
+		session:   rn.session,
+		page:      page,
+		layouts:   match.GetLayoutHandlers(),
+		canonPath: rn.currentPath,
+		query:     rn.currentQuery,
+		params:    match.GetParams(),
+	}
 
-	// Get old tree for diffing
 	oldTree := rn.session.currentTree
 
-	// Assign HIDs to the new tree
-	// Try to copy HIDs from old tree first to preserve stability
+	if rn.session.root != nil {
+		rn.session.disposeInstanceTree(rn.session.root)
+		rn.session.root = nil
+	}
+
+	newRoot := newComponentInstance(newRootComp, nil, rn.session)
+	newRoot.InstanceID = "root"
+	rn.session.root = newRoot
+	rn.session.registerComponent(newRoot)
+
+	newTree := rn.session.rerenderTree(newRoot)
+
+	// Preserve HIDs where possible so diffs target the existing DOM.
 	if oldTree != nil {
 		vdom.CopyHIDs(oldTree, newTree)
 	}
 	vdom.AssignHIDs(newTree, rn.session.hidGen)
 
-	// Diff old and new
 	patches := vdom.Diff(oldTree, newTree)
 
-	// Update session state
-	rn.session.currentTree = newTree
-
-	// Clear old component state and collect new handlers
-	if rn.session.root != nil {
-		rn.session.clearComponentHandlers(rn.session.root)
-		rn.session.unregisterComponent(rn.session.root)
-		rn.session.root.Dispose()
-		rn.session.root = nil
-	}
-
-	// Collect handlers from the new tree
+	// Rebuild handler and ownership maps from the mounted component instances.
 	rn.session.handlers = make(map[string]Handler)
 	rn.session.components = make(map[string]*ComponentInstance)
-	rn.collectHandlersFromTree(newTree)
+	rn.session.collectHandlersFromInstances(newRoot)
+
+	// Store new tree for future diffs.
+	rn.session.currentTree = newTree
+	rn.session.root.HID = newTree.HID
+	rn.session.root.SetLastTree(newTree)
 
 	return patches, nil
 }
@@ -392,83 +394,15 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 // Per Section 8.4: "If hit and not stale → reuse rendered tree and cached data"
 // This skips the page handler execution since the tree is already rendered.
 func (rn *RouteNavigator) useCachedTree(cachedTree *vdom.VNode, match RouteMatch) ([]vdom.Patch, error) {
-	if cachedTree == nil {
-		return nil, nil
-	}
-
-	// Run route middleware even on cache hits so guards stay correct.
-	renderCtx := rn.session.createRenderContext()
-	if ctxImpl, ok := renderCtx.(*ctx); ok {
-		ctxImpl.setParams(match.GetParams())
-		if ctxImpl.request == nil {
-			ctxImpl.request = &http.Request{
-				Method: http.MethodGet,
-				URL: &url.URL{
-					Path:     rn.currentPath,
-					RawQuery: rn.currentQuery,
-				},
-			}
-		}
-	}
-
-	var ranFinal bool
-	var middlewareErr error
-	vango.WithCtx(renderCtx, func() {
-		ranFinal, middlewareErr = RunRouteMiddleware(renderCtx, match.GetMiddleware(), func() error {
-			return nil
-		})
-	})
-
-	if ctxImpl, ok := renderCtx.(*ctx); ok {
-		if path, rep, has := ctxImpl.PendingNavigation(); has {
-			ctxImpl.ClearPendingNavigation()
-			return nil, redirectError{path: path, replace: rep}
-		}
-	}
-
-	if middlewareErr != nil {
-		return nil, middlewareErr
-	}
-	if !ranFinal {
-		return nil, errors.New("route middleware aborted navigation without redirect")
-	}
-
-	// Get old tree for diffing
-	oldTree := rn.session.currentTree
-
-	// Copy the cached tree (we need our own copy for HID assignment)
-	newTree := cachedTree
-
-	// Ensure cached trees are expanded so HID assignment and diffing match SSR.
-	newTree = expandComponents(newTree)
-
-	// Assign HIDs to the new tree
-	// Try to copy HIDs from old tree first to preserve stability
-	if oldTree != nil {
-		vdom.CopyHIDs(oldTree, newTree)
-	}
-	vdom.AssignHIDs(newTree, rn.session.hidGen)
-
-	// Diff old and new
-	patches := vdom.Diff(oldTree, newTree)
-
-	// Update session state
-	rn.session.currentTree = newTree
-
-	// Clear old component state and collect new handlers
-	if rn.session.root != nil {
-		rn.session.clearComponentHandlers(rn.session.root)
-		rn.session.unregisterComponent(rn.session.root)
-		rn.session.root.Dispose()
-		rn.session.root = nil
-	}
-
-	// Collect handlers from the new tree
-	rn.session.handlers = make(map[string]Handler)
-	rn.session.components = make(map[string]*ComponentInstance)
-	rn.collectHandlersFromTree(newTree)
-
-	return patches, nil
+	// IMPORTANT: PrefetchCacheEntry.Tree is currently a raw VNode tree without a
+	// mounted ComponentInstance graph. Reusing it for navigation would break:
+	//   - reactive subscriptions (no Listener ownership)
+	//   - local component state/hooks (no Owners/effects)
+	//   - SharedSignal resolution (no current Owner chain during render)
+	//
+	// Until prefetch is upgraded to cache a mountable result, treat cache hits
+	// as advisory only and perform a normal navigation render/remount.
+	return nil, nil
 }
 
 // collectHandlersFromTree walks a VNode tree and collects event handlers.
