@@ -141,8 +141,6 @@ func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
 			shared.Navbar(ctx),
 			Main(Class("max-w-5xl mx-auto px-5 py-8"), children),
 			shared.AppFooter(),
-			// Theme toggle script - attaches click handler
-			Script(Raw(` + "`" + `document.getElementById('theme-toggle').onclick=function(){document.documentElement.classList.toggle('dark');localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light')};` + "`" + `)),
 			VangoScripts(),
 		),
 	)
@@ -265,6 +263,9 @@ func Navbar(ctx vango.Ctx) *vango.VNode {
 func ThemeToggle() *vango.VNode {
 	return Button(
 		ID("theme-toggle"),
+		Type("button"),
+		Data("hook", "ThemeToggle"),
+		Data("hook-config", ` + "`" + `{"storageKey":"theme"}` + "`" + `),
 		Class("p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"),
 		AriaLabel("Toggle theme"),
 		// Sun icon (shown in dark mode)
