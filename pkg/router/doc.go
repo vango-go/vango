@@ -14,11 +14,11 @@
 //	app/routes/
 //	├── index.go           → GET /
 //	├── about.go           → GET /about
-//	├── _layout.go         → Layout for all routes
+//	├── layout.go          → Layout for all routes
 //	├── projects/
 //	│   ├── index.go       → GET /projects
 //	│   ├── [id].go        → GET /projects/:id
-//	│   └── _layout.go     → Layout for /projects/*
+//	│   └── layout.go      → Layout for /projects/*
 //	└── api/
 //	    └── users.go       → GET/POST /api/users
 //

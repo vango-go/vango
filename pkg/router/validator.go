@@ -2,6 +2,7 @@ package router
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -46,8 +47,12 @@ func (e ValidationError) Error() string {
 type ValidationErrorType string
 
 const (
+	// ErrorInvalidGoFilename indicates a route file won't be compiled by Go.
+	// The Go toolchain ignores files whose basename starts with '_' or '.'.
+	ErrorInvalidGoFilename ValidationErrorType = "INVALID_GO_FILENAME"
+
 	// ErrorDuplicateRoute indicates multiple files resolve to the same URL pattern.
-	// Example: [id].go and _id_.go both resolve to /:id
+	// Example: [id].go and id_.go both resolve to /:id
 	ErrorDuplicateRoute ValidationErrorType = "DUPLICATE_ROUTE"
 
 	// ErrorParamConstraintConflict indicates the same param has different type constraints.
@@ -57,6 +62,10 @@ const (
 	// ErrorAPIAmbiguity indicates both bare (GET) and prefixed (HealthGET) handlers exist.
 	// Example: Both GET() and HealthGET() exported in /api/health.go
 	ErrorAPIAmbiguity ValidationErrorType = "API_AMBIGUITY"
+
+	// ErrorMiddlewareAmbiguity indicates both Middleware() and Middleware var exist.
+	// Example: middleware.go exports both `func Middleware()` and `var Middleware`.
+	ErrorMiddlewareAmbiguity ValidationErrorType = "MIDDLEWARE_AMBIGUITY"
 
 	// ErrorParamTypeMismatch indicates annotation type differs from Params struct field type.
 	// Example: [id:int].go but Params struct has id as string
@@ -95,9 +104,11 @@ func NewValidator(routes []ScannedRoute) *Validator {
 func (v *Validator) Validate() error {
 	v.errors = nil
 
+	v.validateGoFileBasenames()
 	v.validateDuplicateRoutes()
 	v.validateParamConstraints()
 	v.validateAPIAmbiguity()
+	v.validateMiddlewareAmbiguity()
 
 	if len(v.errors) > 0 {
 		return &MultiValidationError{Errors: v.errors}
@@ -105,9 +116,38 @@ func (v *Validator) Validate() error {
 	return nil
 }
 
+func (v *Validator) validateGoFileBasenames() {
+	for _, route := range v.routes {
+		base := filepath.Base(route.FilePath)
+		if base == "" {
+			continue
+		}
+		// Some tests and callers may omit FilePath; only enforce this rule for actual Go files.
+		if !strings.HasSuffix(base, ".go") {
+			continue
+		}
+		if !strings.HasPrefix(base, "_") && !strings.HasPrefix(base, ".") {
+			continue
+		}
+
+		details := "Go ignores files whose basename starts with '_' or '.'"
+		if strings.HasPrefix(base, "_") {
+			details += fmt.Sprintf("; rename to %q", strings.TrimPrefix(base, "_"))
+		}
+
+		v.errors = append(v.errors, ValidationError{
+			Type:    ErrorInvalidGoFilename,
+			Message: fmt.Sprintf("Route file will not be compiled by Go: %s", base),
+			Path:    route.Path,
+			Files:   []string{route.FilePath},
+			Details: details,
+		})
+	}
+}
+
 // validateDuplicateRoutes checks for routes that resolve to the same URL pattern.
 // Per Section 1.3: Duplicate route files should be detected and reported.
-// Example: /projects/[id].go and /projects/_id_.go both → /projects/:id
+// Example: /projects/[id].go and /projects/id_.go both → /projects/:id
 func (v *Validator) validateDuplicateRoutes() {
 	// Group routes by their resolved URL pattern
 	// Only consider actual page/API routes, not layouts, middleware, or error pages
@@ -247,6 +287,23 @@ func (v *Validator) validateAPIAmbiguity() {
 	}
 }
 
+func (v *Validator) validateMiddlewareAmbiguity() {
+	for _, route := range v.routes {
+		if !route.HasMiddleware {
+			continue
+		}
+		if route.MiddlewareIsFunc && route.MiddlewareIsVar {
+			v.errors = append(v.errors, ValidationError{
+				Type:    ErrorMiddlewareAmbiguity,
+				Message: fmt.Sprintf("Ambiguous Middleware export in %s", route.FilePath),
+				Path:    route.Path,
+				Files:   []string{route.FilePath},
+				Details: "Both Middleware() and var Middleware are exported",
+			})
+		}
+	}
+}
+
 // getParentPath returns the parent directory path of a URL path.
 func getParentPath(urlPath string) string {
 	// Remove trailing param segment
@@ -352,7 +409,7 @@ func ValidateAndSort(routes []ScannedRoute) ([]ScannedRoute, error) {
 //
 //	ERROR: Duplicate route detected
 //	  /projects/[id].go → /projects/:id
-//	  /projects/_id_.go → /projects/:id
+//	  /projects/id_.go → /projects/:id
 func FormatValidationError(err ValidationError) string {
 	var sb strings.Builder
 

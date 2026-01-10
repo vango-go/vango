@@ -18,7 +18,7 @@ func TestValidateDuplicateRoutes(t *testing.T) {
 			HasPage:  true,
 		},
 		{
-			FilePath: "/routes/users/_id_.go",
+			FilePath: "/routes/users/id_.go",
 			Path:     "/users/:id",
 			HasPage:  true,
 		},
@@ -68,11 +68,41 @@ func TestValidateNoDuplicateRouteForDifferentPaths(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidGoFilenames(t *testing.T) {
+	routes := []ScannedRoute{
+		{
+			FilePath:  "/routes/_layout.go",
+			Path:      "/",
+			HasLayout: true,
+		},
+	}
+
+	validator := NewValidator(routes)
+	err := validator.Validate()
+
+	if err == nil {
+		t.Fatal("Expected validation error for invalid Go filename")
+	}
+
+	multiErr, ok := err.(*MultiValidationError)
+	if !ok {
+		t.Fatalf("Expected MultiValidationError, got %T", err)
+	}
+
+	if len(multiErr.Errors) != 1 {
+		t.Fatalf("Expected 1 error, got %d", len(multiErr.Errors))
+	}
+
+	if multiErr.Errors[0].Type != ErrorInvalidGoFilename {
+		t.Fatalf("Expected %s, got %s", ErrorInvalidGoFilename, multiErr.Errors[0].Type)
+	}
+}
+
 func TestValidateSkipsLayoutFiles(t *testing.T) {
 	// Layout and page at same path - not a conflict
 	routes := []ScannedRoute{
 		{
-			FilePath:  "/routes/_layout.go",
+			FilePath:  "/routes/layout.go",
 			Path:      "/",
 			HasLayout: true,
 		},
@@ -95,7 +125,7 @@ func TestValidateSkipsMiddlewareFiles(t *testing.T) {
 	// Middleware and page at same path - not a conflict
 	routes := []ScannedRoute{
 		{
-			FilePath:      "/routes/_middleware.go",
+			FilePath:      "/routes/middleware.go",
 			Path:          "/",
 			HasMiddleware: true,
 		},
@@ -305,7 +335,7 @@ func TestFormatValidationError(t *testing.T) {
 		Type:    ErrorDuplicateRoute,
 		Message: "Duplicate route detected at /users/:id",
 		Path:    "/users/:id",
-		Files:   []string{"/routes/users/[id].go", "/routes/users/_id_.go"},
+		Files:   []string{"/routes/users/[id].go", "/routes/users/id_.go"},
 		Details: "Multiple files resolve to same path",
 	}
 

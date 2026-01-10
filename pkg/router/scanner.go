@@ -124,7 +124,11 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 	switch baseName {
 	case "_layout.go":
 		route.HasLayout = true
+	case "layout.go":
+		route.HasLayout = true
 	case "_middleware.go":
+		route.HasMiddleware = true
+	case "middleware.go":
 		route.HasMiddleware = true
 	case "_error.go", "_404.go":
 		// Error handlers - still scan for functions
@@ -132,6 +136,17 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 
 	// Check for API route
 	route.IsAPI = s.isAPIRoute(relPath)
+
+	setAPIHandler := func(method, funcName string) {
+		if route.APIHandlers == nil {
+			route.APIHandlers = make(map[string]string)
+		}
+		if _, exists := route.APIHandlers[method]; exists {
+			// Preserve the first-seen handler name; validation will catch ambiguity
+			return
+		}
+		route.APIHandlers[method] = funcName
+	}
 
 	// Scan for exported functions and variables
 	for _, decl := range f.Decls {
@@ -152,19 +167,13 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 			// Check for Middleware function
 			if name == "Middleware" {
 				route.HasMiddleware = true
+				route.MiddlewareIsFunc = true
 				continue
 			}
 
 			// Check for Meta function
 			if name == "Meta" {
 				route.HasMeta = true
-				continue
-			}
-
-			// Check for HTTP method handlers (API routes)
-			switch name {
-			case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
-				route.Methods = append(route.Methods, name)
 				continue
 			}
 
@@ -176,12 +185,23 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 				continue
 			}
 
-			// Also detect {Resource}GET, {Resource}POST patterns for API routes
-			// e.g., UsersGET, HealthGET, UsersPOST
-			for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"} {
-				if strings.HasSuffix(name, method) {
-					route.Methods = append(route.Methods, method)
-					break
+			if route.IsAPI {
+				// Check for HTTP method handlers (API routes)
+				switch name {
+				case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+					route.Methods = append(route.Methods, name)
+					setAPIHandler(name, name)
+					continue
+				}
+
+				// Also detect {Resource}GET, {Resource}POST patterns for API routes
+				// e.g., UsersGET, HealthGET, UsersPOST
+				for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"} {
+					if strings.HasSuffix(name, method) {
+						route.Methods = append(route.Methods, method)
+						setAPIHandler(method, name)
+						break
+					}
 				}
 			}
 
@@ -198,6 +218,7 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 				for _, ident := range vs.Names {
 					if ident.Name == "Middleware" && ident.IsExported() {
 						route.HasMiddleware = true
+						route.MiddlewareIsVar = true
 					}
 				}
 			}
@@ -208,20 +229,20 @@ func (s *Scanner) scanFile(path string) (*ScannedRoute, error) {
 }
 
 // filePathToURLPath converts a file path to a URL path.
-// Supports two dynamic route conventions:
+//
+// Dynamic route conventions:
 //
 //  1. Bracket notation: [id].go → :id (Next.js/Remix style)
-//     - May not work on Windows or with some Go toolchains
 //
-//  2. Underscore notation: _id_.go → :id (Go-friendly)
-//     - Preferred for compatibility with all systems
-//     - Leading underscore indicates dynamic segment
-//     - Trailing underscore distinguishes from reserved files like _layout.go
+//  2. "Go-friendly" underscore notation (no leading underscore in filenames):
+//     - id_.go → :id
+//     - slug___.go → *slug (catch-all)
 //
-// Examples:
-//   - projects/_id_.go  → /projects/:id
-//   - users/_id_/posts/_postId_.go → /users/:id/posts/:postId
-//   - [id].go → :id (if your system supports it)
+// Legacy underscore directory segments are also supported:
+//   - users/_id_/posts/index.go → /users/:id/posts
+//
+// NOTE: Go ignores files whose basename starts with '_' or '.', so reserved
+// files must be named layout.go/middleware.go (not _layout.go/_middleware.go).
 func (s *Scanner) filePathToURLPath(relPath string) string {
 	// Remove .go extension
 	path := strings.TrimSuffix(relPath, ".go")
@@ -237,11 +258,11 @@ func (s *Scanner) filePathToURLPath(relPath string) string {
 		path = ""
 	}
 
-	// Handle layout and error files (they define handlers but not routes)
+	// Reserved directory-scoped files (layouts/middleware) map to their directory path.
+	// Example: routes/projects/layout.go registers at "/projects" (not "/projects/layout").
 	baseName := filepath.Base(path)
-	if strings.HasPrefix(baseName, "_") && !strings.HasSuffix(baseName, "_") {
-		// Special files start with _ but don't end with _ (e.g., _layout, _middleware)
-		// Get the directory path for layouts
+	if baseName == "layout" || baseName == "middleware" ||
+		(strings.HasPrefix(baseName, "_") && !strings.HasSuffix(baseName, "_")) {
 		dir := filepath.Dir(path)
 		if dir == "." {
 			path = ""
@@ -261,112 +282,112 @@ func (s *Scanner) filePathToURLPath(relPath string) string {
 }
 
 // convertParams converts parameter notation to router notation.
-// Supports two conventions:
 //
-//  1. Bracket notation (Next.js/Remix style):
-//     - [id] → :id
-//     - [id:int] → :id (type stored separately)
-//     - [...slug] → *slug (catch-all)
-//
-//  2. Underscore notation (Go-friendly, preferred):
-//     - _id_ → :id
-//     - _slug___ → *slug (triple underscore for catch-all)
+// Supported conventions:
+//  1) Bracket: [id] → :id, [id:int] → :id, [...slug] → *slug
+//  2) Suffix underscore ("Go-friendly"): id_ → :id, slug___ → *slug
+//  3) Legacy underscore segments (directory names only): _id_ → :id, _slug___ → *slug
 func (s *Scanner) convertParams(path string) string {
-	// First handle bracket notation: [param] or [param:type] or [...param]
 	bracketRe := regexp.MustCompile(`\[([.\w]+)(?::(\w+))?\]`)
-	result := bracketRe.ReplaceAllStringFunc(path, func(match string) string {
-		inner := match[1 : len(match)-1] // Remove brackets
+	legacyCatchAllRe := regexp.MustCompile(`^_(\w+)___$`)
+	legacyParamRe := regexp.MustCompile(`^_(\w+)_$`)
+	suffixCatchAllRe := regexp.MustCompile(`^(\w+)___$`)
+	suffixParamRe := regexp.MustCompile(`^(\w+)_$`)
 
-		// Handle catch-all
-		if strings.HasPrefix(inner, "...") {
-			return "*" + inner[3:]
+	segments := strings.Split(path, "/")
+	for i, seg := range segments {
+		// Bracket notation within a segment
+		seg = bracketRe.ReplaceAllStringFunc(seg, func(match string) string {
+			inner := match[1 : len(match)-1] // Remove brackets
+			if strings.HasPrefix(inner, "...") {
+				return "*" + inner[3:]
+			}
+			if idx := strings.Index(inner, ":"); idx != -1 {
+				return ":" + inner[:idx]
+			}
+			return ":" + inner
+		})
+
+		// Legacy underscore segments: _id_ / _slug___
+		if m := legacyCatchAllRe.FindStringSubmatch(seg); len(m) == 2 {
+			seg = "*" + m[1]
+		} else if m := legacyParamRe.FindStringSubmatch(seg); len(m) == 2 {
+			seg = ":" + m[1]
+		} else if m := suffixCatchAllRe.FindStringSubmatch(seg); len(m) == 2 {
+			// Suffix underscore segments: id_ / slug___
+			seg = "*" + m[1]
+		} else if m := suffixParamRe.FindStringSubmatch(seg); len(m) == 2 {
+			seg = ":" + m[1]
 		}
 
-		// Handle typed params - just use the name
-		if idx := strings.Index(inner, ":"); idx != -1 {
-			return ":" + inner[:idx]
-		}
+		segments[i] = seg
+	}
 
-		return ":" + inner
-	})
-
-	// Then handle underscore notation: _param_ or _param___
-	// Triple underscore suffix indicates catch-all: _slug___ → *slug
-	catchAllRe := regexp.MustCompile(`_(\w+)___`)
-	result = catchAllRe.ReplaceAllString(result, "*$1")
-
-	// Single underscore suffix for regular params: _id_ → :id
-	paramRe := regexp.MustCompile(`_(\w+)_`)
-	result = paramRe.ReplaceAllString(result, ":$1")
-
-	return result
+	return strings.Join(segments, "/")
 }
 
 // extractParams extracts parameter definitions from a file path.
-// Uses intelligent type inference based on naming conventions:
-//   - [id], [userID], [postId], _id_ → int (common ID pattern)
-//   - [uuid], _uuid_ → string (UUID stored as string)
-//   - [slug], [name], [title], _slug_ → string
-//   - [...path], [...rest], _path___ → []string (catch-all)
-//   - [param:int], [id:int64] → explicit type annotation
+//
+// Supported conventions:
+//   - [id], [id:int], [...path]
+//   - id_, slug___ (Go-friendly, filename-safe)
+//   - _id_, _slug___ (legacy; best used for directory segments)
 func (s *Scanner) extractParams(relPath string) []ParamDef {
 	var params []ParamDef
 
-	// Match bracket notation: [param] or [param:type] or [...param]
+	normalized := strings.ReplaceAll(relPath, "\\", "/")
+	normalized = strings.TrimSuffix(normalized, ".go")
+	segments := strings.Split(normalized, "/")
+
 	bracketRe := regexp.MustCompile(`\[([.\w]+)(?::(\w+))?\]`)
-	matches := bracketRe.FindAllStringSubmatch(relPath, -1)
+	legacyCatchAllRe := regexp.MustCompile(`^_(\w+)___$`)
+	legacyParamRe := regexp.MustCompile(`^_(\w+)_$`)
+	suffixCatchAllRe := regexp.MustCompile(`^(\w+)___$`)
+	suffixParamRe := regexp.MustCompile(`^(\w+)_$`)
 
-	for _, match := range matches {
-		param := ParamDef{
-			Segment: match[0],
-		}
-
-		name := match[1]
-		if strings.HasPrefix(name, "...") {
-			param.Name = name[3:]
-			param.Type = "[]string" // Catch-all is always string slice
-		} else {
-			param.Name = name
-			if match[2] != "" {
-				// Explicit type annotation [param:type]
-				param.Type = match[2]
-			} else {
-				// Infer type from naming conventions
-				param.Type = inferParamTypeFromName(name)
-			}
-		}
-
-		params = append(params, param)
-	}
-
-	// Match underscore notation for catch-all: _param___
-	catchAllRe := regexp.MustCompile(`_(\w+)___`)
-	catchAllMatches := catchAllRe.FindAllStringSubmatch(relPath, -1)
-	for _, match := range catchAllMatches {
-		params = append(params, ParamDef{
-			Segment: match[0],
-			Name:    match[1],
-			Type:    "[]string", // Catch-all is always string slice
-		})
-	}
-
-	// Match underscore notation for regular params: _param_
-	// Skip if already matched as catch-all (followed by another underscore)
-	paramRe := regexp.MustCompile(`_(\w+)_`)
-	paramIndexes := paramRe.FindAllStringSubmatchIndex(relPath, -1)
-	for _, indexes := range paramIndexes {
-		matchEnd := indexes[1]
-		// Skip if followed by another underscore (part of catch-all _param___)
-		if matchEnd < len(relPath) && relPath[matchEnd] == '_' {
+	for _, seg := range segments {
+		if seg == "" {
 			continue
 		}
-		segment := relPath[indexes[0]:indexes[1]]
-		name := relPath[indexes[2]:indexes[3]]
-		params = append(params, ParamDef{
-			Segment: segment,
-			Name:    name,
-			Type:    inferParamTypeFromName(name),
-		})
+
+		// Bracket notation: [param] / [param:type] / [...param]
+		if match := bracketRe.FindStringSubmatch(seg); len(match) > 0 {
+			param := ParamDef{Segment: match[0]}
+			name := match[1]
+			if strings.HasPrefix(name, "...") {
+				param.Name = name[3:]
+				param.Type = "[]string"
+			} else {
+				param.Name = name
+				if match[2] != "" {
+					param.Type = match[2]
+				} else {
+					param.Type = inferParamTypeFromName(name)
+				}
+			}
+			params = append(params, param)
+			continue
+		}
+
+		// Legacy underscore segments: _id_ / _slug___
+		if match := legacyCatchAllRe.FindStringSubmatch(seg); len(match) == 2 {
+			params = append(params, ParamDef{Segment: seg, Name: match[1], Type: "[]string"})
+			continue
+		}
+		if match := legacyParamRe.FindStringSubmatch(seg); len(match) == 2 {
+			params = append(params, ParamDef{Segment: seg, Name: match[1], Type: inferParamTypeFromName(match[1])})
+			continue
+		}
+
+		// Suffix underscore segments: id_ / slug___
+		if match := suffixCatchAllRe.FindStringSubmatch(seg); len(match) == 2 {
+			params = append(params, ParamDef{Segment: seg, Name: match[1], Type: "[]string"})
+			continue
+		}
+		if match := suffixParamRe.FindStringSubmatch(seg); len(match) == 2 {
+			params = append(params, ParamDef{Segment: seg, Name: match[1], Type: inferParamTypeFromName(match[1])})
+			continue
+		}
 	}
 
 	return params

@@ -105,7 +105,7 @@ func TestExtractParams(t *testing.T) {
 		},
 		// No parameters
 		{
-			path: "about.go",
+			path:     "about.go",
 			expected: nil,
 		},
 	}
@@ -149,8 +149,8 @@ func TestFilePathToURLPath(t *testing.T) {
 		{"users/[userId]/posts/[postId].go", "/users/:userId/posts/:postId"},
 		{"docs/[...path].go", "/docs/*path"},
 		{"api/health.go", "/api/health"},
-		{"_layout.go", "/"},
-		{"users/_layout.go", "/users"},
+		{"layout.go", "/"},
+		{"users/layout.go", "/users"},
 	}
 
 	for _, tt := range tests {

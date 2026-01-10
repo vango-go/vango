@@ -54,7 +54,7 @@
 //
 // Use auth middleware to protect entire route segments:
 //
-//	// In app/routes/admin/_layout.go
+//	// In app/routes/admin/middleware.go
 //	func Middleware() []router.Middleware {
 //	    return []router.Middleware{
 //	        auth.RequireAuth,

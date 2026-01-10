@@ -63,8 +63,18 @@ type ScannedRoute struct {
 	// HasMiddleware indicates the file exports a Middleware variable or function
 	HasMiddleware bool
 
+	// MiddlewareIsFunc indicates the route exports a Middleware() function.
+	MiddlewareIsFunc bool
+
+	// MiddlewareIsVar indicates the route exports a Middleware variable.
+	MiddlewareIsVar bool
+
 	// Methods lists HTTP methods for API routes (GET, POST, etc.)
 	Methods []string
+
+	// APIHandlers maps HTTP method to the exported Go function name.
+	// Example: {"GET": "GET"} or {"GET": "HealthGET"}.
+	APIHandlers map[string]string
 
 	// IsAPI indicates this is an API route (returns JSON)
 	IsAPI bool
@@ -134,11 +144,15 @@ func (m *MatchResult) GetPageHandler() server.PageHandler {
 
 // GetLayoutHandlers implements server.RouteMatch.
 func (m *MatchResult) GetLayoutHandlers() []server.LayoutHandler {
-	if len(m.Layouts) == 0 {
+	layouts := m.Layouts
+	if m.HasPageLayouts {
+		layouts = m.PageLayouts
+	}
+	if len(layouts) == 0 {
 		return nil
 	}
-	result := make([]server.LayoutHandler, len(m.Layouts))
-	for i, layout := range m.Layouts {
+	result := make([]server.LayoutHandler, len(layouts))
+	for i, layout := range layouts {
 		layout := layout // capture loop var
 		result[i] = func(ctx server.Ctx, children *vdom.VNode) *vdom.VNode {
 			return layout(ctx, children)

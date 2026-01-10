@@ -16,16 +16,16 @@ Routes are discovered from `app/routes/` using these conventions:
 | `about.go` | `/about` | Page |
 | `projects/index.go` | `/projects` | Page |
 | `projects/[id].go` | `/projects/:id` | Page (dynamic) |
-| `projects/_id_.go` | `/projects/:id` | Page (Go-friendly syntax) |
+| `projects/id_.go` | `/projects/:id` | Page (Go-friendly syntax) |
 | `blog/[...slug].go` | `/blog/*slug` | Page (catch-all) |
-| `blog/_slug___.go` | `/blog/*slug` | Page (catch-all, Go-friendly) |
-| `_layout.go` | (directory scope) | Layout |
-| `_middleware.go` | (directory scope) | Middleware |
+| `blog/slug___.go` | `/blog/*slug` | Page (catch-all, Go-friendly) |
+| `layout.go` | (directory scope) | Layout |
+| `middleware.go` | (directory scope) | Middleware |
 | `api/health.go` | `/api/health` | API |
 
 **Catch-all capture semantics (Normative):**
 
-Catch-all segments (`[...slug]` or `_slug___`) capture the remainder of the path:
+Catch-all segments (`[...slug]` or `slug___`) capture the remainder of the path:
 
 - Value includes slashes: `/blog/a/b/c` → `Params["slug"] = "a/b/c"`
 - Value MUST be non-empty: `/blog/` does NOT match `/blog/*slug`
@@ -133,7 +133,7 @@ Dynamic segments support explicit type annotations using **bracket notation only
 **Go-friendly underscore notation is always untyped:**
 ```
 _id_        → string (equivalent to [id])
-_slug___    → catch-all string (equivalent to [...slug])
+slug___     → catch-all string (equivalent to [...slug])
 ```
 
 Type annotations MUST use bracket notation. Underscore notation is provided only for Go identifier compatibility (avoiding `[` in filenames) and does not support type suffixes.
@@ -169,15 +169,15 @@ Routes are registered via explicit method calls (no init() side effects):
 
 ```go
 // Generated routes_gen.go calls:
-func Register(r *router.Router) {
-    r.Layout("/", root.Layout)
-    r.Layout("/projects", projects.Layout)
-    r.Middleware("/api", api.Middleware()...)
-    r.Page("/", index.IndexPage)
-    r.Page("/about", about.AboutPage)
-    r.Page("/projects/:id", projects.ShowPage)
-    r.API("GET", "/api/health", api.HealthGET)
-    r.API("POST", "/api/users", api.UsersPOST)
+func Register(app *vango.App) {
+    app.Layout("/", Layout)
+    app.Layout("/projects", projects.Layout)
+    app.Middleware("/api", api.Middleware()...)
+    app.Page("/", IndexPage)
+    app.Page("/about", AboutPage)
+    app.Page("/projects/:id", projects.ShowPage)
+    app.API("GET", "/api/health", api.HealthGET)
+    app.API("POST", "/api/users", api.UsersPOST)
 }
 ```
 
@@ -219,14 +219,14 @@ The router's radix tree structure enforces priority (static > typed param > plai
 Generator MUST error on duplicate URL patterns that resolve to the same method+path+kind (Page/API/Layout/Middleware).
 
 **Go-friendly syntax is an alternative encoding, not an alias:**
-- `[id].go` and `_id_.go` resolve to the same URL pattern
+- `[id].go` and `id_.go` resolve to the same URL pattern
 - These forms MUST NOT coexist in the same directory
 - Generator MUST fail with a clear message if both exist
 
 ```
 ERROR: Duplicate route detected
   /projects/[id].go → /projects/:id
-  /projects/_id_.go → /projects/:id
+  /projects/id_.go → /projects/:id
 
 Remove one of these files. Go-friendly syntax (_id_) is an alternative
 to bracket syntax ([id]), not an alias.
@@ -319,8 +319,8 @@ func Layout(ctx vango.Ctx, children vango.Slot) *vdom.VNode {
 Note: `vango.Slot` is a type alias for `*vdom.VNode`. The child content is already rendered before being passed to the layout.
 
 Layouts are applied **root to leaf**. For `/projects/123`:
-1. `app/routes/_layout.go` (root layout)
-2. `app/routes/projects/_layout.go` (projects layout)
+1. `app/routes/layout.go` (root layout)
+2. `app/routes/projects/layout.go` (projects layout)
 3. `app/routes/projects/[id].go` (page)
 
 ### 2.3 API Handlers

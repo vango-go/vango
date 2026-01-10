@@ -305,6 +305,9 @@ func AppFooter() *vango.VNode {
 				Path: "app/styles/input.css",
 				Content: `@import "tailwindcss";
 
+/* Use class-based dark mode instead of media query */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Custom dark mode background color */
 @theme {
   --color-dark-bg: #091D39;

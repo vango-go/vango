@@ -1,0 +1,13 @@
+./canonicalize.go
+./codegen.go
+./doc.go
+./link.go
+./middleware.go
+./navigate.go
+./openapi.go
+./params.go
+./router.go
+./scanner.go
+./tree.go
+./types.go
+./validator.go

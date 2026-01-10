@@ -6050,8 +6050,8 @@ func ForceGraph(nodes []Node, edges []Edge) *vango.VNode {
 ```
 app/routes/
 ├── routes_gen.go          # GENERATED — explicit route registration
-├── _layout.go             # package routes — wraps / and subroutes
-├── _middleware.go         # optional — directory middleware stack
+├── layout.go              # package routes — wraps / and subroutes
+├── middleware.go          # optional — directory middleware stack
 ├── index.go               # package routes — / (IndexPage)
 ├── about.go               # package routes — /about (AboutPage)
 ├── projects/
@@ -6108,7 +6108,7 @@ func ShowPage(ctx vango.Ctx, p Params) *vango.VNode {
 ### 9.3 Layouts
 
 ```go
-// app/routes/_layout.go
+// app/routes/layout.go
 package routes
 
 func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
@@ -7018,7 +7018,7 @@ func main() {
 #### Route-Level Auth Guards
 
 ```go
-// app/routes/admin/_layout.go
+// app/routes/admin/layout.go
 func Middleware() []router.Middleware {
     return []router.Middleware{
         auth.RequireRole(func(u *User) bool {
@@ -7138,8 +7138,8 @@ my-app/
 ├── app/
 │   ├── routes/                        # File-based routing
 │   │   ├── routes_gen.go              # GENERATED — route registration glue
-│   │   ├── _layout.go                 # Root layout wrapper
-│   │   ├── _middleware.go             # Optional directory middleware
+│   │   ├── layout.go                  # Root layout wrapper
+│   │   ├── middleware.go              # Optional directory middleware
 │   │   ├── index.go                   # /
 │   │   ├── about.go                   # /about
 │   │   └── api/

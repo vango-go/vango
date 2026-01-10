@@ -1,0 +1,7 @@
+./doc.go
+./manager.go
+./memory.go
+./redis.go
+./serialize.go
+./sql.go
+./store.go

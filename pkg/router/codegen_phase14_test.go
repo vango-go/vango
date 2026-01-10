@@ -99,14 +99,14 @@ func TestGeneratorRegisterFunction(t *testing.T) {
 	content := string(output)
 
 	t.Run("has Register function", func(t *testing.T) {
-		if !strings.Contains(content, "func Register(r *Router)") {
+		if !strings.Contains(content, "func Register(app *vango.App)") {
 			t.Error("should have Register function")
 		}
 	})
 
-	t.Run("has Page routes comment", func(t *testing.T) {
-		if !strings.Contains(content, "// Page routes") {
-			t.Error("should have '// Page routes' comment")
+	t.Run("has Pages comment", func(t *testing.T) {
+		if !strings.Contains(content, "// Pages") {
+			t.Error("should have '// Pages' comment")
 		}
 	})
 
@@ -116,17 +116,17 @@ func TestGeneratorRegisterFunction(t *testing.T) {
 		}
 	})
 
-	t.Run("registers page routes with r.Page", func(t *testing.T) {
-		if !strings.Contains(content, `r.Page("/", IndexPage`) {
+	t.Run("registers page routes with app.Page", func(t *testing.T) {
+		if !strings.Contains(content, `app.Page("/", IndexPage`) {
 			t.Error("should register root page")
 		}
-		if !strings.Contains(content, `r.Page("/about", AboutPage`) {
+		if !strings.Contains(content, `app.Page("/about", AboutPage`) {
 			t.Error("should register about page")
 		}
 	})
 
-	t.Run("registers API routes with r.API", func(t *testing.T) {
-		if !strings.Contains(content, `r.API("GET", "/api/health"`) {
+	t.Run("registers API routes with app.API", func(t *testing.T) {
+		if !strings.Contains(content, `app.API("GET", "/api/health"`) {
 			t.Error("should register health API")
 		}
 	})
@@ -208,7 +208,7 @@ func TestPathToStructName(t *testing.T) {
 	}{
 		{"/", "Index"},
 		{"/about", "About"},
-		{"/users/:id", "UsersID"},                          // "id" → "ID" (exact match)
+		{"/users/:id", "UsersID"}, // "id" → "ID" (exact match)
 		{"/users/:userId/posts/:postId", "UsersUserIdPostsPostId"}, // "userId" → "UserId" (title case)
 		{"/docs/*path", "DocsPath"},
 	}

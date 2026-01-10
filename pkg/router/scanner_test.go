@@ -23,9 +23,11 @@ func TestScannerFilePathToURLPath(t *testing.T) {
 		{"api/users.go", "/api/users"},
 		{"[...slug].go", "/*slug"},
 		{"docs/[...path].go", "/docs/*path"},
-		{"_layout.go", "/"},
-		{"projects/_layout.go", "/projects"},
+		{"layout.go", "/"},
+		{"projects/layout.go", "/projects"},
 		{"[id:int].go", "/:id"},
+		{"users/id_.go", "/users/:id"},
+		{"docs/slug___.go", "/docs/*slug"},
 	}
 
 	for _, tt := range tests {
@@ -49,6 +51,9 @@ func TestScannerConvertParams(t *testing.T) {
 		{"[...slug]", "*slug"},
 		{"docs/[...path]", "docs/*path"},
 		{"users/[userId]/posts/[postId]", "users/:userId/posts/:postId"},
+		{"users/id_", "users/:id"},
+		{"docs/slug___", "docs/*slug"},
+		{"users/_id_/posts/index", "users/:id/posts/index"},
 	}
 
 	for _, tt := range tests {
@@ -93,6 +98,14 @@ func TestScannerExtractParams(t *testing.T) {
 				{Name: "userId", Type: "int", Segment: "[userId]"}, // Phase 14: ends with "Id" infers int
 				{Name: "postId", Type: "int", Segment: "[postId:int]"},
 			},
+		},
+		{
+			"users/id_.go",
+			[]ParamDef{{Name: "id", Type: "int", Segment: "id_"}},
+		},
+		{
+			"docs/slug___.go",
+			[]ParamDef{{Name: "slug", Type: "[]string", Segment: "slug___"}},
 		},
 	}
 
@@ -140,7 +153,7 @@ func TestScannerScan(t *testing.T) {
 	files := map[string]string{
 		"index.go":          `package routes; func Page() {}`,
 		"about.go":          `package routes; func Page() {}; func Meta() {}`,
-		"_layout.go":        `package routes; func Layout() {}`,
+		"layout.go":         `package routes; func Layout() {}`,
 		"projects/index.go": `package routes; func Page() {}`,
 		"projects/[id].go":  `package routes; func Page() {}; func Middleware() {}`,
 		"api/users.go":      `package api; func GET() {}; func POST() {}`,

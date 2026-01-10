@@ -10,7 +10,7 @@ import (
 //
 // Usage in file-based routing:
 //
-//	// app/routes/dashboard/_layout.go
+//	// app/routes/dashboard/middleware.go
 //	func Middleware() []router.Middleware {
 //	    return []router.Middleware{
 //	        auth.RequireAuth,

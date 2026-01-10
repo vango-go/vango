@@ -6,8 +6,14 @@ import (
 )
 
 func TestGeneratorGenerate(t *testing.T) {
-	// Phase 14 format: uses Register(r *Router) instead of RegisterRoutes with HandlerRegistry
+	// Current format: generates Register(app *vango.App) registration glue.
 	routes := []ScannedRoute{
+		{
+			Path:      "/",
+			FilePath:  "layout.go",
+			Package:   "routes",
+			HasLayout: true,
+		},
 		{
 			Path:     "/",
 			FilePath: "index.go",
@@ -22,11 +28,18 @@ func TestGeneratorGenerate(t *testing.T) {
 			HasMeta:  true,
 		},
 		{
-			Path:          "/users/:id",
-			FilePath:      "users/[id].go",
-			Package:       "routes",
-			HasPage:       true,
-			HasMiddleware: true,
+			Path:             "/api",
+			FilePath:         "api/middleware.go",
+			Package:          "api",
+			IsAPI:            true,
+			HasMiddleware:    true,
+			MiddlewareIsFunc: true,
+		},
+		{
+			Path:     "/users/:id",
+			FilePath: "users/[id].go",
+			Package:  "routes",
+			HasPage:  true,
 			Params: []ParamDef{
 				{Name: "id", Type: "int", Segment: "[id]"},
 			},
@@ -37,6 +50,10 @@ func TestGeneratorGenerate(t *testing.T) {
 			Package:  "api",
 			IsAPI:    true,
 			Methods:  []string{"GET", "POST"},
+			APIHandlers: map[string]string{
+				"GET":  "GET",
+				"POST": "UsersPOST",
+			},
 		},
 		{
 			Path:       "/docs/*path",
@@ -84,17 +101,38 @@ func TestGeneratorGenerate(t *testing.T) {
 		t.Error("missing Path field in DocsPathParams")
 	}
 
-	// Phase 14: Check Register function (not RegisterRoutes)
-	if !strings.Contains(code, "func Register(r *Router)") {
-		t.Error("missing Register function")
+	// Check Register function signature
+	if !strings.Contains(code, "func Register(app *vango.App)") {
+		t.Error("missing Register function with app *vango.App signature")
 	}
 
-	// Phase 14: Check page registration
-	if !strings.Contains(code, `r.Page("/", IndexPage`) {
+	// Check layout registration
+	if !strings.Contains(code, `app.Layout("/", Layout)`) {
+		t.Error("missing root layout registration")
+	}
+
+	// Check middleware registration (directory scoped)
+	if !strings.Contains(code, `app.Middleware("/api", api.Middleware()...)`) {
+		t.Error("missing /api middleware registration")
+	}
+
+	// Check page registration
+	if !strings.Contains(code, `app.Page("/", IndexPage)`) {
 		t.Error("missing / page registration")
 	}
-	if !strings.Contains(code, `r.Page("/about", AboutPage`) {
+	if !strings.Contains(code, `app.Page("/about", AboutPage)`) {
 		t.Error("missing /about page registration")
+	}
+	if strings.Contains(code, `app.Page("/", IndexPage, Layout`) || strings.Contains(code, `app.Page("/about", AboutPage, Layout`) {
+		t.Error("pages should not be registered with explicit layouts (hierarchical layouts come from app.Layout)")
+	}
+
+	// Check API registration uses the discovered handler name (GET() vs UsersGET())
+	if !strings.Contains(code, `app.API("GET", "/api/users", api.GET)`) {
+		t.Error("missing /api/users GET registration with bare GET handler")
+	}
+	if !strings.Contains(code, `app.API("POST", "/api/users", api.UsersPOST)`) {
+		t.Error("missing /api/users POST registration with UsersPOST handler")
 	}
 
 	// Check route constants

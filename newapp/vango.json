@@ -1,0 +1,23 @@
+{
+  "name": "newapp",
+  "version": "0.1.0",
+  "paths": {
+    "routes": "app/routes"
+  },
+  "static": {
+    "dir": "public",
+    "prefix": "/"
+  },
+  "dev": {
+    "port": 3000,
+    "hotReload": true
+  },
+  "build": {
+    "output": "dist"
+  },
+  "tailwind": {
+    "enabled": true,
+    "input": "app/styles/input.css",
+    "output": "public/styles.css"
+  }
+}
