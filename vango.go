@@ -33,6 +33,17 @@ import (
 // Query(), QueryParam(), Navigate(), User(), Session(), etc.
 type Ctx = server.Ctx
 
+// WithUser stores an authenticated user in a stdlib context for SSR and session bridging.
+// Pair with UserFromContext and Config.OnSessionStart.
+func WithUser(ctx context.Context, user any) context.Context {
+	return server.WithUser(ctx, user)
+}
+
+// UserFromContext retrieves an authenticated user stored by WithUser.
+func UserFromContext(ctx context.Context) any {
+	return server.UserFromContext(ctx)
+}
+
 // UseCtx returns the current runtime context.
 // Returns nil if called outside of a render/effect/handler context.
 //

@@ -129,10 +129,24 @@ type matchContext struct {
 	middleware []Middleware
 }
 
+func cloneMatchContext(ctx *matchContext) *matchContext {
+	if ctx == nil {
+		return &matchContext{}
+	}
+	return &matchContext{
+		layouts:    append([]LayoutHandler{}, ctx.layouts...),
+		middleware: append([]Middleware{}, ctx.middleware...),
+	}
+}
+
 // match finds a node matching the given path segments.
 // Returns the node, collected layouts/middleware, and extracted parameters.
 // Layouts and middleware are collected at each level during traversal.
 func (n *RouteNode) match(segments []string, params map[string]string, ctx *matchContext) (*RouteNode, *matchContext, bool) {
+	if ctx == nil {
+		ctx = &matchContext{}
+	}
+
 	// Collect layout and middleware at this node
 	if n.layoutHandler != nil {
 		ctx.layouts = append(ctx.layouts, n.layoutHandler)
@@ -149,14 +163,15 @@ func (n *RouteNode) match(segments []string, params map[string]string, ctx *matc
 		}
 		// Check for index child (handles trailing slash)
 		if child := n.findChild(""); child != nil {
+			childCtx := cloneMatchContext(ctx)
 			if child.layoutHandler != nil {
-				ctx.layouts = append(ctx.layouts, child.layoutHandler)
+				childCtx.layouts = append(childCtx.layouts, child.layoutHandler)
 			}
 			if len(child.middleware) > 0 {
-				ctx.middleware = append(ctx.middleware, child.middleware...)
+				childCtx.middleware = append(childCtx.middleware, child.middleware...)
 			}
 			if child.pageHandler != nil || child.apiHandlers != nil {
-				return child, ctx, true
+				return child, childCtx, true
 			}
 		}
 		return nil, nil, false
@@ -167,33 +182,38 @@ func (n *RouteNode) match(segments []string, params map[string]string, ctx *matc
 
 	// Try exact match first
 	if child := n.findChild(segment); child != nil {
-		if node, mctx, ok := child.match(remaining, params, ctx); ok {
+		childCtx := cloneMatchContext(ctx)
+		if node, mctx, ok := child.match(remaining, params, childCtx); ok {
 			return node, mctx, true
 		}
 	}
 
 	// Try parameter match
 	if n.paramChild != nil {
-		params[n.paramChild.paramName] = segment
-		if node, mctx, ok := n.paramChild.match(remaining, params, ctx); ok {
-			return node, mctx, true
+		if err := ValidateParam(segment, n.paramChild.paramType); err == nil {
+			params[n.paramChild.paramName] = segment
+			childCtx := cloneMatchContext(ctx)
+			if node, mctx, ok := n.paramChild.match(remaining, params, childCtx); ok {
+				return node, mctx, true
+			}
+			// Backtrack on failure
+			delete(params, n.paramChild.paramName)
 		}
-		// Backtrack on failure
-		delete(params, n.paramChild.paramName)
 	}
 
 	// Try catch-all match
 	if n.catchAllChild != nil {
+		childCtx := cloneMatchContext(ctx)
 		// Collect all remaining segments
 		allSegments := append([]string{segment}, remaining...)
 		params[n.catchAllChild.paramName] = strings.Join(allSegments, "/")
 		if n.catchAllChild.layoutHandler != nil {
-			ctx.layouts = append(ctx.layouts, n.catchAllChild.layoutHandler)
+			childCtx.layouts = append(childCtx.layouts, n.catchAllChild.layoutHandler)
 		}
 		if len(n.catchAllChild.middleware) > 0 {
-			ctx.middleware = append(ctx.middleware, n.catchAllChild.middleware...)
+			childCtx.middleware = append(childCtx.middleware, n.catchAllChild.middleware...)
 		}
-		return n.catchAllChild, ctx, true
+		return n.catchAllChild, childCtx, true
 	}
 
 	return nil, nil, false

@@ -2,8 +2,10 @@ package vango
 
 import (
 	"fmt"
+	"reflect"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	corevango "github.com/vango-go/vango/pkg/vango"
 	"github.com/vango-go/vango/pkg/vdom"
@@ -82,3 +84,54 @@ func TestWrapPageHandler_SignalUpdatesMarkDirty(t *testing.T) {
 	}
 }
 
+func TestBuildParamDecoder_SupportsSlicesAndTextUnmarshalers(t *testing.T) {
+	type Params struct {
+		ID   int       `param:"id"`
+		Slug []string  `param:"slug"`
+		When time.Time `param:"when"`
+	}
+
+	decoder := buildParamDecoder(reflect.TypeOf(Params{}))
+	val := decoder(map[string]string{
+		"id":   "123",
+		"slug": "a/b/c",
+		"when": "2020-01-02T03:04:05Z",
+	})
+	p := val.Interface().(Params)
+
+	if got, want := p.ID, 123; got != want {
+		t.Fatalf("ID = %d, want %d", got, want)
+	}
+	if got, want := len(p.Slug), 3; got != want {
+		t.Fatalf("len(Slug) = %d, want %d", got, want)
+	}
+	if got, want := p.Slug[0], "a"; got != want {
+		t.Fatalf("Slug[0] = %q, want %q", got, want)
+	}
+	if got, want := p.Slug[2], "c"; got != want {
+		t.Fatalf("Slug[2] = %q, want %q", got, want)
+	}
+	if p.When.IsZero() {
+		t.Fatal("When should not be zero")
+	}
+}
+
+func TestBuildParamDecoder_UnsupportedFieldTypeDoesNotPanic(t *testing.T) {
+	type Params struct {
+		Ch chan int `param:"ch"`
+	}
+
+	decoder := buildParamDecoder(reflect.TypeOf(Params{}))
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+
+	val := decoder(map[string]string{"ch": "x"})
+	p := val.Interface().(Params)
+	if p.Ch != nil {
+		t.Fatal("expected Ch to remain nil for unsupported field type")
+	}
+}

@@ -1,6 +1,7 @@
 package vango
 
 import (
+	"encoding"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -333,10 +334,61 @@ func buildParamDecoder(paramsType reflect.Type) func(map[string]string) reflect.
 
 // getTypeConverter returns a converter function for the given type.
 func getTypeConverter(t reflect.Type) func(string) (reflect.Value, error) {
+	if t.Kind() == reflect.Ptr {
+		elem := t.Elem()
+		elemConv := getTypeConverter(elem)
+		return func(s string) (reflect.Value, error) {
+			val, err := elemConv(s)
+			if err != nil {
+				return reflect.Value{}, err
+			}
+			ptr := reflect.New(elem)
+			if val.IsValid() {
+				if val.Type().AssignableTo(elem) {
+					ptr.Elem().Set(val)
+				} else if val.Type().ConvertibleTo(elem) {
+					ptr.Elem().Set(val.Convert(elem))
+				} else {
+					return reflect.Value{}, fmt.Errorf("cannot convert %v to %v", val.Type(), elem)
+				}
+			}
+			return ptr, nil
+		}
+	}
+
+	textUnmarshaler := reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	if reflect.PointerTo(t).Implements(textUnmarshaler) {
+		return func(s string) (reflect.Value, error) {
+			ptr := reflect.New(t)
+			u := ptr.Interface().(encoding.TextUnmarshaler)
+			if err := u.UnmarshalText([]byte(s)); err != nil {
+				return reflect.Value{}, err
+			}
+			return ptr.Elem(), nil
+		}
+	}
+	if t.Implements(textUnmarshaler) {
+		return func(s string) (reflect.Value, error) {
+			val := reflect.New(t).Elem()
+			u := val.Interface().(encoding.TextUnmarshaler)
+			if err := u.UnmarshalText([]byte(s)); err != nil {
+				return reflect.Value{}, err
+			}
+			return val, nil
+		}
+	}
+
 	switch t.Kind() {
 	case reflect.String:
 		return func(s string) (reflect.Value, error) {
-			return reflect.ValueOf(s), nil
+			v := reflect.ValueOf(s)
+			if v.Type().AssignableTo(t) {
+				return v, nil
+			}
+			if v.Type().ConvertibleTo(t) {
+				return v.Convert(t), nil
+			}
+			return reflect.Value{}, fmt.Errorf("cannot convert %v to %v", v.Type(), t)
 		}
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -372,15 +424,37 @@ func getTypeConverter(t reflect.Type) func(string) (reflect.Value, error) {
 			if err != nil {
 				return reflect.Value{}, err
 			}
-			return reflect.ValueOf(b), nil
+			v := reflect.ValueOf(b)
+			if v.Type().AssignableTo(t) {
+				return v, nil
+			}
+			if v.Type().ConvertibleTo(t) {
+				return v.Convert(t), nil
+			}
+			return reflect.Value{}, fmt.Errorf("cannot convert %v to %v", v.Type(), t)
 		}
 
 	default:
-		// For other types (e.g., uuid.UUID), try string conversion
-		// Check if type has a FromString or Parse method
-		// For now, just return string and let runtime handle it
+		if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.String {
+			return func(s string) (reflect.Value, error) {
+				var parts []string
+				if s != "" {
+					parts = strings.Split(s, "/")
+				}
+				v := reflect.ValueOf(parts)
+				if v.Type().AssignableTo(t) {
+					return v, nil
+				}
+				if v.Type().ConvertibleTo(t) {
+					return v.Convert(t), nil
+				}
+				return reflect.Value{}, fmt.Errorf("cannot convert %v to %v", v.Type(), t)
+			}
+		}
+
+		// Unsupported type; leave as zero value.
 		return func(s string) (reflect.Value, error) {
-			return reflect.ValueOf(s), nil
+			return reflect.Value{}, fmt.Errorf("unsupported param field type: %v", t)
 		}
 	}
 }

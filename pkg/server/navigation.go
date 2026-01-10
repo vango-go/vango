@@ -2,6 +2,9 @@ package server
 
 import (
 	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/vango-go/vango/pkg/protocol"
@@ -112,8 +115,20 @@ type RouteNavigator struct {
 	// currentPath is the current route path (without query string)
 	currentPath string
 
+	// currentQuery is the current route query string (without leading "?")
+	currentQuery string
+
 	// currentParams are the current route parameters
 	currentParams map[string]string
+}
+
+type redirectError struct {
+	path    string
+	replace bool
+}
+
+func (e redirectError) Error() string {
+	return fmt.Sprintf("redirect to %q", e.path)
 }
 
 // NewRouteNavigator creates a new route navigator for a session.
@@ -161,82 +176,100 @@ type NavigateResult struct {
 func (rn *RouteNavigator) Navigate(path string, replace bool) *NavigateResult {
 	result := &NavigateResult{}
 
-	// Canonicalize the path
-	canonPath, query, changed, err := CanonicalizePath(path)
-	if err != nil {
-		result.Error = err
-		return result
-	}
+	const maxRedirects = 10
 
-	// Build full path with query string
-	fullPath := canonPath
-	if query != "" {
-		fullPath = canonPath + "?" + query
-	}
-	result.Path = fullPath
-
-	// If canonicalization changed the path, force replace to avoid history duplication
-	// Per Section 1.2.4: If canonicalization changed the path, emit NAV_REPLACE
-	if changed && !replace {
-		replace = true
-	}
-
-	// Create NAV_* patch
-	if replace {
-		result.NavPatch = protocol.NewNavReplacePatch(fullPath)
-	} else {
-		result.NavPatch = protocol.NewNavPushPatch(fullPath)
-	}
-
-	// Match the route
-	match, ok := rn.router.Match("GET", canonPath)
-	if !ok {
-		// No route matched - check for not found handler
-		notFoundHandler := rn.router.NotFound()
-		if notFoundHandler != nil {
-			// Create a minimal match for 404
-			match = &simpleRouteMatch{
-				pageHandler: notFoundHandler,
-				params:      make(map[string]string),
-			}
-			result.Matched = false
-		} else {
-			result.Matched = false
+	for redirects := 0; redirects <= maxRedirects; redirects++ {
+		// Canonicalize the path
+		canonPath, query, changed, err := CanonicalizePath(path)
+		if err != nil {
+			result.Error = err
 			return result
 		}
-	} else {
-		result.Matched = true
-	}
 
-	// Store the current path and params
-	rn.currentPath = canonPath
-	rn.currentParams = match.GetParams()
+		// If canonicalization changed the path, force replace to avoid history duplication.
+		// Per Section 1.2.4: If canonicalization changed the path, emit NAV_REPLACE.
+		localReplace := replace
+		if changed && !localReplace {
+			localReplace = true
+		}
+		if redirects > 0 && !localReplace {
+			// Redirects should not add a new entry.
+			localReplace = true
+		}
 
-	// Update session's current route
-	rn.session.CurrentRoute = canonPath
+		// Build full path with query string
+		fullPath := canonPath
+		if query != "" {
+			fullPath = canonPath + "?" + query
+		}
 
-	// Per Section 8.4: Check prefetch cache before rendering
-	// If we have a cached tree, use it instead of calling the page handler
-	if cache := rn.session.PrefetchCache(); cache != nil {
-		if entry := cache.Get(canonPath); entry != nil {
-			// Prefetch cache hit - use cached tree
-			patches, cacheErr := rn.useCachedTree(entry.Tree, match)
-			if cacheErr == nil {
-				result.Patches = patches
+		// Match the route
+		match, ok := rn.router.Match("GET", canonPath)
+		if !ok {
+			// No route matched - check for not found handler
+			notFoundHandler := rn.router.NotFound()
+			if notFoundHandler != nil {
+				// Create a minimal match for 404
+				match = &simpleRouteMatch{
+					pageHandler: notFoundHandler,
+					params:      make(map[string]string),
+				}
+				result.Matched = false
+			} else {
+				result.Matched = false
+				result.Path = fullPath
+				if localReplace {
+					result.NavPatch = protocol.NewNavReplacePatch(fullPath)
+				} else {
+					result.NavPatch = protocol.NewNavPushPatch(fullPath)
+				}
 				return result
 			}
-			// If error using cached tree, fall through to normal render
+		} else {
+			result.Matched = true
 		}
-	}
 
-	// Render the new page (normal path or cache miss/error)
-	patches, renderErr := rn.renderRoute(match)
-	if renderErr != nil {
-		result.Error = renderErr
+		// Store the current path/query/params
+		rn.currentPath = canonPath
+		rn.currentQuery = query
+		rn.currentParams = match.GetParams()
+
+		// Update session's current route
+		rn.session.CurrentRoute = canonPath
+
+		// Per Section 8.4: Check prefetch cache before rendering.
+		var patches []vdom.Patch
+		var renderErr error
+		if cache := rn.session.PrefetchCache(); cache != nil {
+			if entry := cache.Get(canonPath); entry != nil {
+				patches, renderErr = rn.useCachedTree(entry.Tree, match)
+			}
+		}
+		if patches == nil && renderErr == nil {
+			patches, renderErr = rn.renderRoute(match)
+		}
+
+		if renderErr != nil {
+			if re, ok := renderErr.(redirectError); ok {
+				path = re.path
+				replace = true
+				continue
+			}
+			result.Error = renderErr
+			return result
+		}
+
+		result.Path = fullPath
+		if localReplace {
+			result.NavPatch = protocol.NewNavReplacePatch(fullPath)
+		} else {
+			result.NavPatch = protocol.NewNavPushPatch(fullPath)
+		}
+		result.Patches = patches
 		return result
 	}
 
-	result.Patches = patches
+	result.Error = errors.New("too many redirects")
 	return result
 }
 
@@ -264,27 +297,56 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 	// Set route params on context
 	if ctxImpl, ok := renderCtx.(*ctx); ok {
 		ctxImpl.setParams(match.GetParams())
+		if ctxImpl.request == nil {
+			ctxImpl.request = &http.Request{
+				Method: http.MethodGet,
+				URL: &url.URL{
+					Path:     rn.currentPath,
+					RawQuery: rn.currentQuery,
+				},
+			}
+		}
 	}
 
 	// Render within vango.WithCtx for proper reactive context
 	var newTree *vdom.VNode
+	var ranFinal bool
+	var middlewareErr error
 	vango.WithCtx(renderCtx, func() {
-		// Call the page handler to get the component
-		comp := pageHandler(renderCtx, match.GetParams())
-		if comp == nil {
-			return
-		}
+		ranFinal, middlewareErr = RunRouteMiddleware(renderCtx, match.GetMiddleware(), func() error {
+			// Call the page handler to get the component
+			comp := pageHandler(renderCtx, match.GetParams())
+			if comp == nil {
+				return nil
+			}
 
-		// Render the component to VNode
-		newTree = comp.Render()
+			// Render the component to VNode
+			newTree = comp.Render()
 
-		// Apply layouts root to leaf (reverse order so outermost is first)
-		layouts := match.GetLayoutHandlers()
-		for i := len(layouts) - 1; i >= 0; i-- {
-			layout := layouts[i]
-			newTree = layout(renderCtx, newTree)
-		}
+			// Apply layouts root to leaf (reverse order so outermost is first)
+			layouts := match.GetLayoutHandlers()
+			for i := len(layouts) - 1; i >= 0; i-- {
+				layout := layouts[i]
+				newTree = layout(renderCtx, newTree)
+			}
+
+			return nil
+		})
 	})
+
+	if ctxImpl, ok := renderCtx.(*ctx); ok {
+		if path, rep, has := ctxImpl.PendingNavigation(); has {
+			ctxImpl.ClearPendingNavigation()
+			return nil, redirectError{path: path, replace: rep}
+		}
+	}
+
+	if middlewareErr != nil {
+		return nil, middlewareErr
+	}
+	if !ranFinal {
+		return nil, errors.New("route middleware aborted navigation without redirect")
+	}
 
 	if newTree == nil {
 		return nil, nil
@@ -332,6 +394,43 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 func (rn *RouteNavigator) useCachedTree(cachedTree *vdom.VNode, match RouteMatch) ([]vdom.Patch, error) {
 	if cachedTree == nil {
 		return nil, nil
+	}
+
+	// Run route middleware even on cache hits so guards stay correct.
+	renderCtx := rn.session.createRenderContext()
+	if ctxImpl, ok := renderCtx.(*ctx); ok {
+		ctxImpl.setParams(match.GetParams())
+		if ctxImpl.request == nil {
+			ctxImpl.request = &http.Request{
+				Method: http.MethodGet,
+				URL: &url.URL{
+					Path:     rn.currentPath,
+					RawQuery: rn.currentQuery,
+				},
+			}
+		}
+	}
+
+	var ranFinal bool
+	var middlewareErr error
+	vango.WithCtx(renderCtx, func() {
+		ranFinal, middlewareErr = RunRouteMiddleware(renderCtx, match.GetMiddleware(), func() error {
+			return nil
+		})
+	})
+
+	if ctxImpl, ok := renderCtx.(*ctx); ok {
+		if path, rep, has := ctxImpl.PendingNavigation(); has {
+			ctxImpl.ClearPendingNavigation()
+			return nil, redirectError{path: path, replace: rep}
+		}
+	}
+
+	if middlewareErr != nil {
+		return nil, middlewareErr
+	}
+	if !ranFinal {
+		return nil, errors.New("route middleware aborted navigation without redirect")
 	}
 
 	// Get old tree for diffing

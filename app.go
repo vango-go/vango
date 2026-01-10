@@ -131,32 +131,92 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // renderPage renders a page for SSR (HTTP GET requests).
 func (a *App) renderPage(w http.ResponseWriter, r *http.Request, match *router.MatchResult) {
 	// Create SSR context
-	ctx := newSSRContext(r, match.Params, a.config, a.logger)
+	ctx := newSSRContext(w, r, match.Params, a.config, a.logger)
 
-	// Call page handler to get component
-	component := match.PageHandler(ctx, match.Params)
-	if component == nil {
-		http.Error(w, "Page returned nil", http.StatusInternalServerError)
+	var result *vdom.VNode
+	ranFinal, mwErr := server.RunRouteMiddleware(ctx, match.GetMiddleware(), func() error {
+		// Call page handler to get component
+		component := match.PageHandler(ctx, match.Params)
+		if component == nil {
+			return http.ErrAbortHandler
+		}
+
+		// Render component to VNode
+		pageNode := component.Render()
+
+		// Determine which layouts to use:
+		// - If page has explicit layouts (HasPageLayouts), use those only (no inheritance)
+		// - Otherwise, use hierarchical layouts from app.Layout() calls
+		layouts := match.Layouts
+		if match.HasPageLayouts {
+			layouts = match.PageLayouts
+		}
+
+		// Apply layouts (innermost to outermost)
+		// Layouts[0] is root, Layouts[len-1] is closest to page
+		// We apply from end to start: page → inner layout → ... → root layout
+		result = pageNode
+		for i := len(layouts) - 1; i >= 0; i-- {
+			result = layouts[i](ctx, result)
+		}
+		return nil
+	})
+
+	// Middleware/handlers can trigger redirects for SSR via ctx.Navigate()/ctx.Redirect().
+	if url, code, ok := ctx.redirectInfo(); ok {
+		ctx.applyTo(w)
+		http.Redirect(w, r, url, code)
 		return
 	}
 
-	// Render component to VNode
-	pageNode := component.Render()
+	if mwErr != nil {
+		if a.router.ErrorPage() != nil {
+			// Prefer the configured error page if present.
+			if ctx.status == http.StatusOK {
+				ctx.status = http.StatusInternalServerError
+			}
+			errNode := a.router.ErrorPage()(ctx, mwErr)
+			if errNode != nil {
+				layouts := match.Layouts
+				if match.HasPageLayouts {
+					layouts = match.PageLayouts
+				}
+				for i := len(layouts) - 1; i >= 0; i-- {
+					errNode = layouts[i](ctx, errNode)
+				}
 
-	// Determine which layouts to use:
-	// - If page has explicit layouts (HasPageLayouts), use those only (no inheritance)
-	// - Otherwise, use hierarchical layouts from app.Layout() calls
-	layouts := match.Layouts
-	if match.HasPageLayouts {
-		layouts = match.PageLayouts
+				renderer := render.NewRenderer(render.RendererConfig{
+					Pretty: a.config.DevMode,
+				})
+				html, err := renderer.RenderToString(errNode)
+				if err == nil {
+					ctx.applyTo(w)
+					if w.Header().Get("Content-Type") == "" {
+						w.Header().Set("Content-Type", "text/html; charset=utf-8")
+					}
+					w.WriteHeader(ctx.status)
+					w.Write([]byte("<!DOCTYPE html>\n"))
+					w.Write([]byte(html))
+					return
+				}
+			}
+		}
+
+		a.logger.Error("middleware failed", "error", mwErr)
+		http.Error(w, mwErr.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	// Apply layouts (innermost to outermost)
-	// Layouts[0] is root, Layouts[len-1] is closest to page
-	// We apply from end to start: page → inner layout → ... → root layout
-	result := pageNode
-	for i := len(layouts) - 1; i >= 0; i-- {
-		result = layouts[i](ctx, result)
+	if !ranFinal {
+		// Middleware short-circuited without rendering a page. Respect status/cookies/headers.
+		ctx.applyTo(w)
+		w.WriteHeader(ctx.status)
+		return
+	}
+
+	if result == nil {
+		http.Error(w, "Page returned nil", http.StatusInternalServerError)
+		return
 	}
 
 	// Render to HTML
@@ -171,28 +231,57 @@ func (a *App) renderPage(w http.ResponseWriter, r *http.Request, match *router.M
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	ctx.applyTo(w)
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
+	w.WriteHeader(ctx.status)
 	w.Write([]byte("<!DOCTYPE html>\n"))
 	w.Write([]byte(html))
 }
 
 // handleAPI handles API routes, returning JSON responses.
 func (a *App) handleAPI(w http.ResponseWriter, r *http.Request, match *router.MatchResult) {
-	ctx := newSSRContext(r, match.Params, a.config, a.logger)
+	ctx := newSSRContext(w, r, match.Params, a.config, a.logger)
 
 	// TODO: Decode request body for POST/PUT
 	var body any
 
-	result, err := match.APIHandler(ctx, match.Params, body)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	var out any
+	ranFinal, mwErr := server.RunRouteMiddleware(ctx, match.GetMiddleware(), func() error {
+		var err error
+		out, err = match.APIHandler(ctx, match.Params, body)
+		return err
+	})
+
+	if url, code, ok := ctx.redirectInfo(); ok {
+		ctx.applyTo(w)
+		http.Redirect(w, r, url, code)
 		return
 	}
 
+	if mwErr != nil {
+		ctx.applyTo(w)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": mwErr.Error()})
+		return
+	}
+
+	if !ranFinal {
+		// Middleware short-circuited without producing a response body.
+		ctx.applyTo(w)
+		if ctx.status == http.StatusOK {
+			ctx.status = http.StatusNoContent
+		}
+		w.WriteHeader(ctx.status)
+		return
+	}
+
+	ctx.applyTo(w)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	w.WriteHeader(ctx.status)
+	json.NewEncoder(w).Encode(out)
 }
 
 // Handler returns the App as an http.Handler.

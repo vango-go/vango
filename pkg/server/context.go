@@ -455,7 +455,20 @@ func (c *ctx) Session() *Session {
 
 // User returns the authenticated user.
 func (c *ctx) User() any {
-	return c.user
+	if c.user != nil {
+		return c.user
+	}
+	if c.session != nil {
+		if val := c.session.Get(DefaultAuthSessionKey); val != nil {
+			return val
+		}
+	}
+	if c.request != nil {
+		if val := UserFromContext(c.request.Context()); val != nil {
+			return val
+		}
+	}
+	return nil
 }
 
 // SetUser sets the authenticated user.

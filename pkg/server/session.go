@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"reflect"
 	"runtime/debug"
 	"strings"
@@ -1852,7 +1854,7 @@ func (s *Session) handlePrefetch(data []byte) {
 //   - Timeout: 100ms (abort if handler takes too long)
 func (s *Session) executePrefetch(path string) {
 	// Canonicalize the path
-	canonPath, _, _, err := CanonicalizePath(path)
+	canonPath, query, _, err := CanonicalizePath(path)
 	if err != nil {
 		s.logger.Warn("prefetch path canonicalization failed", "path", path, "error", err)
 		return
@@ -1904,26 +1906,42 @@ func (s *Session) executePrefetch(path string) {
 		renderCtx := s.createPrefetchContext()
 		if ctxImpl, ok := renderCtx.(*ctx); ok {
 			ctxImpl.setParams(match.GetParams())
+			if ctxImpl.request == nil {
+				ctxImpl.request = &http.Request{
+					Method: http.MethodGet,
+					URL: &url.URL{
+						Path:     canonPath,
+						RawQuery: query,
+					},
+				}
+			}
 		}
 
 		var tree *vdom.VNode
 
 		// Render within vango.WithCtx for proper reactive context
 		vango.WithCtx(renderCtx, func() {
-			// Call the page handler to get the component
-			comp := pageHandler(renderCtx, match.GetParams())
-			if comp == nil {
-				return
-			}
+			ranFinal, mwErr := RunRouteMiddleware(renderCtx, match.GetMiddleware(), func() error {
+				// Call the page handler to get the component
+				comp := pageHandler(renderCtx, match.GetParams())
+				if comp == nil {
+					return nil
+				}
 
-			// Render the component to VNode
-			tree = comp.Render()
+				// Render the component to VNode
+				tree = comp.Render()
 
-			// Apply layouts root to leaf (reverse order so outermost is first)
-			layouts := match.GetLayoutHandlers()
-			for i := len(layouts) - 1; i >= 0; i-- {
-				layout := layouts[i]
-				tree = layout(renderCtx, tree)
+				// Apply layouts root to leaf (reverse order so outermost is first)
+				layouts := match.GetLayoutHandlers()
+				for i := len(layouts) - 1; i >= 0; i-- {
+					layout := layouts[i]
+					tree = layout(renderCtx, tree)
+				}
+
+				return nil
+			})
+			if mwErr != nil || !ranFinal {
+				tree = nil
 			}
 		})
 

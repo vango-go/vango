@@ -1,6 +1,7 @@
 package router
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/vango-go/vango/pkg/server"
@@ -167,25 +168,89 @@ func TestRouteNodeMatchLayoutCollection(t *testing.T) {
 	listNode.pageHandler = dummyPageHandler
 
 	params := make(map[string]string)
-	ctx := &matchContext{
-		layouts:    nil,
-		middleware: nil,
-	}
-
-	// Include root layout
-	if root.layoutHandler != nil {
-		ctx.layouts = append(ctx.layouts, root.layoutHandler)
-	}
-
+	ctx := &matchContext{}
 	_, matchCtx, ok := root.match(splitPath("/users/list"), params, ctx)
 
 	if !ok {
 		t.Fatal("expected match")
 	}
-	// Layouts: root (passed in) + users (collected during match)
-	if len(matchCtx.layouts) < 2 {
-		t.Errorf("len(layouts) = %d, want at least 2", len(matchCtx.layouts))
+	// Layouts: root + users
+	if got, want := len(matchCtx.layouts), 2; got != want {
+		t.Errorf("len(layouts) = %d, want %d", got, want)
 	}
+}
+
+func TestRouteNodeMatchBacktrackingDoesNotLeakContext(t *testing.T) {
+	layoutRoot := func(ctx server.Ctx, children Slot) *vdom.VNode { return nil }
+	layoutBar := func(ctx server.Ctx, children Slot) *vdom.VNode { return nil }
+
+	root := newRouteNode("")
+	root.layoutHandler = layoutRoot
+
+	// Exact branch: /foo/bar (no handler for /foo/bar/baz)
+	bar := root.insertRoute("/foo/bar")
+	bar.layoutHandler = layoutBar
+
+	// Param branch: /foo/:id/baz
+	baz := root.insertRoute("/foo/:id/baz")
+	baz.pageHandler = dummyPageHandler
+
+	params := make(map[string]string)
+	ctx := &matchContext{}
+
+	_, matchCtx, ok := root.match(splitPath("/foo/bar/baz"), params, ctx)
+	if !ok {
+		t.Fatal("expected match")
+	}
+	if got, want := params["id"], "bar"; got != want {
+		t.Fatalf("params[id] = %q, want %q", got, want)
+	}
+
+	layoutBarPtr := reflect.ValueOf(layoutBar).Pointer()
+	for _, lh := range matchCtx.layouts {
+		if reflect.ValueOf(lh).Pointer() == layoutBarPtr {
+			t.Fatal("expected /foo/bar layout not to leak into /foo/:id/baz match")
+		}
+	}
+}
+
+func TestRouteNodeMatchParamTypeValidation(t *testing.T) {
+	root := newRouteNode("")
+
+	// Static route
+	newNode := root.insertRoute("/projects/new")
+	newNode.pageHandler = dummyPageHandler
+
+	// Typed param route
+	idNode := root.insertRoute("/projects/:id:int")
+	idNode.pageHandler = dummyPageHandler
+
+	t.Run("static route still matches", func(t *testing.T) {
+		params := make(map[string]string)
+		_, _, ok := root.match(splitPath("/projects/new"), params, &matchContext{})
+		if !ok {
+			t.Fatal("expected match")
+		}
+	})
+
+	t.Run("typed param rejects invalid", func(t *testing.T) {
+		params := make(map[string]string)
+		_, _, ok := root.match(splitPath("/projects/abc"), params, &matchContext{})
+		if ok {
+			t.Fatal("expected no match")
+		}
+	})
+
+	t.Run("typed param accepts valid", func(t *testing.T) {
+		params := make(map[string]string)
+		_, _, ok := root.match(splitPath("/projects/123"), params, &matchContext{})
+		if !ok {
+			t.Fatal("expected match")
+		}
+		if got, want := params["id"], "123"; got != want {
+			t.Fatalf("params[id] = %q, want %q", got, want)
+		}
+	})
 }
 
 func TestSplitPath(t *testing.T) {

@@ -14,22 +14,37 @@ import (
 // It provides read-only access to request data and no-ops for session operations.
 type ssrContext struct {
 	request *http.Request
+	writer  http.ResponseWriter
 	params  map[string]string
 	config  Config
 	logger  *slog.Logger
 	values  map[any]any
+
+	user any
+
+	status       int
+	headers      http.Header
+	cookies      []*http.Cookie
+	redirectURL  string
+	redirectCode int
+	redirected   bool
 }
 
-func newSSRContext(r *http.Request, params map[string]string, cfg Config, logger *slog.Logger) *ssrContext {
+func newSSRContext(w http.ResponseWriter, r *http.Request, params map[string]string, cfg Config, logger *slog.Logger) *ssrContext {
 	if params == nil {
 		params = make(map[string]string)
 	}
+	user := server.UserFromContext(r.Context())
 	return &ssrContext{
 		request: r,
+		writer:  w,
 		params:  params,
 		config:  cfg,
 		logger:  logger,
 		values:  make(map[any]any),
+		user:    user,
+		status:  http.StatusOK,
+		headers: make(http.Header),
 	}
 }
 
@@ -45,16 +60,32 @@ func (c *ssrContext) Cookie(name string) (*http.Cookie, error) {
 	return c.request.Cookie(name)
 }
 
-// Response control (no-ops for SSR - response is handled by App)
-func (c *ssrContext) Status(code int)               {}
-func (c *ssrContext) Redirect(url string, code int) {}
-func (c *ssrContext) SetHeader(key, value string)   {}
-func (c *ssrContext) SetCookie(cookie *http.Cookie) {}
+// Response control (captured for App to apply)
+func (c *ssrContext) Status(code int) {
+	c.status = code
+}
+
+func (c *ssrContext) Redirect(url string, code int) {
+	c.redirected = true
+	c.redirectURL = url
+	c.redirectCode = code
+}
+
+func (c *ssrContext) SetHeader(key, value string) {
+	c.headers.Set(key, value)
+}
+
+func (c *ssrContext) SetCookie(cookie *http.Cookie) {
+	if cookie == nil {
+		return
+	}
+	c.cookies = append(c.cookies, cookie)
+}
 
 // Session (nil for SSR - no WebSocket session)
 func (c *ssrContext) Session() *server.Session { return nil }
-func (c *ssrContext) User() any                { return nil }
-func (c *ssrContext) SetUser(user any)         {}
+func (c *ssrContext) User() any                { return c.user }
+func (c *ssrContext) SetUser(user any)         { c.user = user }
 
 // Logging
 func (c *ssrContext) Logger() *slog.Logger {
@@ -79,8 +110,47 @@ func (c *ssrContext) Emit(name string, data any) {}
 // Dispatch executes immediately for SSR (no event loop)
 func (c *ssrContext) Dispatch(fn func()) { fn() }
 
-// Navigation (no-op for SSR)
-func (c *ssrContext) Navigate(path string, opts ...server.NavigateOption) {}
+func (c *ssrContext) Navigate(path string, opts ...server.NavigateOption) {
+	fullPath, applied := server.BuildNavigateURL(path, opts...)
+	if fullPath == "" {
+		return
+	}
+
+	code := http.StatusFound // 302
+	if applied.Replace {
+		code = http.StatusSeeOther
+	}
+	c.Redirect(fullPath, code)
+}
+
+func (c *ssrContext) applyTo(w http.ResponseWriter) {
+	if c == nil || w == nil {
+		return
+	}
+	for key, values := range c.headers {
+		if len(values) == 0 {
+			continue
+		}
+		// Preserve multi-value headers when explicitly set.
+		w.Header().Del(key)
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+	for _, cookie := range c.cookies {
+		http.SetCookie(w, cookie)
+	}
+}
+
+func (c *ssrContext) redirectInfo() (url string, code int, ok bool) {
+	if !c.redirected {
+		return "", 0, false
+	}
+	if c.redirectCode == 0 {
+		return c.redirectURL, http.StatusFound, true
+	}
+	return c.redirectURL, c.redirectCode, true
+}
 
 // Context propagation
 func (c *ssrContext) StdContext() context.Context { return c.request.Context() }

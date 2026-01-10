@@ -10,7 +10,7 @@ import (
 
 // SessionKey is the standard session key for the authenticated user.
 // The Context Bridge should use this key when storing user data.
-const SessionKey = "vango_auth_user"
+const SessionKey = server.DefaultAuthSessionKey
 
 // ErrUnauthorized is returned when authentication is required but not present.
 // This typically triggers a 401 response or redirect to login.
