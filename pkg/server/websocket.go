@@ -291,17 +291,30 @@ func (s *Session) EventLoop() {
 	for {
 		select {
 		case event := <-s.events:
-			s.handleEvent(event)
+			func() {
+				s.beginWork()
+				defer s.endWork()
+				s.handleEvent(event)
+			}()
 
 		case fn := <-s.dispatchCh:
 			// Execute dispatched function on the event loop
-			s.executeDispatch(fn)
+			func() {
+				s.beginWork()
+				defer s.endWork()
+				s.executeDispatch(fn)
+			}()
 
 		case <-s.renderCh:
-			ctx := s.createRenderContext()
-			vango.WithCtx(ctx, func() {
-				s.flush()
-			})
+			func() {
+				s.beginWork()
+				defer s.endWork()
+
+				ctx := s.createRenderContext()
+				vango.WithCtx(ctx, func() {
+					s.flush()
+				})
+			}()
 
 		case <-s.done:
 			return
@@ -443,15 +456,16 @@ func (s *Session) detach(source string, err error) {
 // SendPatches is a public wrapper for sendPatches.
 func (s *Session) SendPatches(patches []protocol.Patch) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.closed.Load() {
+		s.mu.Unlock()
 		return
 	}
 
 	// Guard against nil connection (can happen in tests or edge cases)
 	if s.conn == nil {
 		s.logger.Warn("SendPatches: no connection available")
+		s.mu.Unlock()
 		return
 	}
 
@@ -470,12 +484,15 @@ func (s *Session) SendPatches(patches []protocol.Patch) {
 
 	if err := s.conn.WriteMessage(websocket.BinaryMessage, frameData); err != nil {
 		s.logger.Error("write error", "error", err)
-		s.closeInternal()
+		s.mu.Unlock()
+		s.Close()
 		return
 	}
 
 	s.bytesSent.Add(uint64(len(frameData)))
 	s.patchCount.Add(uint64(len(patches)))
+
+	s.mu.Unlock()
 }
 
 // SendClose sends a close control message to the client.

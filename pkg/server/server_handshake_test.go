@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,6 +66,42 @@ type staticComponent struct {
 }
 
 func (c staticComponent) Render() *vdom.VNode { return c.node }
+
+type handshakeRouteMatch struct {
+	params map[string]string
+	page   PageHandler
+}
+
+func (m *handshakeRouteMatch) GetParams() map[string]string       { return m.params }
+func (m *handshakeRouteMatch) GetPageHandler() PageHandler        { return m.page }
+func (m *handshakeRouteMatch) GetLayoutHandlers() []LayoutHandler { return nil }
+func (m *handshakeRouteMatch) GetMiddleware() []RouteMiddleware   { return nil }
+
+type recordingRouter struct {
+	mu       sync.Mutex
+	lastPath string
+	routes   map[string]RouteMatch
+}
+
+func (r *recordingRouter) Match(method, path string) (RouteMatch, bool) {
+	r.mu.Lock()
+	r.lastPath = path
+	r.mu.Unlock()
+
+	if r.routes == nil {
+		return nil, false
+	}
+	m, ok := r.routes[path]
+	return m, ok
+}
+
+func (r *recordingRouter) NotFound() PageHandler { return nil }
+
+func (r *recordingRouter) LastPath() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastPath
+}
 
 func TestServer_ServeHTTP_CanonicalRedirectPreservesQuery(t *testing.T) {
 	s := New(DefaultServerConfig().WithDevMode())
@@ -213,12 +250,13 @@ func TestServer_HandleWebSocket_ResumeExpiredFallsBackToNewSession(t *testing.T)
 		t.Fatalf("handshake1 status=%v sessionID=%q, want OK and non-empty", h1.Status, h1.SessionID)
 	}
 
-	// Force expiry without needing real time to pass.
-	sess := s.Sessions().Get(h1.SessionID)
-	if sess == nil {
-		t.Fatalf("expected session %q to exist", h1.SessionID)
-	}
-	sess.LastActive = time.Now().Add(-time.Hour)
+	sess1 := getSessionEventually(t, s.Sessions(), h1.SessionID)
+	waitForEventLoopStarted(t, sess1)
+	_ = c1.Close()
+	waitForDetached(t, sess1)
+
+	// Allow the resume window to expire.
+	time.Sleep(50 * time.Millisecond)
 
 	c2 := dialWS(t, wsURL(t, ts.URL, "/_vango/live?path=/"), nil)
 	h2hello := protocol.NewClientHello("")
@@ -238,9 +276,9 @@ func TestServer_HandleWebSocket_RouterMountsInitialPathAndSanitizesInternal(t *t
 	cfg := DefaultServerConfig().WithDevMode()
 	s := New(cfg)
 
-	r := &testRouter{
+	r := &recordingRouter{
 		routes: map[string]RouteMatch{
-			"/": &testRouteMatch{
+			"/": &handshakeRouteMatch{
 				params: map[string]string{},
 				page: func(ctx Ctx, params any) Component {
 					return staticComponent{node: &vdom.VNode{Kind: vdom.KindElement, Tag: "div"}}
@@ -261,14 +299,16 @@ func TestServer_HandleWebSocket_RouterMountsInitialPathAndSanitizesInternal(t *t
 	if hello.Status != protocol.HandshakeOK {
 		t.Fatalf("handshake status=%v, want %v", hello.Status, protocol.HandshakeOK)
 	}
-	sess := s.Sessions().Get(hello.SessionID)
-	if sess == nil {
-		t.Fatalf("expected session %q to exist", hello.SessionID)
-	}
-	if sess.root == nil {
+
+	sess := getSessionEventually(t, s.Sessions(), hello.SessionID)
+	waitForEventLoopStarted(t, sess)
+	if sess.root == nil || sess.currentTree == nil {
 		t.Fatal("expected root component to be mounted")
 	}
 	if sess.CurrentRoute != "/" {
 		t.Fatalf("CurrentRoute=%q, want %q", sess.CurrentRoute, "/")
+	}
+	if got := r.LastPath(); got != "/" {
+		t.Fatalf("router Match path=%q, want %q", got, "/")
 	}
 }

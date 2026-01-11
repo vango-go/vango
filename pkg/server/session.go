@@ -118,6 +118,18 @@ type Session struct {
 	bytesSent  atomic.Uint64
 	bytesRecv  atomic.Uint64
 
+	// Lifecycle coordination
+	//
+	// Close() can be called concurrently with MountRoot()/flush()/handler execution.
+	// We split close into:
+	//   - beginClose: signal goroutines + close the websocket (best-effort)
+	//   - finalizeClose: dispose owner/component tree + clear maps (runs once)
+	//
+	// finalizeClose is deferred until there is no in-flight session work, preventing
+	// shutdown from racing renders (which previously caused nil Owner panics).
+	inFlight     atomic.Int32
+	finalizeOnce sync.Once
+
 	// General-purpose session data storage (Phase 10)
 	// Use Get/Set/Delete to access. Protected by dataMu.
 	data   map[string]any
@@ -214,6 +226,9 @@ func newSession(conn *websocket.Conn, userID string, config *SessionConfig, logg
 
 // MountRoot mounts the root component for this session.
 func (s *Session) MountRoot(component Component) {
+	s.beginWork()
+	defer s.endWork()
+
 	// Create root component instance
 	s.root = newComponentInstance(component, nil, s)
 	s.root.InstanceID = "root"
@@ -1077,15 +1092,16 @@ func (s *Session) sendPatches(vdomPatches []vdom.Patch) {
 // URL patches (if any) are appended after DOM patches in the same frame.
 func (s *Session) sendPatchesWithURL(vdomPatches []vdom.Patch, urlPatches []protocol.Patch) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.closed.Load() {
+		s.mu.Unlock()
 		return
 	}
 
 	// Guard against nil connection (can happen in tests or edge cases)
 	if s.conn == nil {
 		s.logger.Warn("sendPatches: no connection available")
+		s.mu.Unlock()
 		return
 	}
 
@@ -1122,7 +1138,8 @@ func (s *Session) sendPatchesWithURL(vdomPatches []vdom.Patch, urlPatches []prot
 	err := s.conn.WriteMessage(websocket.BinaryMessage, frameData)
 	if err != nil {
 		s.logger.Error("write error", "error", err)
-		s.closeInternal()
+		s.mu.Unlock()
+		s.Close()
 		return
 	}
 
@@ -1140,6 +1157,8 @@ func (s *Session) sendPatchesWithURL(vdomPatches []vdom.Patch, urlPatches []prot
 		"seq", seq,
 		"count", len(protocolPatches),
 		"bytes", len(frameData))
+
+	s.mu.Unlock()
 }
 
 // convertPatches converts vdom.Patch to protocol.Patch.
@@ -1225,11 +1244,34 @@ func (s *Session) Close() {
 		return
 	}
 
-	s.closeInternal()
+	s.beginClose()
+
+	// If nothing is currently running, we can finalize immediately.
+	if s.inFlight.Load() == 0 {
+		s.finalizeClose()
+	}
 }
 
-// closeInternal performs the actual close operations.
-func (s *Session) closeInternal() {
+// beginWork marks the beginning of a session "work unit" that must not race
+// finalizeClose (tree/owner disposal). Work units include MountRoot, event ticks,
+// dispatched callbacks, and render ticks.
+func (s *Session) beginWork() {
+	s.inFlight.Add(1)
+}
+
+func (s *Session) endWork() {
+	if s.inFlight.Add(-1) == 0 && s.closed.Load() {
+		s.finalizeClose()
+	}
+}
+
+// beginClose performs the non-destructive part of closing:
+//   - signals goroutines via done
+//   - closes the websocket connection (best effort)
+//
+// It does NOT dispose the reactive owner or component tree; that happens in
+// finalizeClose once no work is in-flight.
+func (s *Session) beginClose() {
 	// Signal shutdown to goroutines
 	select {
 	case <-s.done:
@@ -1238,36 +1280,46 @@ func (s *Session) closeInternal() {
 		close(s.done)
 	}
 
-	// Dispose reactive owner (cleans up effects and signals)
-	if s.owner != nil {
-		s.owner.Dispose()
-	}
-
-	// Dispose root component
-	if s.root != nil {
-		s.root.Dispose()
-	}
-
-	// Clear handlers and components
-	s.handlers = nil
-	s.components = nil
-	s.allComponents = nil
-
 	// Send close message and close WebSocket
-	if s.conn != nil {
-		s.conn.WriteControl(
+	s.mu.Lock()
+	conn := s.conn
+	if conn != nil {
+		_ = conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 			time.Now().Add(time.Second),
 		)
-		s.conn.Close()
+		_ = conn.Close()
+		s.conn = nil
 	}
+	s.mu.Unlock()
+}
 
-	s.logger.Info("session closed",
-		"events", s.eventCount.Load(),
-		"patches", s.patchCount.Load(),
-		"bytes_sent", s.bytesSent.Load(),
-		"bytes_recv", s.bytesRecv.Load())
+// finalizeClose performs the destructive portion of closing and is guaranteed
+// to run at most once. It must not run while session work is in-flight.
+func (s *Session) finalizeClose() {
+	s.finalizeOnce.Do(func() {
+		// Dispose reactive owner (cleans up effects and signals)
+		if s.owner != nil {
+			s.owner.Dispose()
+		}
+
+		// Dispose root component
+		if s.root != nil {
+			s.root.Dispose()
+		}
+
+		// Clear handlers and components
+		s.handlers = nil
+		s.components = nil
+		s.allComponents = nil
+
+		s.logger.Info("session closed",
+			"events", s.eventCount.Load(),
+			"patches", s.patchCount.Load(),
+			"bytes_sent", s.bytesSent.Load(),
+			"bytes_recv", s.bytesRecv.Load())
+	})
 }
 
 // IsClosed returns whether the session is closed.
