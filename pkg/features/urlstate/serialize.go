@@ -39,16 +39,28 @@ func DefaultDeserializer[T any](zero T) func(string) T {
 		case string:
 			return any(s).(T)
 		case int:
-			i, _ := strconv.Atoi(s)
+			i, err := strconv.Atoi(s)
+			if err != nil {
+				return zero
+			}
 			return any(i).(T)
 		case int64:
-			i, _ := strconv.ParseInt(s, 10, 64)
+			i, err := strconv.ParseInt(s, 10, 64)
+			if err != nil {
+				return zero
+			}
 			return any(i).(T)
 		case float64:
-			f, _ := strconv.ParseFloat(s, 64)
+			f, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				return zero
+			}
 			return any(f).(T)
 		case bool:
-			b, _ := strconv.ParseBool(s)
+			b, err := strconv.ParseBool(s)
+			if err != nil {
+				return zero
+			}
 			return any(b).(T)
 		case []string:
 			// Basic comma separation

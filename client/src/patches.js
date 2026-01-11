@@ -436,6 +436,13 @@ export class PatchApplier {
             return;
         }
 
+        // Handle special "vango:hash" event for server-initiated hash updates.
+        // This is used by experimental HashState.
+        if (eventName === 'vango:hash') {
+            this._handleHash(parsedDetail);
+            return;
+        }
+
         // For regular events, dispatch on document if no target element
         const target = el || document;
         const event = new CustomEvent(eventName, {
@@ -527,6 +534,41 @@ export class PatchApplier {
 
         if (this.client.options.debug) {
             console.log('[Vango] Navigated to:', path, { replace, scroll });
+        }
+    }
+
+    /**
+     * Handle server-initiated hash updates via dispatch patch (experimental).
+     * This updates history without triggering a navigation event to the server.
+     */
+    _handleHash(data) {
+        if (!data || typeof data.value !== 'string') {
+            if (this.client.options.debug) {
+                console.warn('[Vango] Invalid hash data:', data);
+            }
+            return;
+        }
+
+        const replace = !!data.replace;
+        const url = new URL(window.location);
+
+        // Normalize: accept "section", "#section", or "" to clear.
+        if (data.value === '') {
+            url.hash = '';
+        } else if (data.value.startsWith('#')) {
+            url.hash = data.value;
+        } else {
+            url.hash = `#${data.value}`;
+        }
+
+        if (url.toString() === window.location.href) {
+            return;
+        }
+
+        if (replace) {
+            history.replaceState(null, '', url.toString());
+        } else {
+            history.pushState(null, '', url.toString());
         }
     }
 

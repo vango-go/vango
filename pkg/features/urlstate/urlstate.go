@@ -1,9 +1,11 @@
 package urlstate
 
 import (
-	"fmt"
+	"reflect"
+	"sync"
 	"time"
 
+	"github.com/vango-go/vango/pkg/urlparam"
 	"github.com/vango-go/vango/pkg/vango"
 )
 
@@ -15,28 +17,61 @@ type URLState[T any] struct {
 	serializer   func(T) string
 	deserializer func(string) T
 	debounce     time.Duration
-	replace      bool
 
 	// Internal
-	lastUpdate time.Time
-	timer      *time.Timer
+	timerMu sync.Mutex
+	timer   *time.Timer
+
+	navigate func(params map[string]string, mode urlparam.URLMode)
 }
 
 // Use creates a new URLState bound to the given query parameter key.
 func Use[T any](key string, defaultValue T) *URLState[T] {
-	// Initialize signal with default value
-	// In a real implementation, we would try to read the initial value from the URL here.
-	// Since we don't have direct access to Router/Context in this isolated package implementation yet,
-	// we start with defaultValue.
-	// TODO: Integrate with Router/Window context to read initial value.
+	vango.TrackHook(vango.HookURLParam)
 
-	u := &URLState[T]{
-		key:          key,
-		defaultValue: defaultValue,
-		signal:       vango.NewSignal(defaultValue),
-		serializer:   DefaultSerializer(defaultValue),
-		deserializer: DefaultDeserializer(defaultValue),
+	// Hook slot stabilization (matches URLParam behavior).
+	slot := vango.UseHookSlot()
+	var u *URLState[T]
+	first := false
+	if slot != nil {
+		existing, ok := slot.(*URLState[T])
+		if !ok {
+			panic("vango: hook slot type mismatch for URLState")
+		}
+		u = existing
+	} else {
+		first = true
+		u = &URLState[T]{}
+		vango.SetHookSlot(u)
 	}
+
+	if first {
+		u.key = key
+		u.defaultValue = defaultValue
+		u.serializer = DefaultSerializer(defaultValue)
+		u.deserializer = DefaultDeserializer(defaultValue)
+
+		if navCtx := vango.GetContext(urlparam.NavigatorKey); navCtx != nil {
+			if nav, ok := navCtx.(*urlparam.Navigator); ok {
+				u.navigate = nav.Navigate
+			}
+		}
+	}
+
+	// Determine initial value from URL params (first render only).
+	initial := defaultValue
+	if first {
+		if initialCtx := vango.GetContext(urlparam.InitialParamsKey); initialCtx != nil {
+			if state, ok := initialCtx.(*urlparam.InitialURLState); ok && state.Params != nil && u.key != "" {
+				if raw, ok := state.Params[u.key]; ok {
+					initial = u.deserializer(raw)
+				}
+			}
+		}
+	}
+
+	// Must be called on every render to preserve hook slot order.
+	u.signal = vango.NewSignal(initial)
 
 	return u
 }
@@ -49,15 +84,13 @@ func (u *URLState[T]) Get() T {
 // Set updates the value and the URL.
 func (u *URLState[T]) Set(value T) {
 	u.signal.Set(value)
-	u.updateURL(value)
+	u.updateURL(value, urlparam.ModePush)
 }
 
 // Replace updates the value and replaces the current URL history entry.
 func (u *URLState[T]) Replace(value T) {
-	u.replace = true
-	u.Set(value)
-	u.replace = false // Reset for next valid Set? Or should Replace be persistent option?
-	// API spec says Replace(value) is a method.
+	u.signal.Set(value)
+	u.updateURL(value, urlparam.ModeReplace)
 }
 
 // Reset resets the value to the default.
@@ -67,9 +100,7 @@ func (u *URLState[T]) Reset() {
 
 // IsSet returns true if the current value is different from the default.
 func (u *URLState[T]) IsSet() bool {
-	// Simple equality check. For slices/maps might need deeper check.
-	// basic equality for now.
-	return fmt.Sprintf("%v", u.Get()) != fmt.Sprintf("%v", u.defaultValue)
+	return !reflect.DeepEqual(u.Get(), u.defaultValue)
 }
 
 // Debounce sets the debounce duration for URL updates.
@@ -91,24 +122,42 @@ func (u *URLState[T]) Deserialize(fn func(string) T) *URLState[T] {
 }
 
 // Internal update logic
-func (u *URLState[T]) updateURL(value T) {
+func (u *URLState[T]) updateURL(value T, mode urlparam.URLMode) {
+	if u.key == "" {
+		return
+	}
+
 	str := u.serializer(value)
 
 	// Debounce logic
 	if u.debounce > 0 {
+		u.timerMu.Lock()
+		defer u.timerMu.Unlock()
+
 		if u.timer != nil {
 			u.timer.Stop()
 		}
+
 		u.timer = time.AfterFunc(u.debounce, func() {
-			u.performNavigation(str)
+			u.performNavigation(str, mode)
 		})
 		return
 	}
 
-	u.performNavigation(str)
+	u.performNavigation(str, mode)
 }
 
-func (u *URLState[T]) performNavigation(value string) {
-	// TODO: integration with Router/Navigator
-	// fmt.Printf("Navigating to ?%s=%s (replace=%v)\n", u.key, value, u.replace)
+func (u *URLState[T]) performNavigation(value string, mode urlparam.URLMode) {
+	if u.navigate == nil {
+		if navCtx := vango.GetContext(urlparam.NavigatorKey); navCtx != nil {
+			if nav, ok := navCtx.(*urlparam.Navigator); ok {
+				u.navigate = nav.Navigate
+			}
+		}
+	}
+	if u.navigate == nil {
+		return
+	}
+
+	u.navigate(map[string]string{u.key: value}, mode)
 }

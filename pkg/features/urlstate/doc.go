@@ -7,9 +7,11 @@
 //	// Use vango.URLParam for URL query state
 //	search := vango.URLParam(ctx, "search", "")
 //
-// This package may be completed for hash-based routing in future versions.
-// The implementation is incomplete: URL reading and writing are not integrated
-// with the router/navigator system.
+// URLState integrates with the session's URL patch navigator (URL_PUSH / URL_REPLACE)
+// when called within a Vango render/handler context.
+//
+// HashState is experimental and uses a PatchDispatch event ("vango:hash") that the
+// thin client interprets as a history hash update.
 //
 // DO NOT USE IN PRODUCTION.
 package urlstate

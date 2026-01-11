@@ -60,3 +60,13 @@ func (n *Navigator) Navigate(params map[string]string, mode URLMode) {
 	}
 	n.queuePatch(patch)
 }
+
+// QueuePatch queues an arbitrary patch to be sent with the next render frame.
+// This is intended for experimental features that need client-side integration
+// without direct access to the session patch buffer.
+func (n *Navigator) QueuePatch(patch protocol.Patch) {
+	if n.queuePatch == nil {
+		return
+	}
+	n.queuePatch(patch)
+}

@@ -1,8 +1,13 @@
 package urlstate
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/vango-go/vango/pkg/protocol"
+	"github.com/vango-go/vango/pkg/urlparam"
+	"github.com/vango-go/vango/pkg/vango"
 )
 
 func TestUseURLState(t *testing.T) {
@@ -255,6 +260,119 @@ func TestURLStateMethodChaining(t *testing.T) {
 
 	if state == nil {
 		t.Fatal("Method chaining should work")
+	}
+}
+
+func TestURLState_InitialHydrationAndPatchQueueing(t *testing.T) {
+	owner := vango.NewOwner(nil)
+	initial := &urlparam.InitialURLState{Params: map[string]string{"q": "hello"}}
+
+	var patches []protocol.Patch
+	queue := func(p protocol.Patch) {
+		patches = append(patches, p)
+	}
+	navigator := urlparam.NewNavigator(queue)
+
+	var state *URLState[string]
+	vango.WithOwner(owner, func() {
+		vango.SetContext(urlparam.InitialParamsKey, initial)
+		vango.SetContext(urlparam.NavigatorKey, navigator)
+
+		owner.StartRender()
+		state = Use("q", "")
+		owner.EndRender()
+
+		if got := state.Get(); got != "hello" {
+			t.Fatalf("initial hydration: got %q, want %q", got, "hello")
+		}
+
+		state.Set("go")
+	})
+
+	if len(patches) != 1 {
+		t.Fatalf("expected 1 patch, got %d", len(patches))
+	}
+	if patches[0].Op != protocol.PatchURLPush {
+		t.Fatalf("expected PatchURLPush, got %v", patches[0].Op)
+	}
+	if patches[0].Params["q"] != "go" {
+		t.Fatalf("expected q=go, got %v", patches[0].Params["q"])
+	}
+}
+
+func TestURLState_ReplaceQueuesURLReplace(t *testing.T) {
+	owner := vango.NewOwner(nil)
+
+	var patches []protocol.Patch
+	queue := func(p protocol.Patch) {
+		patches = append(patches, p)
+	}
+	navigator := urlparam.NewNavigator(queue)
+
+	var state *URLState[string]
+	vango.WithOwner(owner, func() {
+		vango.SetContext(urlparam.NavigatorKey, navigator)
+
+		owner.StartRender()
+		state = Use("q", "")
+		owner.EndRender()
+
+		state.Replace("go")
+	})
+
+	if len(patches) != 1 {
+		t.Fatalf("expected 1 patch, got %d", len(patches))
+	}
+	if patches[0].Op != protocol.PatchURLReplace {
+		t.Fatalf("expected PatchURLReplace, got %v", patches[0].Op)
+	}
+	if patches[0].Params["q"] != "go" {
+		t.Fatalf("expected q=go, got %v", patches[0].Params["q"])
+	}
+}
+
+func TestHashState_QueuesHashDispatchPatch(t *testing.T) {
+	owner := vango.NewOwner(nil)
+
+	var patches []protocol.Patch
+	queue := func(p protocol.Patch) {
+		patches = append(patches, p)
+	}
+	navigator := urlparam.NewNavigator(queue)
+
+	var h *HashState
+	vango.WithOwner(owner, func() {
+		vango.SetContext(urlparam.NavigatorKey, navigator)
+
+		owner.StartRender()
+		h = UseHash("")
+		owner.EndRender()
+
+		h.Set("section")
+	})
+
+	if len(patches) != 1 {
+		t.Fatalf("expected 1 patch, got %d", len(patches))
+	}
+	if patches[0].Op != protocol.PatchDispatch {
+		t.Fatalf("expected PatchDispatch, got %v", patches[0].Op)
+	}
+	if patches[0].Key != "vango:hash" {
+		t.Fatalf("expected eventName vango:hash, got %q", patches[0].Key)
+	}
+
+	var payload struct {
+		Value   string `json:"value"`
+		Replace bool   `json:"replace"`
+	}
+	if err := json.Unmarshal([]byte(patches[0].Value), &payload); err != nil {
+		t.Fatalf("invalid hash payload JSON: %v", err)
+	}
+	if payload.Value != "section" {
+		t.Fatalf("expected value=section, got %q", payload.Value)
+	}
+	if payload.Replace {
+		t.Fatalf("expected replace=false, got true")
 	}
 }
 
