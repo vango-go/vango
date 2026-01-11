@@ -22,6 +22,11 @@
 //	└── api/
 //	    └── users.go       → GET/POST /api/users
 //
+// Note: Bracket notation is allowed in filenames (e.g. [id].go), but NOT
+// recommended for directory names (e.g. projects/[id]/index.go) because Go
+// import paths cannot contain '[' or ']'. For nested param routes, prefer the
+// Go-friendly directory segment: projects/id_/index.go.
+//
 // # Parameters
 //
 // Dynamic route segments are defined with brackets:

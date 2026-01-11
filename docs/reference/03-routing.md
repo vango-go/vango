@@ -23,6 +23,10 @@ Routes are discovered from `app/routes/` using these conventions:
 | `middleware.go` | (directory scope) | Middleware |
 | `api/health.go` | `/api/health` | API |
 
+**Go import-path constraint (Important):** Bracket notation is allowed in filenames (e.g. `projects/[id].go`) but should not be used for
+directory names (e.g. `projects/[id]/index.go`) because Go import paths cannot contain `[` or `]`. For nested parameter routes, use the
+Go-friendly directory segment form: `projects/id_/index.go` (or legacy `projects/_id_/index.go`).
+
 **Catch-all capture semantics (Normative):**
 
 Catch-all segments (`[...slug]` or `slug___`) capture the remainder of the path:

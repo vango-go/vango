@@ -98,6 +98,54 @@ func TestValidateRejectsInvalidGoFilenames(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidGoImportPathsFromRouteDirs(t *testing.T) {
+	routes := []ScannedRoute{
+		{
+			FilePath: "/myapp/app/routes/projects/[id]/index.go",
+			Path:     "/projects/:id",
+			HasPage:  true,
+		},
+	}
+
+	validator := NewValidator(routes)
+	err := validator.Validate()
+
+	if err == nil {
+		t.Fatal("Expected validation error for invalid Go import path")
+	}
+
+	multiErr, ok := err.(*MultiValidationError)
+	if !ok {
+		t.Fatalf("Expected MultiValidationError, got %T", err)
+	}
+
+	if len(multiErr.Errors) != 1 {
+		t.Fatalf("Expected 1 error, got %d", len(multiErr.Errors))
+	}
+
+	if multiErr.Errors[0].Type != ErrorInvalidGoImportPath {
+		t.Fatalf("Expected %s, got %s", ErrorInvalidGoImportPath, multiErr.Errors[0].Type)
+	}
+	if !strings.Contains(multiErr.Errors[0].Details, `rename to "id_"`) {
+		t.Fatalf("Expected rename suggestion in Details, got %q", multiErr.Errors[0].Details)
+	}
+}
+
+func TestValidateAllowsBracketFilenames(t *testing.T) {
+	routes := []ScannedRoute{
+		{
+			FilePath: "/myapp/app/routes/projects/[id].go",
+			Path:     "/projects/:id",
+			HasPage:  true,
+		},
+	}
+
+	validator := NewValidator(routes)
+	if err := validator.Validate(); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+}
+
 func TestValidateSkipsLayoutFiles(t *testing.T) {
 	// Layout and page at same path - not a conflict
 	routes := []ScannedRoute{

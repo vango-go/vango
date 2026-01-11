@@ -51,6 +51,10 @@ const (
 	// The Go toolchain ignores files whose basename starts with '_' or '.'.
 	ErrorInvalidGoFilename ValidationErrorType = "INVALID_GO_FILENAME"
 
+	// ErrorInvalidGoImportPath indicates a route directory name will produce an
+	// invalid Go import path in generated routes_gen.go (e.g. directories containing '[' or ']').
+	ErrorInvalidGoImportPath ValidationErrorType = "INVALID_GO_IMPORT_PATH"
+
 	// ErrorDuplicateRoute indicates multiple files resolve to the same URL pattern.
 	// Example: [id].go and id_.go both resolve to /:id
 	ErrorDuplicateRoute ValidationErrorType = "DUPLICATE_ROUTE"
@@ -105,6 +109,7 @@ func (v *Validator) Validate() error {
 	v.errors = nil
 
 	v.validateGoFileBasenames()
+	v.validateGoImportableRouteDirs()
 	v.validateDuplicateRoutes()
 	v.validateParamConstraints()
 	v.validateAPIAmbiguity()
@@ -143,6 +148,80 @@ func (v *Validator) validateGoFileBasenames() {
 			Details: details,
 		})
 	}
+}
+
+func (v *Validator) validateGoImportableRouteDirs() {
+	for _, route := range v.routes {
+		if route.FilePath == "" {
+			continue
+		}
+
+		dir := filepath.ToSlash(filepath.Dir(route.FilePath))
+		parts := strings.Split(dir, "/")
+
+		// Find ".../app/routes/..." and validate the directory segments under it.
+		routesIdx := -1
+		for i := 0; i+1 < len(parts); i++ {
+			if parts[i] == "app" && parts[i+1] == "routes" {
+				routesIdx = i + 2
+				break
+			}
+		}
+		if routesIdx == -1 {
+			continue
+		}
+
+		for _, seg := range parts[routesIdx:] {
+			if seg == "" {
+				continue
+			}
+			if !strings.ContainsAny(seg, "[]:") {
+				continue
+			}
+
+			details := fmt.Sprintf("route directory %q contains characters invalid in Go import paths", seg)
+			if suggestion := suggestGoFriendlyParamDir(seg); suggestion != "" {
+				details += fmt.Sprintf("; rename to %q", suggestion)
+			}
+			details += "; for nested param routes, prefer Go-friendly directories like id_/ or slug___/"
+
+			v.errors = append(v.errors, ValidationError{
+				Type:    ErrorInvalidGoImportPath,
+				Message: "Route directory will produce an invalid import path in routes_gen.go",
+				Path:    route.Path,
+				Files:   []string{route.FilePath},
+				Details: details,
+			})
+			break
+		}
+	}
+}
+
+func suggestGoFriendlyParamDir(seg string) string {
+	if !strings.HasPrefix(seg, "[") || !strings.HasSuffix(seg, "]") {
+		return ""
+	}
+
+	inner := seg[1 : len(seg)-1]
+	if strings.HasPrefix(inner, "...") {
+		name := inner[3:]
+		if idx := strings.Index(name, ":"); idx != -1 {
+			name = name[:idx]
+		}
+		if name == "" {
+			return ""
+		}
+		return name + "___"
+	}
+
+	name := inner
+	if idx := strings.Index(name, ":"); idx != -1 {
+		name = name[:idx]
+	}
+	if name == "" {
+		return ""
+	}
+	return name + "_"
 }
 
 // validateDuplicateRoutes checks for routes that resolve to the same URL pattern.
