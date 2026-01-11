@@ -7,6 +7,16 @@ func attr(key string, value any) Attr {
 	return Attr{Key: key, Value: value}
 }
 
+// boolAttr returns a boolean attribute.
+// If no value is provided, it's treated as true (attribute present).
+// If false is provided, it returns an empty Attr (attribute omitted/removed).
+func boolAttr(key string, enabled ...bool) Attr {
+	if len(enabled) == 0 || enabled[0] {
+		return attr(key, true)
+	}
+	return Attr{}
+}
+
 // Identity attributes
 
 // ID sets the id attribute.
@@ -97,7 +107,7 @@ func AccessKey(key string) Attr { return attr("accesskey", key) }
 // Visibility attributes
 
 // Hidden sets the hidden attribute.
-func Hidden() Attr { return attr("hidden", true) }
+func Hidden(hidden ...bool) Attr { return boolAttr("hidden", hidden...) }
 
 // TitleAttr sets the title attribute (named to avoid conflict with Title element).
 func TitleAttr(title string) Attr { return attr("title", title) }
@@ -159,26 +169,27 @@ func Placeholder(text string) Attr { return attr("placeholder", text) }
 
 // Form state attributes
 
-// Disabled sets the disabled attribute.
-func Disabled() Attr { return attr("disabled", true) }
+// Disabled sets/unsets the disabled boolean attribute.
+// Disabled() and Disabled(true) set it; Disabled(false) omits/removes it.
+func Disabled(disabled ...bool) Attr { return boolAttr("disabled", disabled...) }
 
 // Readonly sets the readonly attribute.
-func Readonly() Attr { return attr("readonly", true) }
+func Readonly(readonly ...bool) Attr { return boolAttr("readonly", readonly...) }
 
 // Required sets the required attribute.
-func Required() Attr { return attr("required", true) }
+func Required(required ...bool) Attr { return boolAttr("required", required...) }
 
 // Checked sets the checked attribute.
-func Checked() Attr { return attr("checked", true) }
+func Checked(checked ...bool) Attr { return boolAttr("checked", checked...) }
 
 // Selected sets the selected attribute.
-func Selected() Attr { return attr("selected", true) }
+func Selected(selected ...bool) Attr { return boolAttr("selected", selected...) }
 
 // Multiple sets the multiple attribute.
-func Multiple() Attr { return attr("multiple", true) }
+func Multiple(multiple ...bool) Attr { return boolAttr("multiple", multiple...) }
 
 // Autofocus sets the autofocus attribute.
-func Autofocus() Attr { return attr("autofocus", true) }
+func Autofocus(autofocus ...bool) Attr { return boolAttr("autofocus", autofocus...) }
 
 // Autocomplete sets the autocomplete attribute.
 func Autocomplete(value string) Attr { return attr("autocomplete", value) }
@@ -234,7 +245,7 @@ func Method(method string) Attr { return attr("method", method) }
 func Enctype(enctype string) Attr { return attr("enctype", enctype) }
 
 // Novalidate sets the novalidate attribute.
-func Novalidate() Attr { return attr("novalidate", true) }
+func Novalidate(novalidate ...bool) Attr { return boolAttr("novalidate", novalidate...) }
 
 // For sets the for attribute (for labels).
 func For(id string) Attr { return attr("for", id) }
@@ -271,16 +282,16 @@ func SizesAttr(sizes string) Attr { return attr("sizes", sizes) }
 // Video/Audio attributes
 
 // Controls sets the controls attribute.
-func Controls() Attr { return attr("controls", true) }
+func Controls(controls ...bool) Attr { return boolAttr("controls", controls...) }
 
 // Autoplay sets the autoplay attribute.
-func Autoplay() Attr { return attr("autoplay", true) }
+func Autoplay(autoplay ...bool) Attr { return boolAttr("autoplay", autoplay...) }
 
 // Loop sets the loop attribute.
-func Loop() Attr { return attr("loop", true) }
+func Loop(loop ...bool) Attr { return boolAttr("loop", loop...) }
 
 // Muted sets the muted attribute.
-func MutedAttr() Attr { return attr("muted", true) }
+func MutedAttr(muted ...bool) Attr { return boolAttr("muted", muted...) }
 
 // Preload sets the preload attribute.
 func Preload(mode string) Attr { return attr("preload", mode) }
@@ -289,7 +300,7 @@ func Preload(mode string) Attr { return attr("preload", mode) }
 func Poster(url string) Attr { return attr("poster", url) }
 
 // Playsinline sets the playsinline attribute.
-func Playsinline() Attr { return attr("playsinline", true) }
+func Playsinline(playsinline ...bool) Attr { return boolAttr("playsinline", playsinline...) }
 
 // Iframe attributes
 
@@ -300,7 +311,7 @@ func Sandbox(value string) Attr { return attr("sandbox", value) }
 func Allow(value string) Attr { return attr("allow", value) }
 
 // Allowfullscreen sets the allowfullscreen attribute.
-func Allowfullscreen() Attr { return attr("allowfullscreen", true) }
+func Allowfullscreen(allowfullscreen ...bool) Attr { return boolAttr("allowfullscreen", allowfullscreen...) }
 
 // Table attributes
 
@@ -373,13 +384,13 @@ func Classes(classes ...any) Attr {
 }
 
 // Open sets the open attribute (for details, dialog).
-func Open() Attr { return attr("open", true) }
+func Open(open ...bool) Attr { return boolAttr("open", open...) }
 
 // Defer_ sets the defer attribute for script elements.
-func Defer_() Attr { return attr("defer", true) }
+func Defer_(deferAttr ...bool) Attr { return boolAttr("defer", deferAttr...) }
 
 // Async sets the async attribute for script elements.
-func Async() Attr { return attr("async", true) }
+func Async(async ...bool) Attr { return boolAttr("async", async...) }
 
 // Crossorigin sets the crossorigin attribute.
 func Crossorigin(value string) Attr { return attr("crossorigin", value) }

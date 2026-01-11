@@ -240,6 +240,54 @@ func TestConditionalAttributes(t *testing.T) {
 	})
 }
 
+func TestBooleanAttributeHelpersOptionalBool(t *testing.T) {
+	tests := []struct {
+		name      string
+		attrTrue  Attr
+		attrFalse Attr
+		key       string
+	}{
+		{"Hidden", Hidden(true), Hidden(false), "hidden"},
+		{"Disabled", Disabled(true), Disabled(false), "disabled"},
+		{"Readonly", Readonly(true), Readonly(false), "readonly"},
+		{"Required", Required(true), Required(false), "required"},
+		{"Checked", Checked(true), Checked(false), "checked"},
+		{"Selected", Selected(true), Selected(false), "selected"},
+		{"Multiple", Multiple(true), Multiple(false), "multiple"},
+		{"Autofocus", Autofocus(true), Autofocus(false), "autofocus"},
+		{"Novalidate", Novalidate(true), Novalidate(false), "novalidate"},
+		{"Controls", Controls(true), Controls(false), "controls"},
+		{"Autoplay", Autoplay(true), Autoplay(false), "autoplay"},
+		{"Loop", Loop(true), Loop(false), "loop"},
+		{"MutedAttr", MutedAttr(true), MutedAttr(false), "muted"},
+		{"Playsinline", Playsinline(true), Playsinline(false), "playsinline"},
+		{"Allowfullscreen", Allowfullscreen(true), Allowfullscreen(false), "allowfullscreen"},
+		{"Open", Open(true), Open(false), "open"},
+		{"Defer_", Defer_(true), Defer_(false), "defer"},
+		{"Async", Async(true), Async(false), "async"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.attrTrue.Key != tt.key {
+				t.Errorf("true Key = %q, want %q", tt.attrTrue.Key, tt.key)
+			}
+			if tt.attrTrue.Value != true {
+				t.Errorf("true Value = %v, want true", tt.attrTrue.Value)
+			}
+			if !tt.attrFalse.IsEmpty() {
+				t.Errorf("false expected empty Attr, got Key=%q Value=%v", tt.attrFalse.Key, tt.attrFalse.Value)
+			}
+		})
+	}
+
+	t.Run("DefaultsToTrueWithNoArgs", func(t *testing.T) {
+		if a := Disabled(); a.Key != "disabled" || a.Value != true {
+			t.Errorf("Disabled() = %+v, want disabled=true", a)
+		}
+	})
+}
+
 func TestEmptyAttrIgnored(t *testing.T) {
 	node := Div(ClassIf(false, "hidden"), Class("visible"))
 	if node.Props["class"] != "visible" {

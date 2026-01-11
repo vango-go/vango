@@ -81,8 +81,8 @@ func TabIndex(index int) Attr {
 func AccessKey(key string) Attr {
 	return vdom.AccessKey(key)
 }
-func Hidden() Attr {
-	return vdom.Hidden()
+func Hidden(hidden ...bool) Attr {
+	return vdom.Hidden(hidden...)
 }
 func TitleAttr(title string) Attr {
 	return vdom.TitleAttr(title)
@@ -129,26 +129,26 @@ func Type(t string) Attr {
 func Placeholder(text string) Attr {
 	return vdom.Placeholder(text)
 }
-func Disabled() Attr {
-	return vdom.Disabled()
+func Disabled(disabled ...bool) Attr {
+	return vdom.Disabled(disabled...)
 }
-func Readonly() Attr {
-	return vdom.Readonly()
+func Readonly(readonly ...bool) Attr {
+	return vdom.Readonly(readonly...)
 }
-func Required() Attr {
-	return vdom.Required()
+func Required(required ...bool) Attr {
+	return vdom.Required(required...)
 }
-func Checked() Attr {
-	return vdom.Checked()
+func Checked(checked ...bool) Attr {
+	return vdom.Checked(checked...)
 }
-func Selected() Attr {
-	return vdom.Selected()
+func Selected(selected ...bool) Attr {
+	return vdom.Selected(selected...)
 }
-func Multiple() Attr {
-	return vdom.Multiple()
+func Multiple(multiple ...bool) Attr {
+	return vdom.Multiple(multiple...)
 }
-func Autofocus() Attr {
-	return vdom.Autofocus()
+func Autofocus(autofocus ...bool) Attr {
+	return vdom.Autofocus(autofocus...)
 }
 func Autocomplete(value string) Attr {
 	return vdom.Autocomplete(value)
@@ -195,8 +195,8 @@ func Method(method string) Attr {
 func Enctype(enctype string) Attr {
 	return vdom.Enctype(enctype)
 }
-func Novalidate() Attr {
-	return vdom.Novalidate()
+func Novalidate(novalidate ...bool) Attr {
+	return vdom.Novalidate(novalidate...)
 }
 func For(id string) Attr {
 	return vdom.For(id)
@@ -228,17 +228,17 @@ func Srcset(srcset string) Attr {
 func SizesAttr(sizes string) Attr {
 	return vdom.SizesAttr(sizes)
 }
-func Controls() Attr {
-	return vdom.Controls()
+func Controls(controls ...bool) Attr {
+	return vdom.Controls(controls...)
 }
-func Autoplay() Attr {
-	return vdom.Autoplay()
+func Autoplay(autoplay ...bool) Attr {
+	return vdom.Autoplay(autoplay...)
 }
-func Loop() Attr {
-	return vdom.Loop()
+func Loop(loop ...bool) Attr {
+	return vdom.Loop(loop...)
 }
-func MutedAttr() Attr {
-	return vdom.MutedAttr()
+func MutedAttr(muted ...bool) Attr {
+	return vdom.MutedAttr(muted...)
 }
 func Preload(mode string) Attr {
 	return vdom.Preload(mode)
@@ -246,8 +246,8 @@ func Preload(mode string) Attr {
 func Poster(url string) Attr {
 	return vdom.Poster(url)
 }
-func Playsinline() Attr {
-	return vdom.Playsinline()
+func Playsinline(playsinline ...bool) Attr {
+	return vdom.Playsinline(playsinline...)
 }
 func Sandbox(value string) Attr {
 	return vdom.Sandbox(value)
@@ -255,8 +255,8 @@ func Sandbox(value string) Attr {
 func Allow(value string) Attr {
 	return vdom.Allow(value)
 }
-func Allowfullscreen() Attr {
-	return vdom.Allowfullscreen()
+func Allowfullscreen(allowfullscreen ...bool) Attr {
+	return vdom.Allowfullscreen(allowfullscreen...)
 }
 func Colspan(n int) Attr {
 	return vdom.Colspan(n)
@@ -288,14 +288,14 @@ func AttrIf(condition bool, a Attr) Attr {
 func Classes(classes ...any) Attr {
 	return vdom.Classes(classes...)
 }
-func Open() Attr {
-	return vdom.Open()
+func Open(open ...bool) Attr {
+	return vdom.Open(open...)
 }
-func Defer_() Attr {
-	return vdom.Defer_()
+func Defer_(deferAttr ...bool) Attr {
+	return vdom.Defer_(deferAttr...)
 }
-func Async() Attr {
-	return vdom.Async()
+func Async(async ...bool) Attr {
+	return vdom.Async(async...)
 }
 func Crossorigin(value string) Attr {
 	return vdom.Crossorigin(value)
