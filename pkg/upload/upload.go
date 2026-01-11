@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -99,8 +100,11 @@ func HandlerWithConfig(store Store, config *Config) http.Handler {
 
 		// Parse multipart form (32MB max in memory, but body already limited)
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			// Check if it was a size limit error
-			if err.Error() == "http: request body too large" {
+			// Check if it was a size limit error (MaxBytesReader can be wrapped).
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) ||
+				errors.Is(err, multipart.ErrMessageTooLarge) ||
+				strings.Contains(err.Error(), "http: request body too large") {
 				http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
 				return
 			}

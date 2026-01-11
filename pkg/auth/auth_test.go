@@ -62,6 +62,30 @@ func TestGet_WrongType(t *testing.T) {
 	}
 }
 
+func TestGet_DebugMode_TypeMismatch_Interface(t *testing.T) {
+	orig := server.DebugMode
+	server.DebugMode = true
+	t.Cleanup(func() { server.DebugMode = orig })
+
+	session := server.NewMockSession()
+	session.Set(auth.SessionKey, 123) // does not implement io.Reader
+	ctx := server.NewTestContext(session)
+
+	_, ok := auth.Get[interface{ Read([]byte) (int, error) }](ctx)
+	if ok {
+		t.Fatal("expected type mismatch to return false")
+	}
+}
+
+func TestGet_NilSession(t *testing.T) {
+	ctx := server.NewTestContext(nil)
+
+	_, ok := auth.Get[*TestUser](ctx)
+	if ok {
+		t.Fatal("expected unauthenticated with nil session")
+	}
+}
+
 func TestRequire_Authenticated(t *testing.T) {
 	session := server.NewMockSession()
 	auth.Set(session, &TestUser{ID: "456"})
@@ -129,6 +153,18 @@ func TestMustGet_Panics(t *testing.T) {
 	}()
 
 	_ = auth.MustGet[*TestUser](ctx)
+}
+
+func TestMustGet_Authenticated(t *testing.T) {
+	session := server.NewMockSession()
+	auth.Set(session, &TestUser{ID: "must"})
+
+	ctx := server.NewTestContext(session)
+
+	user := auth.MustGet[*TestUser](ctx)
+	if user.ID != "must" {
+		t.Errorf("expected ID must, got %s", user.ID)
+	}
 }
 
 func TestValueTypeVsPointerType(t *testing.T) {

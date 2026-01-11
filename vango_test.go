@@ -167,7 +167,7 @@ func TestURLParamOptionsExist(t *testing.T) {
 	opt = Replace
 	_ = opt
 
-	opt = Debounce(100 * time.Millisecond)
+	opt = URLDebounce(100 * time.Millisecond)
 	_ = opt
 
 	opt = Encoding(URLEncodingFlat)

@@ -1,5 +1,7 @@
 package templates
 
+import _ "embed"
+
 func init() {
 	Register(&Template{
 		Name:        "standard",
@@ -350,11 +352,11 @@ body {
 `,
 			},
 
-			// public/favicon.ico - V logo icon (30x30)
-			{
-				Path:   "public/favicon.ico",
-				Binary: faviconICO,
-			},
+				// public/favicon.ico - Vango icon (multi-size ICO)
+				{
+					Path:   "public/favicon.ico",
+					Binary: faviconICO,
+				},
 
 			// .gitignore
 			{
@@ -407,8 +409,15 @@ public/styles.css.map
 	})
 }
 
-// faviconICO is a V logo icon (30x30 pixels, 32-bit RGBA).
-var faviconICO = []byte{
+// faviconICO is written to `public/favicon.ico` when scaffolding a new app with the standard template.
+//
+// It contains multiple PNG-backed icon sizes for crisp rendering across platforms.
+//
+//go:embed assets/favicon.ico
+var faviconICO []byte
+
+// legacyFaviconICO is the previous single-size icon (kept to avoid losing history).
+var legacyFaviconICO = []byte{
 	0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x1e, 0x20, 0x00, 0x00, 0x01, 0x00,
 	0x20, 0x00, 0xa8, 0x0f, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x28, 0x00,
 	0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x01, 0x00,

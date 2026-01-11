@@ -9,7 +9,7 @@
 //	ctx := vango.UseCtx()
 //	count := vango.NewSignal(0)
 //	form := vango.UseForm(MyFormData{})
-//	search := vango.URLParam("q", "", vango.Replace, vango.Debounce(300*time.Millisecond))
+//	search := vango.URLParam("q", "", vango.Replace, vango.URLDebounce(300*time.Millisecond))
 package vango
 
 import (
@@ -18,6 +18,7 @@ import (
 
 	"github.com/vango-go/vango/pkg/assets"
 	"github.com/vango-go/vango/pkg/features/form"
+	"github.com/vango-go/vango/pkg/features/hooks"
 	"github.com/vango-go/vango/pkg/server"
 	"github.com/vango-go/vango/pkg/urlparam"
 	corevango "github.com/vango-go/vango/pkg/vango"
@@ -176,6 +177,133 @@ var Transient = corevango.Transient
 var PersistKey = corevango.PersistKey
 
 // =============================================================================
+// Events (re-export from pkg/vango)
+// =============================================================================
+
+type MouseEvent = corevango.MouseEvent
+type KeyboardEvent = corevango.KeyboardEvent
+type InputEvent = corevango.InputEvent
+type WheelEvent = corevango.WheelEvent
+type DragEvent = corevango.DragEvent
+type DropEvent = corevango.DropEvent
+type Touch = corevango.Touch
+type TouchEvent = corevango.TouchEvent
+type AnimationEvent = corevango.AnimationEvent
+type TransitionEvent = corevango.TransitionEvent
+type ScrollEvent = corevango.ScrollEvent
+type ResizeEvent = corevango.ResizeEvent
+type FormData = corevango.FormData
+type HookEvent = corevango.HookEvent
+type NavigateEvent = corevango.NavigateEvent
+
+func NewFormData(values map[string][]string) FormData { return corevango.NewFormData(values) }
+func NewFormDataFromSingle(values map[string]string) FormData {
+	return corevango.NewFormDataFromSingle(values)
+}
+
+// =============================================================================
+// Key constants (re-export from pkg/vango)
+// =============================================================================
+
+const (
+	KeyEnter     = corevango.KeyEnter
+	KeyEscape    = corevango.KeyEscape
+	KeySpace     = corevango.KeySpace
+	KeyTab       = corevango.KeyTab
+	KeyBackspace = corevango.KeyBackspace
+	KeyDelete    = corevango.KeyDelete
+
+	KeyArrowUp    = corevango.KeyArrowUp
+	KeyArrowDown  = corevango.KeyArrowDown
+	KeyArrowLeft  = corevango.KeyArrowLeft
+	KeyArrowRight = corevango.KeyArrowRight
+
+	KeyHome     = corevango.KeyHome
+	KeyEnd      = corevango.KeyEnd
+	KeyPageUp   = corevango.KeyPageUp
+	KeyPageDown = corevango.KeyPageDown
+
+	KeyF1  = corevango.KeyF1
+	KeyF2  = corevango.KeyF2
+	KeyF3  = corevango.KeyF3
+	KeyF4  = corevango.KeyF4
+	KeyF5  = corevango.KeyF5
+	KeyF6  = corevango.KeyF6
+	KeyF7  = corevango.KeyF7
+	KeyF8  = corevango.KeyF8
+	KeyF9  = corevango.KeyF9
+	KeyF10 = corevango.KeyF10
+	KeyF11 = corevango.KeyF11
+	KeyF12 = corevango.KeyF12
+
+	KeyControl = corevango.KeyControl
+	KeyShift   = corevango.KeyShift
+	KeyAlt     = corevango.KeyAlt
+	KeyMeta    = corevango.KeyMeta
+
+	KeyInsert      = corevango.KeyInsert
+	KeyPrintScreen = corevango.KeyPrintScreen
+	KeyScrollLock  = corevango.KeyScrollLock
+	KeyPause       = corevango.KeyPause
+	KeyCapsLock    = corevango.KeyCapsLock
+	KeyNumLock     = corevango.KeyNumLock
+	KeyContextMenu = corevango.KeyContextMenu
+)
+
+// =============================================================================
+// Event modifiers (re-export from pkg/vango)
+// =============================================================================
+
+type ModifiedHandler = corevango.ModifiedHandler
+type KeyMod = corevango.KeyMod
+
+const (
+	Ctrl  = corevango.Ctrl
+	Shift = corevango.Shift
+	Alt   = corevango.Alt
+	Meta  = corevango.Meta
+)
+
+func PreventDefault(handler any) ModifiedHandler  { return corevango.PreventDefault(handler) }
+func StopPropagation(handler any) ModifiedHandler { return corevango.StopPropagation(handler) }
+func Self(handler any) ModifiedHandler            { return corevango.Self(handler) }
+func Once(handler any) ModifiedHandler            { return corevango.Once(handler) }
+func Passive(handler any) ModifiedHandler         { return corevango.Passive(handler) }
+func Capture(handler any) ModifiedHandler         { return corevango.Capture(handler) }
+
+func Debounce(duration time.Duration, handler any) ModifiedHandler {
+	return corevango.Debounce(duration, handler)
+}
+
+func Throttle(duration time.Duration, handler any) ModifiedHandler {
+	return corevango.Throttle(duration, handler)
+}
+
+func Hotkey(key string, handler any) ModifiedHandler { return corevango.Hotkey(key, handler) }
+func Keys(keys []string, handler any) ModifiedHandler { return corevango.Keys(keys, handler) }
+
+func KeyWithModifiers(key string, mods KeyMod, handler any) ModifiedHandler {
+	return corevango.KeyWithModifiers(key, mods, handler)
+}
+
+// =============================================================================
+// Hooks (re-export from pkg/features/hooks, spec-aligned types)
+// =============================================================================
+
+func Hook(name string, config any) vdom.Attr { return hooks.Hook(name, config) }
+
+// OnEvent attaches a hook event handler to an element.
+// This is spec-aligned: the handler receives `vango.HookEvent`.
+func OnEvent(name string, handler func(HookEvent)) vdom.Attr {
+	wrapped := func(e HookEvent) {
+		if e.Name == name {
+			handler(e)
+		}
+	}
+	return vdom.Attr{Key: "onhook", Value: wrapped}
+}
+
+// =============================================================================
 // Shared & Global Signals (re-export from pkg/vango)
 // =============================================================================
 
@@ -223,6 +351,29 @@ func NewGlobalSignal[T any](initial T, opts ...SignalOption) *GlobalSignal[T] {
 // GlobalSignal is an application-wide signal shared across all sessions.
 // It embeds Signal[T] and provides direct access to all Signal methods.
 type GlobalSignal[T any] = corevango.GlobalSignal[T]
+
+// =============================================================================
+// Shared & Global Memos (re-export from pkg/vango)
+// =============================================================================
+
+// NewSharedMemo creates a session-scoped memo definition.
+// Each user session gets its own independent Memo[T] instance.
+func NewSharedMemo[T any](compute func() T) *SharedMemoDef[T] {
+	return corevango.NewSharedMemo(compute)
+}
+
+// SharedMemoDef is a session-scoped memo definition.
+// It proxies Memo[T] reads to the session's instance.
+type SharedMemoDef[T any] = corevango.SharedMemoDef[T]
+
+// NewGlobalMemo creates an application-wide memo shared across all sessions.
+func NewGlobalMemo[T any](compute func() T) *GlobalMemo[T] {
+	return corevango.NewGlobalMemo(compute)
+}
+
+// GlobalMemo is an application-wide memo shared across all sessions.
+// It embeds Memo[T] and provides direct access to Memo methods.
+type GlobalMemo[T any] = corevango.GlobalMemo[T]
 
 // =============================================================================
 // Effect helpers (re-export from pkg/vango)
@@ -334,7 +485,7 @@ var GetContext = corevango.GetContext
 //	query := vango.URLParam("q", "")
 //
 //	// With options
-//	search := vango.URLParam("q", "", vango.Replace, vango.Debounce(300*time.Millisecond))
+//	search := vango.URLParam("q", "", vango.Replace, vango.URLDebounce(300*time.Millisecond))
 //
 //	// Struct param with flat encoding
 //	type Filters struct {
@@ -363,8 +514,8 @@ var (
 //
 // Example:
 //
-//	search := vango.URLParam("q", "", vango.Replace, vango.Debounce(300*time.Millisecond))
-func Debounce(d time.Duration) URLParamOption {
+//	search := vango.URLParam("q", "", vango.Replace, vango.URLDebounce(300*time.Millisecond))
+func URLDebounce(d time.Duration) URLParamOption {
 	return urlparam.Debounce(d)
 }
 
