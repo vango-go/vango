@@ -242,8 +242,8 @@ type Ctx interface {
 	// The context includes any trace spans injected by middleware (e.g., OpenTelemetry).
 	StdContext() context.Context
 
-	// WithStdContext returns a new Ctx with an updated standard context.
-	// Used by middleware to inject trace spans.
+	// WithStdContext updates the standard context used by StdContext().
+	// This is used by middleware to inject trace spans for downstream calls.
 	//
 	// This is typically called by observability middleware:
 	//     spanCtx, span := tracer.Start(ctx.StdContext(), "operation")
@@ -764,12 +764,11 @@ func (c *ctx) StdContext() context.Context {
 	return context.Background()
 }
 
-// WithStdContext returns a new Ctx with an updated standard context.
+// WithStdContext updates the standard context used by StdContext().
 // Used by middleware to inject trace spans.
 func (c *ctx) WithStdContext(stdCtx context.Context) Ctx {
-	clone := *c
-	clone.stdCtx = stdCtx
-	return &clone
+	c.stdCtx = stdCtx
+	return c
 }
 
 // =============================================================================

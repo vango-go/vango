@@ -339,14 +339,12 @@ func TestCtxWithStdContext(t *testing.T) {
 	customCtx := context.WithValue(context.Background(), "key", "value")
 	c2 := c.WithStdContext(customCtx)
 
-	// Original unchanged
-	if c.StdContext().Value("key") != nil {
-		t.Error("Original context should be unchanged")
-	}
-
-	// New context has value
+	// Context has value
 	if c2.StdContext().Value("key") != "value" {
-		t.Error("New context should have value")
+		t.Error("StdContext should have value")
+	}
+	if c.StdContext().Value("key") != "value" {
+		t.Error("StdContext should be updated on ctx")
 	}
 }
 

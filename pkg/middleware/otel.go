@@ -190,8 +190,8 @@ func OpenTelemetry(opts ...OTelOption) router.Middleware {
 		// via ctx.Value(spanContextKey{}) or middleware.SpanFromContext(ctx)
 		ctx.SetValue(spanContextKey{}, spanCtx)
 
-		// Also store the wrapped context for StdContext() callers
-		_ = ctx.WithStdContext(spanCtx) // Used for documentation - actual injection via SetValue
+		// Inject trace context for StdContext() callers
+		ctx.WithStdContext(spanCtx)
 
 		// Execute the handler
 		err := next()
