@@ -1,8 +1,11 @@
 package vango
 
 import (
+	"bytes"
 	"encoding"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -61,6 +64,144 @@ type RouteMiddleware = router.Middleware
 // Handler Wrappers
 // =============================================================================
 
+type apiRawBody struct {
+	Bytes                 []byte
+	ContentType           string
+	StrictJSONContentType bool
+}
+
+func isJSONContentType(contentType string) bool {
+	if contentType == "" {
+		return false
+	}
+	if idx := strings.Index(contentType, ";"); idx != -1 {
+		contentType = contentType[:idx]
+	}
+	contentType = strings.TrimSpace(strings.ToLower(contentType))
+	return contentType == "application/json" || strings.HasSuffix(contentType, "+json")
+}
+
+func decodeAPIRequestBody(raw any, targetType reflect.Type) (reflect.Value, error) {
+	if targetType == nil {
+		return reflect.Value{}, &HTTPError{
+			Code:    http.StatusInternalServerError,
+			Message: "invalid API handler: missing body type",
+		}
+	}
+
+	valueOrZero := func(v any, t reflect.Type) reflect.Value {
+		if v == nil {
+			return reflect.Zero(t)
+		}
+		rv := reflect.ValueOf(v)
+		if !rv.IsValid() {
+			return reflect.Zero(t)
+		}
+		if rv.Type().AssignableTo(t) {
+			return rv
+		}
+		if rv.Type().ConvertibleTo(t) {
+			return rv.Convert(t)
+		}
+		return reflect.Zero(t)
+	}
+
+	// Fast path: raw already matches (or can be converted to) the target type.
+	if raw != nil {
+		rv := reflect.ValueOf(raw)
+		if rv.IsValid() {
+			if rv.Type().AssignableTo(targetType) {
+				return rv, nil
+			}
+			if rv.Type().ConvertibleTo(targetType) {
+				return rv.Convert(targetType), nil
+			}
+		}
+	}
+
+	var (
+		bodyBytes    []byte
+		contentType  string
+		strictCTJSON bool
+	)
+	switch v := raw.(type) {
+	case apiRawBody:
+		bodyBytes = v.Bytes
+		contentType = v.ContentType
+		strictCTJSON = v.StrictJSONContentType
+	case *apiRawBody:
+		if v != nil {
+			bodyBytes = v.Bytes
+			contentType = v.ContentType
+			strictCTJSON = v.StrictJSONContentType
+		}
+	case []byte:
+		bodyBytes = v
+	case json.RawMessage:
+		bodyBytes = []byte(v)
+	case string:
+		bodyBytes = []byte(v)
+	case nil:
+		// keep zero values
+	default:
+		// Unknown input shape - treat as absent.
+	}
+
+	// Pass-through types.
+	if targetType.Kind() == reflect.Slice && targetType.Elem().Kind() == reflect.Uint8 {
+		return valueOrZero(bodyBytes, targetType), nil
+	}
+	if targetType.Kind() == reflect.String {
+		return valueOrZero(string(bodyBytes), targetType), nil
+	}
+
+	trimmed := bytes.TrimSpace(bodyBytes)
+	if len(trimmed) == 0 {
+		if targetType.Kind() == reflect.Pointer {
+			return reflect.Zero(targetType), nil
+		}
+		return reflect.Value{}, &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: "missing request body",
+		}
+	}
+
+	if (strictCTJSON || contentType != "") && !isJSONContentType(contentType) {
+		return reflect.Value{}, &HTTPError{
+			Code:    http.StatusUnsupportedMediaType,
+			Message: "unsupported content type",
+		}
+	}
+
+	// Decode JSON into the handler's declared body type.
+	if targetType.Kind() == reflect.Pointer {
+		// Allow explicit JSON null to map to nil.
+		if bytes.Equal(trimmed, []byte("null")) {
+			return reflect.Zero(targetType), nil
+		}
+
+		dst := reflect.New(targetType.Elem())
+		if err := json.Unmarshal(trimmed, dst.Interface()); err != nil {
+			return reflect.Value{}, &HTTPError{
+				Code:    http.StatusBadRequest,
+				Message: "invalid JSON body",
+				Err:     err,
+			}
+		}
+		return dst, nil
+	}
+
+	dst := reflect.New(targetType)
+	if err := json.Unmarshal(trimmed, dst.Interface()); err != nil {
+		return reflect.Value{}, &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: "invalid JSON body",
+			Err:     err,
+		}
+	}
+	return dst.Elem(), nil
+}
+
 // wrapPageHandler converts a user PageHandler to the internal router.PageHandler.
 // It inspects the handler signature and creates an appropriate wrapper.
 func wrapPageHandler(handler any) router.PageHandler {
@@ -98,50 +239,50 @@ func wrapPageHandler(handler any) router.PageHandler {
 	}
 
 	switch numIn {
-		case 1:
-			// func(ctx Ctx) *VNode - static page
-			// Type assert to the concrete function type
-			fn, ok := handler.(func(Ctx) *VNode)
-			if !ok {
-				// Try reflection fallback for interface type
-				return func(ctx server.Ctx, params any) vdom.Component {
-					return vdom.Func(func() *vdom.VNode {
-						results := handlerVal.Call([]reflect.Value{valueOrZero(ctx, handlerType.In(0))})
-						return results[0].Interface().(*VNode)
-					})
-				}
-			}
+	case 1:
+		// func(ctx Ctx) *VNode - static page
+		// Type assert to the concrete function type
+		fn, ok := handler.(func(Ctx) *VNode)
+		if !ok {
+			// Try reflection fallback for interface type
 			return func(ctx server.Ctx, params any) vdom.Component {
 				return vdom.Func(func() *vdom.VNode {
-					return fn(ctx)
-				})
-			}
-
-		case 2:
-			// func(ctx Ctx, p P) *VNode - dynamic page with params
-			paramsType := handlerType.In(1)
-			decoder := buildParamDecoder(paramsType)
-
-			return func(ctx server.Ctx, rawParams any) vdom.Component {
-				// Decode params from map[string]string to typed struct
-				paramsMap, ok := rawParams.(map[string]string)
-				if !ok {
-					paramsMap = make(map[string]string)
-				}
-				paramsVal := decoder(paramsMap) // stable across renders
-
-				return vdom.Func(func() *vdom.VNode {
-					// Call handler with decoded params during render so signals track properly.
-					results := handlerVal.Call([]reflect.Value{
-						valueOrZero(ctx, handlerType.In(0)),
-						valueOrZero(paramsVal.Interface(), handlerType.In(1)),
-					})
+					results := handlerVal.Call([]reflect.Value{valueOrZero(ctx, handlerType.In(0))})
 					return results[0].Interface().(*VNode)
 				})
 			}
+		}
+		return func(ctx server.Ctx, params any) vdom.Component {
+			return vdom.Func(func() *vdom.VNode {
+				return fn(ctx)
+			})
+		}
 
-		default:
-			panic(fmt.Sprintf("vango: page handler has invalid signature (expected 1 or 2 args, got %d)", numIn))
+	case 2:
+		// func(ctx Ctx, p P) *VNode - dynamic page with params
+		paramsType := handlerType.In(1)
+		decoder := buildParamDecoder(paramsType)
+
+		return func(ctx server.Ctx, rawParams any) vdom.Component {
+			// Decode params from map[string]string to typed struct
+			paramsMap, ok := rawParams.(map[string]string)
+			if !ok {
+				paramsMap = make(map[string]string)
+			}
+			paramsVal := decoder(paramsMap) // stable across renders
+
+			return vdom.Func(func() *vdom.VNode {
+				// Call handler with decoded params during render so signals track properly.
+				results := handlerVal.Call([]reflect.Value{
+					valueOrZero(ctx, handlerType.In(0)),
+					valueOrZero(paramsVal.Interface(), handlerType.In(1)),
+				})
+				return results[0].Interface().(*VNode)
+			})
+		}
+
+	default:
+		panic(fmt.Sprintf("vango: page handler has invalid signature (expected 1 or 2 args, got %d)", numIn))
 	}
 }
 
@@ -203,9 +344,9 @@ func wrapAPIHandler(handler any) router.APIHandler {
 		} else {
 			// Body struct
 			return func(ctx server.Ctx, params any, rawBody any) (any, error) {
-				bodyVal := reflect.ValueOf(rawBody)
-				if !bodyVal.IsValid() {
-					bodyVal = reflect.Zero(argType)
+				bodyVal, err := decodeAPIRequestBody(rawBody, argType)
+				if err != nil {
+					return nil, err
 				}
 				results := handlerVal.Call([]reflect.Value{
 					reflect.ValueOf(ctx),
@@ -227,9 +368,9 @@ func wrapAPIHandler(handler any) router.APIHandler {
 			}
 			paramsVal := decoder(paramsMap)
 
-			bodyVal := reflect.ValueOf(rawBody)
-			if !bodyVal.IsValid() {
-				bodyVal = reflect.Zero(handlerType.In(2))
+			bodyVal, err := decodeAPIRequestBody(rawBody, handlerType.In(2))
+			if err != nil {
+				return nil, err
 			}
 
 			results := handlerVal.Call([]reflect.Value{

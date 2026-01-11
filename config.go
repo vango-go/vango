@@ -23,6 +23,9 @@ type Config struct {
 	// Static configures static file serving.
 	Static StaticConfig
 
+	// API configures JSON API routes (app.API).
+	API APIConfig
+
 	// Security configures security features (CSRF, origin checking, cookies).
 	Security SecurityConfig
 
@@ -101,6 +104,23 @@ type StaticConfig struct {
 	Headers map[string]string
 }
 
+// APIConfig configures JSON API routes registered via app.API.
+type APIConfig struct {
+	// MaxBodyBytes is the maximum number of bytes read from the HTTP request body
+	// when an API handler declares a typed body parameter.
+	//
+	// Default: 1 MiB.
+	MaxBodyBytes int64
+
+	// RequireJSONContentType enforces that requests with a non-empty body specify a
+	// JSON Content-Type (application/json or application/*+json) when an API handler
+	// declares a structured (non-[]byte, non-string) body parameter.
+	//
+	// When false (default), missing Content-Type is accepted, but explicit non-JSON
+	// Content-Type is rejected.
+	RequireJSONContentType bool
+}
+
 // SecurityConfig configures security features.
 type SecurityConfig struct {
 	// CSRFSecret is the secret key for CSRF token generation.
@@ -170,6 +190,7 @@ func DefaultConfig() Config {
 	return Config{
 		Session: DefaultSessionConfig(),
 		Static:  DefaultStaticConfig(),
+		API:     DefaultAPIConfig(),
 		Security: SecurityConfig{
 			AllowSameOrigin: true,
 			CookieSecure:    true,
@@ -194,6 +215,14 @@ func DefaultStaticConfig() StaticConfig {
 	return StaticConfig{
 		Prefix:       "/",
 		CacheControl: CacheControlNone,
+	}
+}
+
+// DefaultAPIConfig returns an APIConfig with sensible defaults.
+func DefaultAPIConfig() APIConfig {
+	return APIConfig{
+		MaxBodyBytes:           1 << 20, // 1 MiB
+		RequireJSONContentType: false,
 	}
 }
 

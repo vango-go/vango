@@ -1,7 +1,10 @@
 package vango
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -52,6 +55,9 @@ func New(cfg Config) *App {
 	}
 	if cfg.Static.Prefix == "" {
 		cfg.Static.Prefix = "/"
+	}
+	if cfg.API.MaxBodyBytes == 0 {
+		cfg.API.MaxBodyBytes = DefaultAPIConfig().MaxBodyBytes
 	}
 
 	// Convert to internal server config
@@ -244,11 +250,21 @@ func (a *App) renderPage(w http.ResponseWriter, r *http.Request, match *router.M
 func (a *App) handleAPI(w http.ResponseWriter, r *http.Request, match *router.MatchResult) {
 	ctx := newSSRContext(w, r, match.Params, a.config, a.logger)
 
-	// TODO: Decode request body for POST/PUT
-	var body any
+	body := apiRawBody{
+		ContentType:           r.Header.Get("Content-Type"),
+		StrictJSONContentType: a.config.API.RequireJSONContentType,
+	}
 
 	var out any
 	ranFinal, mwErr := server.RunRouteMiddleware(ctx, match.GetMiddleware(), func() error {
+		if shouldReadAPIRequestBody(r) {
+			raw, err := readAPIRequestBody(w, r, a.config.API.MaxBodyBytes)
+			if err != nil {
+				return err
+			}
+			body.Bytes = raw
+		}
+
 		var err error
 		out, err = match.APIHandler(ctx, match.Params, body)
 		return err
@@ -262,8 +278,14 @@ func (a *App) handleAPI(w http.ResponseWriter, r *http.Request, match *router.Ma
 
 	if mwErr != nil {
 		ctx.applyTo(w)
+		if sc, ok := mwErr.(interface{ StatusCode() int }); ok {
+			ctx.status = sc.StatusCode()
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
+		if ctx.status == http.StatusOK {
+			ctx.status = http.StatusInternalServerError
+		}
+		w.WriteHeader(ctx.status)
 		json.NewEncoder(w).Encode(map[string]string{"error": mwErr.Error()})
 		return
 	}
@@ -279,9 +301,73 @@ func (a *App) handleAPI(w http.ResponseWriter, r *http.Request, match *router.Ma
 	}
 
 	ctx.applyTo(w)
+	if outWriter, ok := out.(interface {
+		Write(http.ResponseWriter) error
+	}); ok {
+		if err := outWriter.Write(w); err != nil {
+			a.logger.Error("API response write failed", "error", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if ctx.status == http.StatusNoContent {
+		w.WriteHeader(ctx.status)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(ctx.status)
 	json.NewEncoder(w).Encode(out)
+}
+
+func shouldReadAPIRequestBody(r *http.Request) bool {
+	if r == nil || r.Body == nil {
+		return false
+	}
+	if r.ContentLength > 0 {
+		return true
+	}
+	if r.Header.Get("Transfer-Encoding") != "" {
+		return true
+	}
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func readAPIRequestBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, error) {
+	if r == nil || r.Body == nil {
+		return nil, nil
+	}
+	if maxBytes <= 0 {
+		maxBytes = DefaultAPIConfig().MaxBodyBytes
+	}
+
+	limited := http.MaxBytesReader(w, r.Body, maxBytes)
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			return nil, &HTTPError{
+				Code:    http.StatusRequestEntityTooLarge,
+				Message: "request body too large",
+				Err:     err,
+			}
+		}
+		return nil, &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: "invalid request body",
+			Err:     err,
+		}
+	}
+
+	// Restore body for downstream consumers (middleware/handlers reading ctx.Request().Body).
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	return raw, nil
 }
 
 // Handler returns the App as an http.Handler.
@@ -362,11 +448,14 @@ func (a *App) Layout(path string, handler LayoutHandler) {
 
 // Middleware registers route middleware for a path.
 // Middleware runs before the page handler and can:
+//
 //   - Redirect (e.g., authentication checks)
+//
 //   - Add data to context
+//
 //   - Short-circuit the request
 //
-//	app.Middleware("/admin", authMiddleware)
+//     app.Middleware("/admin", authMiddleware)
 func (a *App) Middleware(path string, mw ...RouteMiddleware) {
 	a.router.Middleware(path, mw...)
 }

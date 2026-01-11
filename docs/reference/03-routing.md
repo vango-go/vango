@@ -344,6 +344,11 @@ func UsersPOST(ctx vango.Ctx, body CreateUserRequest) (User, error) {
 }
 ```
 
+**Request bodies (JSON):**
+- If an API handler declares a body parameter, Vango reads and JSON-decodes the HTTP request body into that type.
+- By default, missing `Content-Type` is accepted, but an explicit non-JSON `Content-Type` is rejected with `415 Unsupported Media Type`.
+- The default maximum body size is **1 MiB**; configure via `vango.Config{ API: vango.APIConfig{ MaxBodyBytes: ... } }`.
+
 **Handler name conventions:**
 - File exports `func GET(ctx)` → registered as-is
 - File exports `func HealthGET(ctx)` → registered as-is
