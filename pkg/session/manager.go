@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math/rand/v2"
 	"sync"
 	"time"
 )
@@ -32,6 +33,9 @@ type Manager struct {
 
 	// Logger
 	logger *slog.Logger
+
+	// Random source (for EvictionRandom); overrideable for tests.
+	randIntn func(n int) int
 
 	// Lifecycle
 	done    chan struct{}
@@ -150,6 +154,7 @@ func NewManager(store SessionStore, config ManagerConfig, logger *slog.Logger) *
 		config:        config,
 		store:         store,
 		logger:        logger.With("component", "session_manager"),
+		randIntn:      rand.IntN,
 		done:          make(chan struct{}),
 	}
 
@@ -220,13 +225,19 @@ func (m *Manager) OnDisconnect(sessionID string, serializedData []byte) {
 	sess.DisconnectedAt = now
 	sess.Data = serializedData
 
+	// Ensure the detached queue contains at most one entry per session.
+	if elem, ok := m.detachedIndex[sessionID]; ok {
+		m.detachedQueue.Remove(elem)
+		delete(m.detachedIndex, sessionID)
+	}
+
 	// Add to detached queue (front = most recently used)
 	elem := m.detachedQueue.PushFront(sessionID)
 	m.detachedIndex[sessionID] = elem
 
 	// Evict if over limit
 	for m.detachedQueue.Len() > m.config.MaxDetachedSessions {
-		m.evictOldestLocked()
+		m.evictOneLocked()
 	}
 
 	// Persist to store if available
@@ -368,21 +379,92 @@ func (m *Manager) removeSessionLocked(sessionID string) {
 		"remaining", len(m.sessions))
 }
 
-// evictOldestLocked evicts the oldest detached session (must be called with lock held).
-func (m *Manager) evictOldestLocked() {
-	back := m.detachedQueue.Back()
-	if back == nil {
+// evictOneLocked evicts one detached session according to the configured EvictionPolicy
+// (must be called with lock held).
+func (m *Manager) evictOneLocked() {
+	if m.detachedQueue.Len() == 0 {
 		return
 	}
 
-	sessionID := back.Value.(string)
+	var sessionID string
+
+	switch m.config.EvictionPolicy {
+	case EvictionLRU:
+		// Least recently used detached session is at the back.
+		if back := m.detachedQueue.Back(); back != nil {
+			sessionID = back.Value.(string)
+		}
+	case EvictionOldest:
+		// Oldest by creation time among detached sessions.
+		var oldestID string
+		var oldestTime time.Time
+		found := false
+
+		for e := m.detachedQueue.Front(); e != nil; e = e.Next() {
+			id := e.Value.(string)
+			sess := m.sessions[id]
+			if sess == nil {
+				continue
+			}
+			if !found || sess.CreatedAt.Before(oldestTime) {
+				found = true
+				oldestID = id
+				oldestTime = sess.CreatedAt
+			}
+		}
+
+		if found {
+			sessionID = oldestID
+		} else if back := m.detachedQueue.Back(); back != nil {
+			sessionID = back.Value.(string)
+		}
+	case EvictionRandom:
+		// Random detached session for speed; deterministic in tests via randIntn override.
+		n := m.detachedQueue.Len()
+		if n == 0 {
+			return
+		}
+
+		intn := m.randIntn
+		if intn == nil {
+			intn = rand.IntN
+		}
+
+		idx := intn(n)
+		if idx < 0 {
+			idx = 0
+		} else if idx >= n {
+			idx = n - 1
+		}
+
+		e := m.detachedQueue.Front()
+		for i := 0; i < idx && e != nil; i++ {
+			e = e.Next()
+		}
+		if e == nil {
+			e = m.detachedQueue.Back()
+		}
+		if e != nil {
+			sessionID = e.Value.(string)
+		}
+	default:
+		// Fail-safe: treat unknown values as LRU.
+		if back := m.detachedQueue.Back(); back != nil {
+			sessionID = back.Value.(string)
+		}
+	}
+
+	if sessionID == "" {
+		return
+	}
+
 	sess := m.sessions[sessionID]
 
-	// Persist before eviction if store is configured
+	// Persist before eviction if store is configured.
 	if m.store != nil && sess != nil && len(sess.Data) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		expiresAt := time.Now().Add(m.config.ResumeWindow)
-		m.store.Save(ctx, sessionID, sess.Data, expiresAt)
+		_ = m.store.Save(ctx, sessionID, sess.Data, expiresAt)
 		cancel()
 	}
 
@@ -390,6 +472,7 @@ func (m *Manager) evictOldestLocked() {
 
 	m.logger.Debug("evicted session",
 		"session_id", sessionID,
+		"policy", m.config.EvictionPolicy,
 		"reason", "detached_limit_exceeded")
 }
 
