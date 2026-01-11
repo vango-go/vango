@@ -8,3 +8,10 @@ import _ "embed"
 //go:embed vango.min.js
 var VangoMinJS []byte
 
+// VangoJS is the non-minified thin client JavaScript bundle.
+//go:embed vango.js
+var VangoJS []byte
+
+// VangoJSMap is the source map for VangoJS.
+//go:embed vango.js.map
+var VangoJSMap []byte

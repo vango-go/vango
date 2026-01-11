@@ -23,7 +23,7 @@
 //
 //	dist/
 //	├── server              # Go binary
-//	├── public/
+//	├── public/            # Or custom static dir from vango.json
 //	│   ├── vango.min.js   # Thin client
 //	│   ├── styles.css     # Compiled CSS
 //	│   └── assets/        # Static files with hashes

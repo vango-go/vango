@@ -15,6 +15,7 @@ import (
 
 	vangoerrors "github.com/vango-go/vango/internal/errors"
 	"github.com/vango-go/vango/internal/config"
+	"github.com/vango-go/vango/internal/tailwind"
 )
 
 func mustWriteFile(t *testing.T, path string, content []byte, perm os.FileMode) {
@@ -86,6 +87,68 @@ func writeConfigAt(t *testing.T, projectDir string, cfg *config.Config) {
 func writePrebuiltClient(t *testing.T, projectDir string, content []byte) {
 	t.Helper()
 	mustWriteFile(t, filepath.Join(projectDir, "client", "dist", "vango.min.js"), content, 0644)
+}
+
+func tailwindBinaryNameForHost() string {
+	name := "tailwindcss"
+	switch runtime.GOOS {
+	case "darwin":
+		if runtime.GOARCH == "arm64" {
+			return name + "-macos-arm64"
+		}
+		return name + "-macos-x64"
+	case "linux":
+		if runtime.GOARCH == "arm64" {
+			return name + "-linux-arm64"
+		}
+		return name + "-linux-x64"
+	case "windows":
+		return name + "-windows-x64.exe"
+	default:
+		return name + "-linux-x64"
+	}
+}
+
+func installFakeTailwindBinary(t *testing.T, goPath, homeDir string) string {
+	t.Helper()
+	binPath := filepath.Join(homeDir, ".vango", "bin", tailwind.Version, tailwindBinaryNameForHost())
+	if err := os.MkdirAll(filepath.Dir(binPath), 0755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(binPath), err)
+	}
+
+	buildTestTool(t, goPath, binPath, `
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+type capture struct {
+	Args []string `+"`json:\"args\"`"+`
+}
+
+func main() {
+	out := ""
+	for i := 0; i < len(os.Args)-1; i++ {
+		if os.Args[i] == "-o" {
+			out = os.Args[i+1]
+			break
+		}
+	}
+	if out != "" {
+		_ = os.MkdirAll(filepath.Dir(out), 0755)
+		_ = os.WriteFile(out, []byte(os.Getenv("TAILWIND_CONTENT")), 0644)
+	}
+	if p := os.Getenv("TAILWIND_CAPTURE"); p != "" {
+		b, _ := json.Marshal(capture{Args: os.Args})
+		_ = os.WriteFile(p, b, 0644)
+	}
+}
+`)
+
+	return binPath
 }
 
 func readManifestMap(t *testing.T, outputDir string) map[string]string {
@@ -305,13 +368,17 @@ func main() {
 		t.Fatal(err)
 	}
 
-	outPath, size, err := builder.bundleClient(context.Background(), publicDir)
+	key, rel, size, err := builder.bundleClient(context.Background(), publicDir)
 	if err != nil {
 		t.Fatalf("bundleClient: %v", err)
+	}
+	if key != "vango.min.js" {
+		t.Fatalf("key = %q, want %q", key, "vango.min.js")
 	}
 	if size != int64(len(content)) {
 		t.Fatalf("size = %d, want %d", size, len(content))
 	}
+	outPath := filepath.Join(publicDir, filepath.FromSlash(rel))
 	if filepath.Base(outPath) == "vango.min.js" {
 		t.Fatalf("expected hashed filename, got %q", outPath)
 	}
@@ -371,12 +438,13 @@ func main() { os.Exit(1) }
 		t.Fatal(err)
 	}
 
-	outPath, _, err := builder.bundleClient(context.Background(), publicDir)
+	_, rel, _, err := builder.bundleClient(context.Background(), publicDir)
 	if err != nil {
 		t.Fatalf("bundleClient: %v", err)
 	}
+	outPath := filepath.Join(publicDir, filepath.FromSlash(rel))
 
-	wantPrefix := "vango." + mustHashContentHex(prebuilt)[:8] + ".min.js"
+	wantPrefix := "vango.min." + mustHashContentHex(prebuilt)[:8] + ".js"
 	if filepath.Base(outPath) != wantPrefix {
 		t.Fatalf("output = %q, want %q", filepath.Base(outPath), wantPrefix)
 	}
@@ -461,10 +529,13 @@ func TestBuilder_Build_WithTailwind_UsesEsbuildAndFingerprintsCSS(t *testing.T) 
 	cfg := config.New()
 	cfg.Build.Output = "dist"
 	cfg.Tailwind.Enabled = true
+	cfg.Tailwind.Input = "app/styles/input.css"
+	cfg.Tailwind.Output = "public/styles.css"
 	writeConfigAt(t, projectDir, cfg)
 
 	mustWriteFile(t, filepath.Join(projectDir, "client", "src", "index.js"), []byte("console.log('src');\n"), 0644)
 	mustWriteFile(t, filepath.Join(projectDir, "tailwind.config.js"), []byte("export default {};\n"), 0644)
+	mustWriteFile(t, filepath.Join(projectDir, "app", "styles", "input.css"), []byte(`@import "tailwindcss";`+"\n"), 0644)
 
 	binDir := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
@@ -498,37 +569,18 @@ func main() {
 }
 `)
 
-	buildTestTool(t, goPath, toolPath(binDir, "npx"), `
-package main
-
-import (
-	"os"
-	"path/filepath"
-)
-
-func main() {
-	// Emulate "npx tailwindcss -i <in> -o <out> --minify [-c <config>]".
-	if len(os.Args) < 2 || os.Args[1] != "tailwindcss" {
-		os.Exit(1)
-	}
-	out := ""
-	for i := 0; i < len(os.Args)-1; i++ {
-		if os.Args[i] == "-o" {
-			out = os.Args[i+1]
-			break
-		}
-	}
-	if out == "" {
-		os.Exit(1)
-	}
-	_ = os.MkdirAll(filepath.Dir(out), 0755)
-	_ = os.WriteFile(out, []byte(os.Getenv("TAILWIND_CONTENT")), 0644)
-}
-`)
-
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+goDir)
 	t.Setenv("ESBUILD_CONTENT", string(esbuildContent))
 	t.Setenv("TAILWIND_CONTENT", string(tailwindContent))
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", homeDir)
+	}
+	capturePath := filepath.Join(t.TempDir(), "tailwind_capture.json")
+	t.Setenv("TAILWIND_CAPTURE", capturePath)
+	_ = installFakeTailwindBinary(t, goPath, homeDir)
 
 	builder := New(cfg, Options{Minify: true})
 	res, err := builder.Build(context.Background())
@@ -563,28 +615,50 @@ func main() {
 	if string(mustReadFile(t, cssPath)) != string(tailwindContent) {
 		t.Fatalf("fingerprinted CSS content mismatch")
 	}
+
+	var gotTW struct {
+		Args []string `json:"args"`
+	}
+	if err := json.Unmarshal(mustReadFile(t, capturePath), &gotTW); err != nil {
+		t.Fatalf("Unmarshal(tailwind capture): %v", err)
+	}
+	argsJoined := strings.Join(gotTW.Args, " ")
+	if !strings.Contains(argsJoined, "-c "+filepath.Join(projectDir, "tailwind.config.js")) {
+		t.Fatalf("expected -c tailwind.config.js in args; got %s", argsJoined)
+	}
 }
 
-func TestBuilder_Build_TailwindEnabledWithoutNPX_ReturnsE123(t *testing.T) {
+func TestBuilder_compileTailwind_MissingBinary_ReturnsE123(t *testing.T) {
 	goPath := systemGoPath(t)
-	goDir := filepath.Dir(goPath)
 
 	projectDir := t.TempDir()
-	writeMinimalGoModule(t, projectDir)
-
 	cfg := config.New()
-	cfg.Build.Output = "dist"
 	cfg.Tailwind.Enabled = true
+	cfg.Tailwind.Input = "app/styles/input.css"
+	cfg.Tailwind.Output = "public/styles.css"
 	writeConfigAt(t, projectDir, cfg)
 
-	prebuilt := []byte("console.log('prebuilt');\n")
-	writePrebuiltClient(t, projectDir, prebuilt)
+	mustWriteFile(t, filepath.Join(projectDir, "app", "styles", "input.css"), []byte(`@import "tailwindcss";`+"\n"), 0644)
 
-	// Only expose "go" to make sure Tailwind fails specifically due to missing "npx".
-	t.Setenv("PATH", goDir)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", homeDir)
+	}
+
+	publicDir := filepath.Join(t.TempDir(), "public")
+	if err := os.MkdirAll(publicDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Make sure we don't accidentally pick up a user-installed tailwind binary.
+	t.Setenv("PATH", filepath.Dir(goPath))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
 	builder := New(cfg, Options{})
-	_, err := builder.Build(context.Background())
+	_, _, _, err := builder.compileTailwind(ctx, publicDir)
 	if err == nil {
 		t.Fatal("expected error")
 	}

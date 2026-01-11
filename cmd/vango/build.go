@@ -107,7 +107,11 @@ func runBuild(output string, minify, sourceMaps bool, target string, clean bool)
 	fmt.Println("  Output:")
 	fmt.Printf("    %s/\n", cfg.Build.Output)
 	fmt.Printf("    ├── server          # Go binary\n")
-	fmt.Printf("    ├── public/\n")
+	staticDir := cfg.Static.Dir
+	if staticDir == "" {
+		staticDir = "public"
+	}
+	fmt.Printf("    ├── %s/\n", staticDir)
 	fmt.Printf("    │   ├── vango.min.js  (%s)\n", formatBytes(result.ClientSize))
 	if result.CSSSize > 0 {
 		fmt.Printf("    │   ├── styles.css    (%s)\n", formatBytes(result.CSSSize))
@@ -116,7 +120,7 @@ func runBuild(output string, minify, sourceMaps bool, target string, clean bool)
 	fmt.Printf("    └── manifest.json\n")
 	fmt.Println()
 	fmt.Println("  To run:")
-	fmt.Printf("    ./%s/server\n", cfg.Build.Output)
+	fmt.Printf("    cd %s && ./server\n", cfg.Build.Output)
 	fmt.Println()
 
 	return nil

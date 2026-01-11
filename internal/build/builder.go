@@ -14,8 +14,10 @@ import (
 	"strings"
 	"time"
 
+	clientdist "github.com/vango-go/vango/client/dist"
 	"github.com/vango-go/vango/internal/config"
 	"github.com/vango-go/vango/internal/errors"
+	"github.com/vango-go/vango/internal/tailwind"
 )
 
 // Result contains the build output.
@@ -105,7 +107,14 @@ func (b *Builder) Build(ctx context.Context) (*Result, error) {
 	}
 
 	outputDir := b.config.OutputPath()
-	publicDir := filepath.Join(outputDir, "public")
+	staticDir := b.config.Static.Dir
+	if staticDir == "" {
+		staticDir = "public"
+	}
+	if filepath.IsAbs(staticDir) {
+		staticDir = filepath.Base(staticDir)
+	}
+	publicDir := filepath.Join(outputDir, staticDir)
 
 	// Clean output directory
 	b.progress("Cleaning output directory...")
@@ -126,22 +135,22 @@ func (b *Builder) Build(ctx context.Context) (*Result, error) {
 
 	// Bundle thin client
 	b.progress("Bundling thin client...")
-	clientPath, size, err := b.bundleClient(ctx, publicDir)
+	clientKey, clientRel, size, err := b.bundleClient(ctx, publicDir)
 	if err != nil {
 		return nil, err
 	}
 	result.ClientSize = size
-	result.Manifest["vango.min.js"] = filepath.Base(clientPath)
+	result.Manifest[clientKey] = clientRel
 
 	// Compile Tailwind if enabled
 	if b.config.HasTailwind() {
 		b.progress("Compiling Tailwind CSS...")
-		cssPath, size, err := b.compileTailwind(ctx, publicDir)
+		cssKey, cssRel, size, err := b.compileTailwind(ctx, publicDir)
 		if err != nil {
 			return nil, err
 		}
 		result.CSSSize = size
-		result.Manifest["styles.css"] = filepath.Base(cssPath)
+		result.Manifest[cssKey] = cssRel
 	}
 
 	// Copy static assets
@@ -213,47 +222,41 @@ func (b *Builder) buildGo(ctx context.Context, output string) error {
 }
 
 // bundleClient bundles the thin client JavaScript.
-func (b *Builder) bundleClient(ctx context.Context, publicDir string) (string, int64, error) {
+func (b *Builder) bundleClient(ctx context.Context, publicDir string) (string, string, int64, error) {
 	clientSrc := filepath.Join(b.config.Dir(), "client", "src", "index.js")
 
 	// Check if custom client exists, otherwise use default
 	if _, err := os.Stat(clientSrc); os.IsNotExist(err) {
-		// Use embedded default client (for now, just create a placeholder)
+		// Use embedded default client.
 		clientSrc = ""
 	}
 
 	// Check if esbuild is available
 	esbuildPath, err := exec.LookPath("esbuild")
 	if err != nil {
-		// Try npx esbuild
-		if _, err := exec.LookPath("npx"); err != nil {
-			// Create a minimal fallback client
-			return b.createFallbackClient(publicDir)
-		}
-		esbuildPath = "npx"
+		esbuildPath = ""
 	}
 
 	// Determine output file
 	var outputFile string
+	var assetKey string
 	if b.options.Minify {
 		outputFile = filepath.Join(publicDir, "vango.min.js")
+		assetKey = "vango.min.js"
 	} else {
 		outputFile = filepath.Join(publicDir, "vango.js")
+		assetKey = "vango.js"
 	}
 
 	// If we have esbuild and source file
 	if clientSrc != "" && esbuildPath != "" {
-		args := []string{}
-		if esbuildPath == "npx" {
-			args = append(args, "esbuild")
-		}
-		args = append(args,
+		args := []string{
 			clientSrc,
 			"--bundle",
 			"--format=iife",
 			"--global-name=Vango",
 			"--outfile="+outputFile,
-		)
+		}
 
 		if b.options.Minify {
 			args = append(args, "--minify")
@@ -271,16 +274,16 @@ func (b *Builder) bundleClient(ctx context.Context, publicDir string) (string, i
 
 		if err := cmd.Run(); err != nil {
 			// Fall back to basic copy
-			return b.createFallbackClient(publicDir)
+			return b.createFallbackClient(publicDir, assetKey)
 		}
 	} else {
-		return b.createFallbackClient(publicDir)
+		return b.createFallbackClient(publicDir, assetKey)
 	}
 
 	// Get file size
 	info, err := os.Stat(outputFile)
 	if err != nil {
-		return outputFile, 0, nil
+		return assetKey, filepath.Base(outputFile), 0, nil
 	}
 
 	// Add hash to filename
@@ -294,59 +297,56 @@ func (b *Builder) bundleClient(ctx context.Context, publicDir string) (string, i
 		outputFile = hashedPath
 	}
 
-	return outputFile, info.Size(), nil
+	hashedRel, err := filepath.Rel(publicDir, outputFile)
+	if err != nil {
+		hashedRel = filepath.Base(outputFile)
+	}
+
+	return assetKey, filepath.ToSlash(hashedRel), info.Size(), nil
 }
 
 // createFallbackClient creates a minimal client when bundling isn't available.
-func (b *Builder) createFallbackClient(publicDir string) (string, int64, error) {
+func (b *Builder) createFallbackClient(publicDir, assetKey string) (string, string, int64, error) {
 	// Check if there's a pre-built client
-	prebuiltPath := filepath.Join(b.config.Dir(), "client", "dist", "vango.min.js")
+	var prebuiltPath string
+	if b.options.Minify {
+		prebuiltPath = filepath.Join(b.config.Dir(), "client", "dist", "vango.min.js")
+	} else {
+		prebuiltPath = filepath.Join(b.config.Dir(), "client", "dist", "vango.js")
+	}
+
+	var content []byte
+	if b.options.Minify {
+		content = clientdist.VangoMinJS
+	} else {
+		content = clientdist.VangoJS
+	}
+
 	if _, err := os.Stat(prebuiltPath); err == nil {
-		// Copy pre-built client
-		outputFile := filepath.Join(publicDir, "vango.min.js")
+		// Copy pre-built client.
+		outputFile := filepath.Join(publicDir, filepath.Base(prebuiltPath))
 		if err := copyFile(prebuiltPath, outputFile); err != nil {
-			return "", 0, err
+			return "", "", 0, err
 		}
-
-		info, _ := os.Stat(outputFile)
-		size := int64(0)
-		if info != nil {
-			size = info.Size()
-		}
-
-		// Add hash
-		hash, _ := hashFile(outputFile)
-		if hash != "" {
-			hashedName := fmt.Sprintf("vango.%s.min.js", hash[:8])
-			hashedPath := filepath.Join(publicDir, hashedName)
-			os.Rename(outputFile, hashedPath)
-			outputFile = hashedPath
-		}
-
-		return outputFile, size, nil
+		return b.fingerprintOutputFile(publicDir, assetKey, outputFile)
 	}
 
-	// Create minimal placeholder
-	outputFile := filepath.Join(publicDir, "vango.min.js")
-	content := []byte(`// Vango thin client - placeholder
-console.warn("Vango client not bundled. Run 'npm run build' in client/ directory.");
-`)
+	outputFile := filepath.Join(publicDir, assetKey)
 	if err := os.WriteFile(outputFile, content, 0644); err != nil {
-		return "", 0, err
+		return "", "", 0, err
 	}
 
-	return outputFile, int64(len(content)), nil
+	// Write source map alongside the embedded non-minified client when requested.
+	if b.options.SourceMaps && !b.options.Minify {
+		mapPath := outputFile + ".map"
+		_ = os.WriteFile(mapPath, clientdist.VangoJSMap, 0644)
+	}
+
+	return b.fingerprintOutputFile(publicDir, assetKey, outputFile)
 }
 
 // compileTailwind compiles Tailwind CSS.
-func (b *Builder) compileTailwind(ctx context.Context, publicDir string) (string, int64, error) {
-	// Check if npx is available
-	if _, err := exec.LookPath("npx"); err != nil {
-		return "", 0, errors.New("E123").
-			WithDetail("npx is required for Tailwind CSS").
-			WithSuggestion("Install Node.js from https://nodejs.org")
-	}
-
+func (b *Builder) compileTailwind(ctx context.Context, publicDir string) (string, string, int64, error) {
 	inputFile := b.config.Tailwind.Input
 	if inputFile == "" {
 		inputFile = filepath.Join(b.config.Dir(), "app", "styles", "input.css")
@@ -354,59 +354,78 @@ func (b *Builder) compileTailwind(ctx context.Context, publicDir string) (string
 		inputFile = filepath.Join(b.config.Dir(), inputFile)
 	}
 
-	// Check if input exists
-	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-		// Create minimal input file
-		os.MkdirAll(filepath.Dir(inputFile), 0755)
-		content := `@tailwind base;
-@tailwind components;
-@tailwind utilities;
-`
-		os.WriteFile(inputFile, []byte(content), 0644)
+	if _, err := os.Stat(inputFile); err != nil {
+		if os.IsNotExist(err) {
+			return "", "", 0, errors.New("E123").
+				WithDetail("Tailwind input file not found: " + inputFile).
+				WithSuggestion("Create the file or set tailwind.input in vango.json")
+		}
+		return "", "", 0, errors.New("E123").Wrap(err)
 	}
 
-	outputFile := filepath.Join(publicDir, "styles.css")
+	projectPublic := b.config.PublicPath()
+	outputPath := b.config.Tailwind.Output
+	if outputPath == "" {
+		outputPath = filepath.Join("public", "styles.css")
+	}
+	if !filepath.IsAbs(outputPath) {
+		outputPath = filepath.Join(b.config.Dir(), outputPath)
+	}
 
-	args := []string{
-		"tailwindcss",
-		"-i", inputFile,
-		"-o", outputFile,
-		"--minify",
+	relToPublic, err := filepath.Rel(projectPublic, outputPath)
+	if err != nil || strings.HasPrefix(filepath.Clean(relToPublic), ".."+string(os.PathSeparator)) || relToPublic == ".." {
+		return "", "", 0, errors.New("E123").
+			WithDetail("Tailwind output must be inside the static directory (" + projectPublic + "): " + outputPath).
+			WithSuggestion("Set tailwind.output to a path under your static dir (e.g. public/styles.css)")
+	}
+
+	assetKey := filepath.ToSlash(relToPublic)
+	outputFile := filepath.Join(publicDir, relToPublic)
+	if err := os.MkdirAll(filepath.Dir(outputFile), 0755); err != nil {
+		return "", "", 0, errors.New("E142").Wrap(err)
+	}
+
+	runner := tailwind.NewRunner(tailwind.NewBinary(), b.config.Dir())
+	cfg := tailwind.RunnerConfig{
+		InputPath:  inputFile,
+		OutputPath: outputFile,
+		Minify:     b.options.Minify,
 	}
 
 	configPath := b.config.TailwindConfigPath()
 	if _, err := os.Stat(configPath); err == nil {
-		args = append(args, "-c", configPath)
+		cfg.ConfigPath = configPath
 	}
 
-	cmd := exec.CommandContext(ctx, "npx", args...)
-	cmd.Dir = b.config.Dir()
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", 0, errors.New("E123").
-			WithDetail(stderr.String()).
-			Wrap(err)
+	if err := runner.Build(ctx, cfg); err != nil {
+		return "", "", 0, errors.New("E123").Wrap(err)
 	}
 
-	// Get file size
+	return b.fingerprintOutputFile(publicDir, assetKey, outputFile)
+}
+
+func (b *Builder) fingerprintOutputFile(publicDir, assetKey, outputFile string) (string, string, int64, error) {
 	info, err := os.Stat(outputFile)
 	if err != nil {
-		return outputFile, 0, nil
+		return assetKey, filepath.Base(outputFile), 0, nil
 	}
 
-	// Add hash to filename
 	hash, _ := hashFile(outputFile)
 	if hash != "" {
-		hashedName := fmt.Sprintf("styles.%s.css", hash[:8])
-		hashedPath := filepath.Join(publicDir, hashedName)
-		os.Rename(outputFile, hashedPath)
+		ext := filepath.Ext(outputFile)
+		base := strings.TrimSuffix(filepath.Base(outputFile), ext)
+		hashedName := fmt.Sprintf("%s.%s%s", base, hash[:8], ext)
+		hashedPath := filepath.Join(filepath.Dir(outputFile), hashedName)
+		_ = os.Rename(outputFile, hashedPath)
 		outputFile = hashedPath
 	}
 
-	return outputFile, info.Size(), nil
+	hashedRel, err := filepath.Rel(publicDir, outputFile)
+	if err != nil {
+		hashedRel = filepath.Base(outputFile)
+	}
+
+	return assetKey, filepath.ToSlash(hashedRel), info.Size(), nil
 }
 
 // copyAssets copies static assets with cache busting.

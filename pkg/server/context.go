@@ -638,14 +638,14 @@ func (c *ctx) Dispatch(fn func()) {
 // The path must be a relative path starting with "/". It may include query
 // parameters (e.g., "/projects/123?tab=details").
 //
-// Options can be provided to customize behavior:
-//   - WithReplace() - replace current history entry instead of pushing
-//   - WithNavigateParams(map[string]any) - add query parameters to the URL
-//   - WithoutScroll() - disable scrolling to top after navigation (TODO)
-func (c *ctx) Navigate(path string, opts ...NavigateOption) {
-	// Per Section 8.3.2 of the Routing Spec, Navigate is ignored during prefetch.
-	// Prefetch should be referentially transparent - no navigation side effects.
-	if c.mode == ModePrefetch {
+	// Options can be provided to customize behavior:
+	//   - WithReplace() - replace current history entry instead of pushing
+	//   - WithNavigateParams(map[string]any) - add query parameters to the URL
+	//   - WithoutScroll() - disable scrolling to top after navigation
+	func (c *ctx) Navigate(path string, opts ...NavigateOption) {
+		// Per Section 8.3.2 of the Routing Spec, Navigate is ignored during prefetch.
+		// Prefetch should be referentially transparent - no navigation side effects.
+		if c.mode == ModePrefetch {
 		if c.logger != nil {
 			c.logger.Debug("ctx.Navigate() ignored during prefetch", "path", path)
 		}

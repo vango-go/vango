@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +37,13 @@ type Binary struct {
 	// BinDir is the directory where the binary is stored.
 	BinDir string
 
+	// DownloadBaseURL is the base URL for downloading Tailwind binaries.
+	// If empty, GitHubReleaseURL is used.
+	DownloadBaseURL string
+
+	// HTTPClient is used for downloads. If nil, a default client is used.
+	HTTPClient *http.Client
+
 	// path is the cached path to the binary.
 	path string
 	mu   sync.Mutex
@@ -46,16 +52,18 @@ type Binary struct {
 // NewBinary creates a new Binary with default settings.
 func NewBinary() *Binary {
 	return &Binary{
-		Version: Version,
-		BinDir:  defaultBinDir(),
+		Version:         Version,
+		BinDir:          defaultBinDir(),
+		DownloadBaseURL: GitHubReleaseURL,
 	}
 }
 
 // NewBinaryWithVersion creates a new Binary with a specific version.
 func NewBinaryWithVersion(version string) *Binary {
 	return &Binary{
-		Version: version,
-		BinDir:  defaultBinDir(),
+		Version:         version,
+		BinDir:          defaultBinDir(),
+		DownloadBaseURL: GitHubReleaseURL,
 	}
 }
 
@@ -120,39 +128,17 @@ func (b *Binary) IsInstalled() bool {
 
 // binaryPath returns the path where the binary should be stored.
 func (b *Binary) binaryPath() string {
-	return filepath.Join(b.BinDir, binaryName())
-}
-
-// binaryName returns the platform-specific binary name.
-func binaryName() string {
-	name := "tailwindcss"
-
-	switch runtime.GOOS {
-	case "darwin":
-		if runtime.GOARCH == "arm64" {
-			name += "-macos-arm64"
-		} else {
-			name += "-macos-x64"
-		}
-	case "linux":
-		if runtime.GOARCH == "arm64" {
-			name += "-linux-arm64"
-		} else {
-			name += "-linux-x64"
-		}
-	case "windows":
-		name += "-windows-x64.exe"
-	default:
-		// Fallback to linux-x64
-		name += "-linux-x64"
-	}
-
-	return name
+	// Store per-version so upgrades don't silently keep using an older binary.
+	return filepath.Join(b.BinDir, b.Version, binaryName())
 }
 
 // downloadURL returns the URL to download the binary.
 func (b *Binary) downloadURL() string {
-	return fmt.Sprintf("%s/%s/%s", GitHubReleaseURL, b.Version, binaryName())
+	base := b.DownloadBaseURL
+	if base == "" {
+		base = GitHubReleaseURL
+	}
+	return fmt.Sprintf("%s/%s/%s", strings.TrimRight(base, "/"), b.Version, binaryName())
 }
 
 // download downloads the binary from GitHub releases.
@@ -164,7 +150,7 @@ func (b *Binary) download(ctx context.Context, progress func(msg string)) error 
 	}
 
 	// Create bin directory
-	if err := os.MkdirAll(b.BinDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(b.binaryPath()), 0755); err != nil {
 		return fmt.Errorf("failed to create bin directory: %w", err)
 	}
 
@@ -175,8 +161,12 @@ func (b *Binary) download(ctx context.Context, progress func(msg string)) error 
 	}
 
 	// Download
-	client := &http.Client{
-		Timeout: 5 * time.Minute, // Large binary, allow time
+	client := b.HTTPClient
+	if client == nil {
+		client = &http.Client{}
+	}
+	if client.Timeout == 0 {
+		client.Timeout = 5 * time.Minute // Large binary, allow time
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -233,6 +223,7 @@ type Runner struct {
 	mu         sync.Mutex
 	running    bool
 	projectDir string
+	done       chan struct{}
 }
 
 // RunnerConfig configures the Tailwind runner.
@@ -242,6 +233,10 @@ type RunnerConfig struct {
 
 	// OutputPath is the output CSS file path (relative to project).
 	OutputPath string
+
+	// ConfigPath is the tailwind.config.js path (relative to project or absolute).
+	// If empty, Tailwind uses its default config resolution.
+	ConfigPath string
 
 	// ProjectDir is the project directory.
 	ProjectDir string
@@ -263,7 +258,7 @@ func NewRunner(binary *Binary, projectDir string) *Runner {
 
 // Build runs Tailwind CSS build (one-shot).
 func (r *Runner) Build(ctx context.Context, cfg RunnerConfig) error {
-	path, err := r.binary.Path()
+	path, err := r.binary.EnsureInstalled(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -271,6 +266,9 @@ func (r *Runner) Build(ctx context.Context, cfg RunnerConfig) error {
 	args := []string{
 		"-i", cfg.InputPath,
 		"-o", cfg.OutputPath,
+	}
+	if cfg.ConfigPath != "" {
+		args = append(args, "-c", cfg.ConfigPath)
 	}
 	if cfg.Minify {
 		args = append(args, "--minify")
@@ -293,7 +291,7 @@ func (r *Runner) StartWatch(ctx context.Context, cfg RunnerConfig) error {
 		return nil
 	}
 
-	path, err := r.binary.Path()
+	path, err := r.binary.EnsureInstalled(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -302,6 +300,9 @@ func (r *Runner) StartWatch(ctx context.Context, cfg RunnerConfig) error {
 		"-i", cfg.InputPath,
 		"-o", cfg.OutputPath,
 		"--watch=always",
+	}
+	if cfg.ConfigPath != "" {
+		args = append(args, "-c", cfg.ConfigPath)
 	}
 
 	// Use exec.Command instead of CommandContext to prevent context
@@ -321,12 +322,20 @@ func (r *Runner) StartWatch(ctx context.Context, cfg RunnerConfig) error {
 	}
 
 	r.running = true
+	r.done = make(chan struct{})
 
 	// Wait for process in background
+	cmd := r.cmd
+	done := r.done
 	go func() {
-		r.cmd.Wait()
+		_ = cmd.Wait()
+		close(done)
 		r.mu.Lock()
 		r.running = false
+		if r.cmd == cmd {
+			r.cmd = nil
+		}
+		r.done = nil
 		r.mu.Unlock()
 	}()
 
@@ -336,15 +345,30 @@ func (r *Runner) StartWatch(ctx context.Context, cfg RunnerConfig) error {
 // Stop stops the Tailwind watcher.
 func (r *Runner) Stop() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	cmd := r.cmd
+	done := r.done
+	running := r.running
+	r.mu.Unlock()
 
-	if !r.running || r.cmd == nil || r.cmd.Process == nil {
+	if !running || cmd == nil || cmd.Process == nil {
 		return
 	}
 
-	r.cmd.Process.Kill()
-	r.cmd.Wait()
+	_ = cmd.Process.Kill()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	r.mu.Lock()
 	r.running = false
+	if r.cmd == cmd {
+		r.cmd = nil
+	}
+	r.done = nil
+	r.mu.Unlock()
 }
 
 // IsRunning returns whether Tailwind is running.
@@ -352,31 +376,4 @@ func (r *Runner) IsRunning() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.running
-}
-
-// PlatformName returns a human-readable platform name for display.
-func PlatformName() string {
-	var parts []string
-
-	switch runtime.GOOS {
-	case "darwin":
-		parts = append(parts, "macOS")
-	case "linux":
-		parts = append(parts, "Linux")
-	case "windows":
-		parts = append(parts, "Windows")
-	default:
-		parts = append(parts, runtime.GOOS)
-	}
-
-	switch runtime.GOARCH {
-	case "arm64":
-		parts = append(parts, "ARM64")
-	case "amd64":
-		parts = append(parts, "x64")
-	default:
-		parts = append(parts, runtime.GOARCH)
-	}
-
-	return strings.Join(parts, " ")
 }
