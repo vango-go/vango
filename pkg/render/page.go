@@ -407,7 +407,9 @@ func renderVHook(w io.Writer, value string) error {
 		return err
 	}
 	if configJSON != "{}" && configJSON != "null" {
-		if _, err := fmt.Fprintf(w, ` data-hook-config='%s'`, configJSON); err != nil {
+		// SECURITY: data-hook-config is a single-quoted HTML attribute; JSON must be escaped
+		// for single-quoted attribute context to prevent SSR XSS via quote breaking.
+		if _, err := fmt.Fprintf(w, ` data-hook-config='%s'`, escapeAttr(configJSON)); err != nil {
 			return err
 		}
 	}
@@ -429,7 +431,9 @@ func renderHookConfig(w io.Writer, hookConfig HookConfig) error {
 		// Only render if config is not empty object or null
 		configStr := string(configJSON)
 		if configStr != "{}" && configStr != "null" {
-			if _, err := fmt.Fprintf(w, ` data-hook-config='%s'`, configStr); err != nil {
+			// SECURITY: data-hook-config is a single-quoted HTML attribute; JSON must be escaped
+			// for single-quoted attribute context to prevent SSR XSS via quote breaking.
+			if _, err := fmt.Fprintf(w, ` data-hook-config='%s'`, escapeAttr(configStr)); err != nil {
 				return err
 			}
 		}
@@ -463,8 +467,9 @@ func renderOptimisticConfig(w io.Writer, config OptimisticConfig) error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal optimistic config: %w", err)
 		}
-		// Use single quotes for the attribute value to allow double quotes in JSON
-		if _, err := fmt.Fprintf(w, ` data-optimistic='%s'`, string(jsonBytes)); err != nil {
+		// SECURITY: data-optimistic is a single-quoted HTML attribute; JSON must be escaped
+		// for single-quoted attribute context to prevent SSR XSS via quote breaking.
+		if _, err := fmt.Fprintf(w, ` data-optimistic='%s'`, escapeAttr(string(jsonBytes))); err != nil {
 			return err
 		}
 	}

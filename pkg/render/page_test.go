@@ -2,6 +2,8 @@ package render
 
 import (
 	"bytes"
+	"encoding/json"
+	"html"
 	"strings"
 	"testing"
 
@@ -335,6 +337,7 @@ func TestRenderHookConfig(t *testing.T) {
 		Config: map[string]any{
 			"group":  "items",
 			"handle": ".drag-handle",
+			"label":  "Bob's list",
 		},
 	}
 
@@ -343,16 +346,27 @@ func TestRenderHookConfig(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	html := buf.String()
+	out := buf.String()
 
-	if !strings.Contains(html, `data-hook="Sortable"`) {
-		t.Errorf("should contain hook name, got %q", html)
+	if !strings.Contains(out, `data-hook="Sortable"`) {
+		t.Errorf("should contain hook name, got %q", out)
 	}
-	if !strings.Contains(html, `data-hook-config=`) {
-		t.Errorf("should contain hook config, got %q", html)
+
+	raw := extractAttrValue(t, out, "data-hook-config")
+	decoded := html.UnescapeString(raw)
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(decoded), &got); err != nil {
+		t.Fatalf("expected hook config JSON to round-trip, json=%q err=%v", decoded, err)
 	}
-	if !strings.Contains(html, `"group":"items"`) {
-		t.Errorf("should contain group in config, got %q", html)
+	if got["group"] != "items" {
+		t.Fatalf("hook config group = %v, want %q", got["group"], "items")
+	}
+	if got["handle"] != ".drag-handle" {
+		t.Fatalf("hook config handle = %v, want %q", got["handle"], ".drag-handle")
+	}
+	if got["label"] != "Bob's list" {
+		t.Fatalf("hook config label = %v, want %q", got["label"], "Bob's list")
 	}
 }
 
@@ -361,7 +375,7 @@ func TestRenderOptimisticConfig(t *testing.T) {
 
 	config := OptimisticConfig{
 		Class: "pending",
-		Text:  "Saving...",
+		Text:  "Saving Bob's changes...",
 	}
 
 	err := renderOptimisticConfig(&buf, config)
@@ -369,17 +383,25 @@ func TestRenderOptimisticConfig(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	html := buf.String()
+	out := buf.String()
 
 	// Should use single JSON attribute per spec Section 5.2
-	if !strings.Contains(html, `data-optimistic='`) {
-		t.Errorf("should contain data-optimistic JSON attribute, got %q", html)
+	if !strings.Contains(out, `data-optimistic='`) {
+		t.Errorf("should contain data-optimistic JSON attribute, got %q", out)
 	}
-	if !strings.Contains(html, `"class":"pending"`) {
-		t.Errorf("should contain class in JSON, got %q", html)
+
+	raw := extractAttrValue(t, out, "data-optimistic")
+	decoded := html.UnescapeString(raw)
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(decoded), &got); err != nil {
+		t.Fatalf("expected optimistic JSON to round-trip, json=%q err=%v", decoded, err)
 	}
-	if !strings.Contains(html, `"text":"Saving..."`) {
-		t.Errorf("should contain text in JSON, got %q", html)
+	if got["class"] != "pending" {
+		t.Fatalf("optimistic class = %v, want %q", got["class"], "pending")
+	}
+	if got["text"] != "Saving Bob's changes..." {
+		t.Fatalf("optimistic text = %v, want %q", got["text"], "Saving Bob's changes...")
 	}
 }
 
@@ -396,16 +418,24 @@ func TestRenderOptimisticConfigWithAttr(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	html := buf.String()
+	out := buf.String()
 
-	if !strings.Contains(html, `data-optimistic='`) {
-		t.Errorf("should contain data-optimistic JSON attribute, got %q", html)
+	if !strings.Contains(out, `data-optimistic='`) {
+		t.Errorf("should contain data-optimistic JSON attribute, got %q", out)
 	}
-	if !strings.Contains(html, `"attr":"disabled"`) {
-		t.Errorf("should contain attr in JSON, got %q", html)
+
+	raw := extractAttrValue(t, out, "data-optimistic")
+	decoded := html.UnescapeString(raw)
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(decoded), &got); err != nil {
+		t.Fatalf("expected optimistic JSON to round-trip, json=%q err=%v", decoded, err)
 	}
-	if !strings.Contains(html, `"value":"true"`) {
-		t.Errorf("should contain value in JSON, got %q", html)
+	if got["attr"] != "disabled" {
+		t.Fatalf("optimistic attr = %v, want %q", got["attr"], "disabled")
+	}
+	if got["value"] != "true" {
+		t.Fatalf("optimistic value = %v, want %q", got["value"], "true")
 	}
 }
 

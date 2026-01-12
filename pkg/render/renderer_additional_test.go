@@ -2,6 +2,8 @@ package render
 
 import (
 	"bytes"
+	"encoding/json"
+	stdhtml "html"
 	"strings"
 	"testing"
 	"time"
@@ -304,15 +306,26 @@ func TestIsEventHandlerAndAttrToStringVariants(t *testing.T) {
 
 func TestRenderVHookSuccessAndErrors(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderVHook(&buf, `Sortable:{"group":"items"}`); err != nil {
+	if err := renderVHook(&buf, `Sortable:{"group":"items","label":"Bob's list"}`); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := buf.String()
 	if !strings.Contains(got, `data-hook="Sortable"`) {
 		t.Fatalf("should contain hook name, got %q", got)
 	}
-	if !strings.Contains(got, `data-hook-config='{"group":"items"}'`) {
-		t.Fatalf("should contain hook config, got %q", got)
+
+	raw := extractAttrValue(t, got, "data-hook-config")
+	decoded := stdhtml.UnescapeString(raw)
+
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(decoded), &cfg); err != nil {
+		t.Fatalf("expected v-hook config JSON to round-trip, json=%q err=%v", decoded, err)
+	}
+	if cfg["group"] != "items" {
+		t.Fatalf("v-hook config group = %v, want %q", cfg["group"], "items")
+	}
+	if cfg["label"] != "Bob's list" {
+		t.Fatalf("v-hook config label = %v, want %q", cfg["label"], "Bob's list")
 	}
 
 	buf.Reset()
