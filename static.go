@@ -2,8 +2,8 @@ package vango
 
 import (
 	"net/http"
-	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -11,27 +11,76 @@ import (
 // Static File Serving
 // =============================================================================
 
+// staticRelPath returns a sanitized relative path for a static file request.
+// It rejects traversal and absolute-path tricks to ensure static serving cannot
+// escape the configured static directory.
+func (a *App) staticRelPath(urlPath string) (string, bool) {
+	if a.staticFS == nil || a.staticDir == "" {
+		return "", false
+	}
+
+	rel := a.stripStaticPrefix(urlPath)
+	if rel == "" {
+		return "", false
+	}
+
+	// Reject NUL early (can appear via %00).
+	if strings.IndexByte(rel, 0) != -1 {
+		return "", false
+	}
+
+	// Reject platform-dependent separators.
+	if strings.Contains(rel, "\\") {
+		return "", false
+	}
+
+	// After prefix stripping, a leading "/" indicates an absolute-path attempt
+	// (e.g. "/static//etc/passwd" => "/etc/passwd").
+	if strings.HasPrefix(rel, "/") {
+		return "", false
+	}
+
+	// Reject dot-segments before cleaning to avoid "cleaning away" traversal
+	// attempts and changing the meaning of the request path.
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == "." || seg == ".." {
+			return "", false
+		}
+	}
+
+	clean := path.Clean(rel)
+	if clean == "." || clean == "" || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
+		return "", false
+	}
+
+	// Defense-in-depth: reject OS-absolute/volume paths after slash conversion.
+	osPath := filepath.FromSlash(clean)
+	if filepath.IsAbs(osPath) || filepath.VolumeName(osPath) != "" {
+		return "", false
+	}
+
+	return clean, true
+}
+
 // shouldServeStatic checks if a request path should be served as a static file.
 // Returns true if the file exists in the static directory.
 func (a *App) shouldServeStatic(urlPath string) bool {
-	if a.staticFS == nil || a.staticDir == "" {
+	rel, ok := a.staticRelPath(urlPath)
+	if !ok {
 		return false
 	}
 
-	// Remove the prefix to get the file path
-	filePath := a.stripStaticPrefix(urlPath)
-	if filePath == "" {
+	f, err := a.staticFS.Open(rel)
+	if err != nil {
 		return false
 	}
+	defer f.Close()
 
-	// Check if file exists (not a directory)
-	fullPath := path.Join(a.staticDir, filePath)
-	info, err := os.Stat(fullPath)
+	info, err := f.Stat()
 	if err != nil {
 		return false
 	}
 
-	// Don't serve directories as static files
 	return !info.IsDir()
 }
 
@@ -43,23 +92,34 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the file path
-	filePath := a.stripStaticPrefix(r.URL.Path)
-	if filePath == "" {
+	rel, ok := a.staticRelPath(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	f, err := a.staticFS.Open(rel)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
 		http.NotFound(w, r)
 		return
 	}
 
 	// Apply cache control headers
-	a.applyCacheHeaders(w, filePath)
+	a.applyCacheHeaders(w, rel)
 
 	// Apply custom headers
 	for key, value := range a.config.Static.Headers {
 		w.Header().Set(key, value)
 	}
 
-	// Serve the file
-	http.ServeFile(w, r, path.Join(a.staticDir, filePath))
+	http.ServeContent(w, r, rel, info.ModTime(), f)
 }
 
 // stripStaticPrefix removes the static prefix from a URL path.
