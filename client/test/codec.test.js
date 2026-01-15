@@ -109,6 +109,41 @@ describe('BinaryCodec', () => {
         });
     });
 
+    describe('decode bounds checks', () => {
+        test('rejects truncated varint', () => {
+            const buffer = new Uint8Array([0x80]); // continuation bit without next byte
+            expect(() => codec.decodeUvarint(buffer, 0)).toThrow();
+        });
+
+        test('rejects varint overflow', () => {
+            const buffer = new Uint8Array(11);
+            buffer.fill(0x80);
+            expect(() => codec.decodeUvarint(buffer, 0)).toThrow();
+        });
+
+        test('rejects string length beyond remaining bytes', () => {
+            const parts = [
+                codec.encodeUvarint(5),
+                new Uint8Array([0x61, 0x62]),
+            ];
+            const buffer = new Uint8Array(parts[0].length + parts[1].length);
+            buffer.set(parts[0], 0);
+            buffer.set(parts[1], parts[0].length);
+            expect(() => codec.decodeString(buffer, 0)).toThrow();
+        });
+
+        test('rejects patch frames with missing payload', () => {
+            const parts = [
+                codec.encodeUvarint(1),
+                codec.encodeUvarint(1),
+            ];
+            const buffer = new Uint8Array(parts[0].length + parts[1].length);
+            buffer.set(parts[0], 0);
+            buffer.set(parts[1], parts[0].length);
+            expect(() => codec.decodePatches(buffer)).toThrow();
+        });
+    });
+
     describe('event encoding', () => {
         test('encodes click event', () => {
             const buffer = codec.encodeEvent(1, EventType.CLICK, 'h42', null);

@@ -31,6 +31,8 @@ const FrameType = {
     ERROR: 0x05,
 };
 
+const MaxFramePayload = 0xFFFF;
+
 /**
  * Control message subtypes
  * Must match vango/pkg/protocol/control.go
@@ -154,6 +156,30 @@ export class VangoClient {
         this.onError(err);
     }
 
+    _handleProtocolError(err, context) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (this.options.debug) {
+            console.error('[Vango] Protocol error:', context || 'decode failure', err);
+        } else {
+            console.error('[Vango] Protocol error:', context || 'decode failure', message);
+        }
+        const error = err instanceof Error ? err : new Error(message);
+        this._onError(error);
+        this.wsManager.close();
+        this._triggerSelfHeal();
+    }
+
+    _triggerSelfHeal() {
+        const pendingPath = this.eventCapture?.pendingNavPath;
+        if (pendingPath) {
+            console.log('[Vango] Self-heal: navigating to pending path:', pendingPath);
+            location.assign(pendingPath);
+        } else {
+            console.log('[Vango] Self-heal: reloading page');
+            location.reload();
+        }
+    }
+
     /**
      * Manually retry a connection after a terminal handshake error.
      */
@@ -167,27 +193,42 @@ export class VangoClient {
      * Handle binary message from server
      */
     _handleBinaryMessage(buffer) {
-        if (buffer.length < 4) return; // Need at least frame header
+        if (buffer.length < 4) {
+            this._handleProtocolError(new Error('Frame header too short'), 'frame header');
+            return;
+        }
 
         // Frame header: [type:1][flags:1][length:2 big-endian]
         const frameType = buffer[0];
         const length = (buffer[2] << 8) | buffer[3];
+        if (length > MaxFramePayload) {
+            this._handleProtocolError(new Error('Frame payload exceeds max size'), 'frame header');
+            return;
+        }
+        if (buffer.length !== 4 + length) {
+            this._handleProtocolError(new Error('Frame length mismatch'), 'frame header');
+            return;
+        }
         const payload = buffer.slice(4, 4 + length);
 
-        switch (frameType) {
-            case FrameType.PATCHES:
-                this._handlePatches(payload);
-                break;
-            case FrameType.CONTROL:
-                this._handleControl(payload);
-                break;
-            case FrameType.ERROR:
-                this._handleServerError(payload);
-                break;
-            default:
-                if (this.options.debug) {
-                    console.warn('[Vango] Unknown frame type:', frameType);
-                }
+        try {
+            switch (frameType) {
+                case FrameType.PATCHES:
+                    this._handlePatches(payload);
+                    break;
+                case FrameType.CONTROL:
+                    this._handleControl(payload);
+                    break;
+                case FrameType.ERROR:
+                    this._handleServerError(payload);
+                    break;
+                default:
+                    if (this.options.debug) {
+                        console.warn('[Vango] Unknown frame type:', frameType);
+                    }
+            }
+        } catch (err) {
+            this._handleProtocolError(err, `frame type ${frameType}`);
         }
     }
 
@@ -252,7 +293,9 @@ export class VangoClient {
      * Handle control message
      */
     _handleControl(buffer) {
-        if (buffer.length === 0) return;
+        if (buffer.length === 0) {
+            throw new Error('Control frame empty');
+        }
 
         const controlType = buffer[0];
 
@@ -288,7 +331,9 @@ export class VangoClient {
      * Used during session resume to ensure client DOM matches server state
      */
     _handleResyncFull(buffer) {
-        if (buffer.length === 0) return;
+        if (buffer.length === 0) {
+            throw new Error('ResyncFull payload empty');
+        }
 
         // Decode HTML string (varint length-prefixed)
         const { value: html } = this.codec.decodeString(buffer, 0);
@@ -373,7 +418,9 @@ export class VangoClient {
      * See vango/pkg/protocol/error.go for encoding.
      */
     _handleServerError(buffer) {
-        if (buffer.length < 3) return;
+        if (buffer.length < 3) {
+            throw new Error('Error frame too short');
+        }
 
         // Decode code (2 bytes, big-endian)
         const code = (buffer[0] << 8) | buffer[1];

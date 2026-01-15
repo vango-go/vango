@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/vango-go/vango/pkg/auth"
@@ -180,5 +181,217 @@ func TestValueTypeVsPointerType(t *testing.T) {
 	}
 	if user.ID != "value" {
 		t.Errorf("expected ID value, got %s", user.ID)
+	}
+}
+
+// =============================================================================
+// SSR Auth Tests - auth.Get should use ctx.User() which works for SSR
+// =============================================================================
+
+func TestGet_SSR_ViaCtxUser(t *testing.T) {
+	// SSR has no session, but user is set via ctx.SetUser()
+	ctx := server.NewTestContext(nil)
+	testUser := &TestUser{ID: "ssr-user", Email: "ssr@example.com"}
+
+	// Set user on context (simulates SSR middleware setting user)
+	ctx.SetUser(testUser)
+
+	// auth.Get should find it via ctx.User()
+	user, ok := auth.Get[*TestUser](ctx)
+	if !ok {
+		t.Fatal("expected auth.Get to find user set via ctx.SetUser()")
+	}
+	if user.ID != "ssr-user" {
+		t.Errorf("expected ID ssr-user, got %s", user.ID)
+	}
+}
+
+func TestIsAuthenticated_SSR_ViaCtxUser(t *testing.T) {
+	ctx := server.NewTestContext(nil)
+
+	// Not authenticated initially
+	if auth.IsAuthenticated(ctx) {
+		t.Error("expected unauthenticated with no user set")
+	}
+
+	// Set user
+	ctx.SetUser(&TestUser{ID: "ssr-auth"})
+
+	// Now authenticated
+	if !auth.IsAuthenticated(ctx) {
+		t.Error("expected authenticated after SetUser")
+	}
+}
+
+// =============================================================================
+// Login/Logout Tests
+// =============================================================================
+
+func TestLogin_WithSession(t *testing.T) {
+	session := server.NewMockSession()
+	ctx := server.NewTestContext(session)
+
+	testUser := &TestUser{ID: "login-test", Email: "login@example.com"}
+	auth.Login(ctx, testUser)
+
+	// Should be available via auth.Get
+	user, ok := auth.Get[*TestUser](ctx)
+	if !ok {
+		t.Fatal("expected user after Login")
+	}
+	if user.ID != "login-test" {
+		t.Errorf("expected ID login-test, got %s", user.ID)
+	}
+
+	// Should also set presence flag
+	if !auth.WasAuthenticated(session) {
+		t.Error("expected WasAuthenticated to return true after Login")
+	}
+}
+
+func TestLogin_WithoutSession(t *testing.T) {
+	// SSR mode - no session
+	ctx := server.NewTestContext(nil)
+
+	testUser := &TestUser{ID: "ssr-login", Email: "ssr-login@example.com"}
+	auth.Login(ctx, testUser)
+
+	// Should still be available via ctx.User()
+	user, ok := auth.Get[*TestUser](ctx)
+	if !ok {
+		t.Fatal("expected user after Login in SSR mode")
+	}
+	if user.ID != "ssr-login" {
+		t.Errorf("expected ID ssr-login, got %s", user.ID)
+	}
+}
+
+func TestLogout(t *testing.T) {
+	session := server.NewMockSession()
+	ctx := server.NewTestContext(session)
+
+	// Login first
+	auth.Login(ctx, &TestUser{ID: "logout-test"})
+	if !auth.IsAuthenticated(ctx) {
+		t.Fatal("expected authenticated after Login")
+	}
+
+	// Logout
+	auth.Logout(ctx)
+
+	if auth.IsAuthenticated(ctx) {
+		t.Error("expected unauthenticated after Logout")
+	}
+
+	if auth.WasAuthenticated(session) {
+		t.Error("expected WasAuthenticated to return false after Logout")
+	}
+}
+
+// =============================================================================
+// Presence Flag Tests
+// =============================================================================
+
+func TestWasAuthenticated_AfterSet(t *testing.T) {
+	session := server.NewMockSession()
+
+	// Not authenticated initially
+	if auth.WasAuthenticated(session) {
+		t.Error("expected WasAuthenticated false initially")
+	}
+
+	// Set user
+	auth.Set(session, &TestUser{ID: "presence"})
+
+	// Now has presence flag
+	if !auth.WasAuthenticated(session) {
+		t.Error("expected WasAuthenticated true after Set")
+	}
+}
+
+func TestWasAuthenticated_AfterClear(t *testing.T) {
+	session := server.NewMockSession()
+	auth.Set(session, &TestUser{ID: "clear-test"})
+
+	if !auth.WasAuthenticated(session) {
+		t.Fatal("expected WasAuthenticated true after Set")
+	}
+
+	auth.Clear(session)
+
+	if auth.WasAuthenticated(session) {
+		t.Error("expected WasAuthenticated false after Clear")
+	}
+}
+
+func TestWasAuthenticated_NilSession(t *testing.T) {
+	if auth.WasAuthenticated(nil) {
+		t.Error("expected WasAuthenticated false for nil session")
+	}
+}
+
+// =============================================================================
+// StatusCode Tests
+// =============================================================================
+
+func TestStatusCode_Unauthorized(t *testing.T) {
+	code, ok := auth.StatusCode(auth.ErrUnauthorized)
+	if !ok {
+		t.Fatal("expected StatusCode to recognize ErrUnauthorized")
+	}
+	if code != 401 {
+		t.Errorf("expected 401, got %d", code)
+	}
+}
+
+func TestStatusCode_Forbidden(t *testing.T) {
+	code, ok := auth.StatusCode(auth.ErrForbidden)
+	if !ok {
+		t.Fatal("expected StatusCode to recognize ErrForbidden")
+	}
+	if code != 403 {
+		t.Errorf("expected 403, got %d", code)
+	}
+}
+
+func TestStatusCode_OtherError(t *testing.T) {
+	_, ok := auth.StatusCode(errors.New("some other error"))
+	if ok {
+		t.Error("expected StatusCode to not recognize other errors")
+	}
+}
+
+func TestStatusCode_Nil(t *testing.T) {
+	_, ok := auth.StatusCode(nil)
+	if ok {
+		t.Error("expected StatusCode to return false for nil")
+	}
+}
+
+// =============================================================================
+// IsAuthError Tests
+// =============================================================================
+
+func TestIsAuthError_Unauthorized(t *testing.T) {
+	if !auth.IsAuthError(auth.ErrUnauthorized) {
+		t.Error("expected ErrUnauthorized to be an auth error")
+	}
+}
+
+func TestIsAuthError_Forbidden(t *testing.T) {
+	if !auth.IsAuthError(auth.ErrForbidden) {
+		t.Error("expected ErrForbidden to be an auth error")
+	}
+}
+
+func TestIsAuthError_Other(t *testing.T) {
+	if auth.IsAuthError(errors.New("other")) {
+		t.Error("expected other error to not be an auth error")
+	}
+}
+
+func TestIsAuthError_Nil(t *testing.T) {
+	if auth.IsAuthError(nil) {
+		t.Error("expected nil to not be an auth error")
 	}
 }

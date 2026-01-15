@@ -405,6 +405,69 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// ═══════════════════════════════════════════════════════════════════════════
+		// RESUME AUTH REVALIDATION
+		// Check if auth is still valid. If the session was previously authenticated
+		// but auth is now invalid, reject the resume.
+		// ═══════════════════════════════════════════════════════════════════════════
+		wasAuthenticated := session.Has(DefaultAuthSessionKey+":present") || session.UserID != ""
+
+		// First, run authFunc if set (validates auth cookie/token)
+		var authValid bool
+		if s.authFunc != nil {
+			user, err := s.authFunc(r)
+			if err == nil && user != nil {
+				authValid = true
+				// Auto-hydrate: set user into session if not already present
+				// This handles the case where session was restored from persistence
+				// (user object not serialized) and apps rely on authFunc without OnSessionResume
+				if session.Get(DefaultAuthSessionKey) == nil {
+					session.Set(DefaultAuthSessionKey, user)
+					session.Set(DefaultAuthSessionKey+":present", true)
+				}
+			}
+		} else {
+			// No authFunc means we rely on OnSessionResume
+			authValid = true
+		}
+
+		// Then run OnSessionResume hook to rehydrate auth data
+		var resumeErr error
+		if s.config.OnSessionResume != nil {
+			resumeErr = s.config.OnSessionResume(r.Context(), session)
+		}
+
+		// Warn in dev mode if session was authenticated but no revalidation hooks are configured
+		if wasAuthenticated && s.authFunc == nil && s.config.OnSessionResume == nil {
+			if s.config.DevMode {
+				s.logger.Warn("session resume without auth revalidation hooks configured",
+					"session_id", hello.SessionID,
+					"hint", "Configure authFunc or OnSessionResume to revalidate auth on resume")
+			}
+		}
+
+		// If the session was previously authenticated but auth is now invalid, reject resume
+		if wasAuthenticated && (!authValid || resumeErr != nil) {
+			s.logger.Warn("session resume rejected: auth no longer valid",
+				"session_id", hello.SessionID,
+				"was_authenticated", wasAuthenticated,
+				"auth_valid", authValid,
+				"resume_error", resumeErr)
+			s.sendHandshakeError(conn, protocol.HandshakeNotAuthorized)
+			conn.Close()
+			// Clean up the session since auth failed
+			session.Close()
+			s.sessions.Close(session.ID)
+			return
+		}
+
+		// If there was a resume error but session was not authenticated, log it but continue
+		if resumeErr != nil {
+			s.logger.Debug("session resume hook returned error for guest session",
+				"session_id", hello.SessionID,
+				"error", resumeErr)
+		}
+
 		// Resume existing session with soft remount
 		session.Resume(conn, uint64(hello.LastSeq))
 

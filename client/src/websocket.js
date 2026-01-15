@@ -120,13 +120,11 @@ export class WebSocketManager {
 
         // First message after connection is ServerHello
         if (!this.handshakeComplete) {
-            const hello = this.client.codec.decodeServerHello(buffer);
-
-            if (hello.error) {
-                if (this.client.options.debug) {
-                    console.error('[Vango] Handshake error:', hello.error);
-                }
-                this.client._onError(new Error(hello.error));
+            let hello;
+            try {
+                hello = this.client.codec.decodeServerHello(buffer);
+            } catch (err) {
+                this.client._handleProtocolError(err, 'handshake');
                 return;
             }
 

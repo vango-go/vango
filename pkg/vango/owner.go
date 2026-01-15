@@ -271,7 +271,7 @@ func estimateAnyMemory(value any, depth int) int64 {
 		return 8
 	case reflect.Float32, reflect.Float64:
 		return 8
-	case reflect.Interface, reflect.Pointer, reflect.Ptr:
+	case reflect.Interface, reflect.Ptr:
 		if v.IsNil() {
 			return 0
 		}

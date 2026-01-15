@@ -91,3 +91,30 @@ func TestSessionManager_EvictOversizedSessions(t *testing.T) {
 		t.Fatalf("Count()=%d, want 0 after oversized eviction", sm.Count())
 	}
 }
+
+func TestSessionManager_CleanupLoopEvictsOversized(t *testing.T) {
+	cfg := DefaultSessionConfig()
+	limits := DefaultSessionLimits()
+	limits.MaxMemoryPerSession = 1
+
+	sm := NewSessionManager(cfg, limits, slog.Default())
+	t.Cleanup(func() { sm.Shutdown() })
+
+	sm.SetCleanupInterval(10 * time.Millisecond)
+
+	session := newSession(nil, "", cfg, slog.Default())
+	session.LastActive = time.Now()
+	sm.mu.Lock()
+	sm.sessions[session.ID] = session
+	sm.mu.Unlock()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if sm.Count() == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatalf("Count()=%d, want 0 after cleanup loop eviction", sm.Count())
+}

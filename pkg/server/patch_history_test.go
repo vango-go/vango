@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"sync"
 	"testing"
 )
@@ -204,6 +205,25 @@ func TestPatchHistory_MemoryUsageTracksFrames(t *testing.T) {
 	afterClear := h.MemoryUsage()
 	if afterClear >= afterAdd {
 		t.Errorf("MemoryUsage should decrease after clear (before=%d after=%d)", afterAdd, afterClear)
+	}
+}
+
+func TestPatchHistory_MemoryUsageStableAfterOverwrite(t *testing.T) {
+	h := NewPatchHistory(3)
+	frame := bytes.Repeat([]byte("a"), 1024)
+
+	for i := 0; i < 3; i++ {
+		h.Add(uint64(i+1), frame)
+	}
+	baseline := h.MemoryUsage()
+
+	for i := 0; i < 100; i++ {
+		h.Add(uint64(i+4), frame)
+	}
+	after := h.MemoryUsage()
+
+	if after != baseline {
+		t.Errorf("MemoryUsage should remain stable after overwrite (before=%d after=%d)", baseline, after)
 	}
 }
 

@@ -46,11 +46,30 @@ type Config struct {
 	//
 	// Example:
 	//   OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
-	//       if user := auth.UserFromContext(httpCtx); user != nil {
-	//           s.Set("user", user)
+	//       if user := myauth.UserFromContext(httpCtx); user != nil {
+	//           auth.Set(s, user)  // Use auth.Set to set presence flag
 	//       }
 	//   }
 	OnSessionStart func(httpCtx context.Context, s *Session)
+
+	// OnSessionResume is called when resuming an existing WebSocket session.
+	// Use this to rehydrate session data from the HTTP context (e.g., re-validate auth).
+	//
+	// Unlike OnSessionStart, this is called when resuming after disconnect.
+	// Return nil to allow the resume, or an error to reject it.
+	//
+	// Example:
+	//   OnSessionResume: func(httpCtx context.Context, s *vango.Session) error {
+	//       user, err := myauth.ValidateFromContext(httpCtx)
+	//       if err != nil {
+	//           return err  // Reject resume if previously authenticated
+	//       }
+	//       if user != nil {
+	//           auth.Set(s, user)
+	//       }
+	//       return nil
+	//   }
+	OnSessionResume func(httpCtx context.Context, s *Session) error
 }
 
 // SessionConfig configures session behavior.
@@ -307,6 +326,9 @@ func buildServerConfig(cfg Config) *server.ServerConfig {
 	// Context bridge
 	if cfg.OnSessionStart != nil {
 		serverCfg.OnSessionStart = cfg.OnSessionStart
+	}
+	if cfg.OnSessionResume != nil {
+		serverCfg.OnSessionResume = cfg.OnSessionResume
 	}
 
 	return serverCfg

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/render"
 	"github.com/vango-go/vango/pkg/routepath"
 	"github.com/vango-go/vango/pkg/router"
@@ -215,7 +216,10 @@ func (a *App) renderPage(w http.ResponseWriter, r *http.Request, match *router.M
 	if mwErr != nil {
 		if a.router.ErrorPage() != nil {
 			// Prefer the configured error page if present.
-			if ctx.status == http.StatusOK {
+			// Map auth errors to appropriate HTTP status codes
+			if code, ok := auth.StatusCode(mwErr); ok {
+				ctx.status = code
+			} else if ctx.status == http.StatusOK {
 				ctx.status = http.StatusInternalServerError
 			}
 			errNode := a.router.ErrorPage()(ctx, mwErr)
@@ -246,7 +250,12 @@ func (a *App) renderPage(w http.ResponseWriter, r *http.Request, match *router.M
 		}
 
 		a.logger.Error("middleware failed", "error", mwErr)
-		http.Error(w, mwErr.Error(), http.StatusInternalServerError)
+		// Map auth errors to appropriate HTTP status codes
+		if code, ok := auth.StatusCode(mwErr); ok {
+			http.Error(w, mwErr.Error(), code)
+		} else {
+			http.Error(w, mwErr.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -315,7 +324,10 @@ func (a *App) handleAPI(w http.ResponseWriter, r *http.Request, match *router.Ma
 
 	if mwErr != nil {
 		ctx.applyTo(w)
-		if sc, ok := mwErr.(interface{ StatusCode() int }); ok {
+		// Map auth errors to appropriate HTTP status codes first
+		if code, ok := auth.StatusCode(mwErr); ok {
+			ctx.status = code
+		} else if sc, ok := mwErr.(interface{ StatusCode() int }); ok {
 			ctx.status = sc.StatusCode()
 		}
 		w.Header().Set("Content-Type", "application/json")

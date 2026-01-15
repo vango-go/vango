@@ -196,7 +196,6 @@ describe('BinaryCodec handshake', () => {
             const frame = buildServerHelloFrame(0x00, 'sess-abc');
             const result = codec.decodeServerHello(frame);
 
-            expect(result.error).toBeUndefined();
             expect(result.status).toBe(0x00);
             expect(result.ok).toBe(true);
         });
@@ -257,9 +256,7 @@ describe('BinaryCodec handshake', () => {
 
         test('returns error for buffer too short', () => {
             const shortBuffer = new Uint8Array([0x00, 0x00, 0x00]);
-            const result = codec.decodeServerHello(shortBuffer);
-
-            expect(result.error).toBeDefined();
+            expect(() => codec.decodeServerHello(shortBuffer)).toThrow();
         });
 
         test('returns error for wrong frame type', () => {
@@ -270,9 +267,7 @@ describe('BinaryCodec handshake', () => {
                 0x01,
                 0x00,
             ]);
-            const result = codec.decodeServerHello(wrongType);
-
-            expect(result.error).toBeDefined();
+            expect(() => codec.decodeServerHello(wrongType)).toThrow();
         });
     });
 

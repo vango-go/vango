@@ -242,11 +242,35 @@ type ServerConfig struct {
 	//
 	// Example:
 	//     OnSessionStart: func(httpCtx context.Context, session *Session) {
-	//         if user := auth.UserFromContext(httpCtx); user != nil {
-	//             session.Set("vango_auth_user", user)
+	//         if user := myauth.UserFromContext(httpCtx); user != nil {
+	//             auth.Set(session, user)  // Use auth.Set to set presence flag
 	//         }
 	//     }
 	OnSessionStart func(httpCtx context.Context, session *Session)
+
+	// OnSessionResume is called during WebSocket session resume, BEFORE the handshake completes.
+	// Use this to rehydrate session data from the HTTP context (e.g., re-validate and restore user).
+	//
+	// Unlike OnSessionStart, this is called when resuming an existing session after disconnect.
+	// The session's signal state is preserved, but auth data should be revalidated from cookies/headers.
+	//
+	// Return nil to allow the resume, or an error to reject it.
+	// If an error is returned and the session was previously authenticated (auth.WasAuthenticated),
+	// the resume is rejected with HandshakeNotAuthorized. If the session was not authenticated,
+	// an error is logged but the resume continues as a guest session.
+	//
+	// Example:
+	//     OnSessionResume: func(httpCtx context.Context, session *Session) error {
+	//         user, err := myauth.ValidateFromContext(httpCtx)
+	//         if err != nil {
+	//             return err  // Reject resume if previously authenticated
+	//         }
+	//         if user != nil {
+	//             auth.Set(session, user)
+	//         }
+	//         return nil
+	//     }
+	OnSessionResume func(httpCtx context.Context, session *Session) error
 
 	// TrustedProxies lists trusted reverse proxy IPs for X-Forwarded-* headers.
 	// If set, the server will trust forwarded headers (including X-Forwarded-Proto)

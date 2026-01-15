@@ -118,6 +118,17 @@ const HookValueType = {
 };
 
 /**
+ * Protocol limits (match pkg/protocol/*)
+ */
+const MaxVarintLen = 10;
+const DefaultMaxAllocation = 4 * 1024 * 1024;
+const HardMaxAllocation = 16 * 1024 * 1024;
+const MaxCollectionCount = 100000;
+const MaxVNodeDepth = 256;
+const MaxPatchDepth = 128;
+const MaxFramePayload = 0xFFFF;
+
+/**
  * Binary codec for Vango protocol
  */
 export class BinaryCodec {
@@ -221,6 +232,14 @@ export class BinaryCodec {
      * Format: [seq][count][patch...]
      */
     decodePatches(buffer) {
+        return this._decodePatchesWithDepth(buffer, 0);
+    }
+
+    _decodePatchesWithDepth(buffer, depth) {
+        if (depth > MaxPatchDepth) {
+            throw new Error('Protocol decode: patch depth exceeded');
+        }
+
         let offset = 0;
 
         // Read sequence number
@@ -228,12 +247,12 @@ export class BinaryCodec {
         offset += seqBytes;
 
         // Read patch count
-        const { value: count, bytesRead: countBytes } = this.decodeUvarint(buffer, offset);
+        const { value: count, bytesRead: countBytes } = this.decodeCollectionCount(buffer, offset);
         offset += countBytes;
 
         const patches = [];
         for (let i = 0; i < count; i++) {
-            const { patch, bytesRead } = this.decodePatch(buffer, offset);
+            const { patch, bytesRead } = this.decodePatch(buffer, offset, depth + 1);
             patches.push(patch);
             offset += bytesRead;
         }
@@ -244,11 +263,16 @@ export class BinaryCodec {
     /**
      * Decode single patch
      */
-    decodePatch(buffer, offset) {
+    decodePatch(buffer, offset, depth) {
+        if (depth > MaxPatchDepth) {
+            throw new Error('Protocol decode: patch depth exceeded');
+        }
+
         const startOffset = offset;
         const patch = {};
 
         // Patch type
+        this._ensureAvailable(buffer, offset, 1, 'patch type');
         patch.type = buffer[offset++];
 
         // Target HID
@@ -300,7 +324,7 @@ export class BinaryCodec {
                 offset += parentBytes;
                 const { value: index, bytesRead: indexBytes } = this.decodeUvarint(buffer, offset);
                 offset += indexBytes;
-                const { vnode, bytesRead: vnodeBytes } = this.decodeVNode(buffer, offset);
+                const { vnode, bytesRead: vnodeBytes } = this.decodeVNode(buffer, offset, 0);
                 offset += vnodeBytes;
                 patch.parentID = parentID;
                 patch.index = index;
@@ -323,7 +347,7 @@ export class BinaryCodec {
             }
 
             case PatchType.REPLACE_NODE: {
-                const { vnode, bytesRead: vnodeBytes } = this.decodeVNode(buffer, offset);
+                const { vnode, bytesRead: vnodeBytes } = this.decodeVNode(buffer, offset, 0);
                 offset += vnodeBytes;
                 patch.vnode = vnode;
                 break;
@@ -331,6 +355,7 @@ export class BinaryCodec {
 
             case PatchType.SET_CHECKED:
             case PatchType.SET_SELECTED: {
+                this._ensureAvailable(buffer, offset, 1, 'boolean');
                 patch.value = buffer[offset++] === 1;
                 break;
             }
@@ -347,6 +372,7 @@ export class BinaryCodec {
                 offset += yBytes;
                 patch.x = x;
                 patch.y = y;
+                this._ensureAvailable(buffer, offset, 1, 'scroll behavior');
                 patch.behavior = buffer[offset++]; // 0 = instant, 1 = smooth
                 break;
             }
@@ -367,7 +393,7 @@ export class BinaryCodec {
             case PatchType.URL_PUSH:
             case PatchType.URL_REPLACE: {
                 // Decode params: count + key/value pairs
-                const { value: count, bytesRead: countBytes } = this.decodeUvarint(buffer, offset);
+                const { value: count, bytesRead: countBytes } = this.decodeCollectionCount(buffer, offset);
                 offset += countBytes;
                 patch.params = {};
                 for (let i = 0; i < count; i++) {
@@ -392,8 +418,7 @@ export class BinaryCodec {
             }
 
             default:
-                // Unknown patch type - skip for forward compatibility
-                break;
+                throw new Error(`Protocol decode: unknown patch type ${patch.type}`);
         }
 
         return { patch, bytesRead: offset - startOffset };
@@ -402,12 +427,21 @@ export class BinaryCodec {
     /**
      * Decode VNode from buffer
      */
-    decodeVNode(buffer, offset) {
+    decodeVNode(buffer, offset, depth = 0) {
+        if (depth > MaxVNodeDepth) {
+            throw new Error('Protocol decode: VNode depth exceeded');
+        }
+
         const startOffset = offset;
         const vnode = {};
 
         // Node type
+        this._ensureAvailable(buffer, offset, 1, 'vnode type');
         const nodeType = buffer[offset++];
+
+        if (nodeType === 0xFF) {
+            return { vnode: null, bytesRead: offset - startOffset };
+        }
 
         switch (nodeType) {
             case VNodeType.ELEMENT: {
@@ -424,7 +458,7 @@ export class BinaryCodec {
                 offset += hidBytes;
 
                 // Attributes count and key-value pairs
-                const { value: attrCount, bytesRead: attrCountBytes } = this.decodeUvarint(buffer, offset);
+                const { value: attrCount, bytesRead: attrCountBytes } = this.decodeCollectionCount(buffer, offset);
                 offset += attrCountBytes;
                 vnode.attrs = {};
 
@@ -437,12 +471,12 @@ export class BinaryCodec {
                 }
 
                 // Children count and nodes
-                const { value: childCount, bytesRead: childCountBytes } = this.decodeUvarint(buffer, offset);
+                const { value: childCount, bytesRead: childCountBytes } = this.decodeCollectionCount(buffer, offset);
                 offset += childCountBytes;
                 vnode.children = [];
 
                 for (let i = 0; i < childCount; i++) {
-                    const { vnode: child, bytesRead: childBytes } = this.decodeVNode(buffer, offset);
+                    const { vnode: child, bytesRead: childBytes } = this.decodeVNode(buffer, offset, depth + 1);
                     vnode.children.push(child);
                     offset += childBytes;
                 }
@@ -459,12 +493,12 @@ export class BinaryCodec {
 
             case VNodeType.FRAGMENT: {
                 vnode.type = 'fragment';
-                const { value: childCount, bytesRead: countBytes } = this.decodeUvarint(buffer, offset);
+                const { value: childCount, bytesRead: countBytes } = this.decodeCollectionCount(buffer, offset);
                 offset += countBytes;
                 vnode.children = [];
 
                 for (let i = 0; i < childCount; i++) {
-                    const { vnode: child, bytesRead: childBytes } = this.decodeVNode(buffer, offset);
+                    const { vnode: child, bytesRead: childBytes } = this.decodeVNode(buffer, offset, depth + 1);
                     vnode.children.push(child);
                     offset += childBytes;
                 }
@@ -472,7 +506,7 @@ export class BinaryCodec {
             }
 
             default:
-                vnode.type = 'unknown';
+                throw new Error(`Protocol decode: unknown vnode type ${nodeType}`);
         }
 
         return { vnode, bytesRead: offset - startOffset };
@@ -492,7 +526,11 @@ export class BinaryCodec {
      */
     decodeString(buffer, offset) {
         const { value: length, bytesRead: lengthBytes } = this.decodeUvarint(buffer, offset);
-        const strBytes = buffer.slice(offset + lengthBytes, offset + lengthBytes + length);
+        this._checkAllocation(length, 'string');
+        const start = offset + lengthBytes;
+        const end = start + length;
+        this._ensureAvailable(buffer, start, length, 'string bytes');
+        const strBytes = buffer.slice(start, end);
         const value = this.textDecoder.decode(strBytes);
         return { value, bytesRead: lengthBytes + length };
     }
@@ -519,9 +557,23 @@ export class BinaryCodec {
         let bytesRead = 0;
 
         while (true) {
+            if (offset + bytesRead >= buffer.length) {
+                throw new Error('Protocol decode: buffer too short for varint');
+            }
+            if (bytesRead >= MaxVarintLen) {
+                throw new Error('Protocol decode: varint overflow');
+            }
+            if (shift > 53) {
+                throw new Error('Protocol decode: varint exceeds JS safe integer');
+            }
+
             const byte = buffer[offset + bytesRead];
             bytesRead++;
-            value |= (byte & 0x7F) << shift;
+
+            value += (byte & 0x7F) * Math.pow(2, shift);
+            if (!Number.isSafeInteger(value)) {
+                throw new Error('Protocol decode: varint exceeds JS safe integer');
+            }
 
             if ((byte & 0x80) === 0) {
                 break;
@@ -546,8 +598,7 @@ export class BinaryCodec {
      */
     decodeSvarint(buffer, offset) {
         const { value: zigzag, bytesRead } = this.decodeUvarint(buffer, offset);
-        // ZigZag decode: (n >>> 1) ^ -(n & 1)
-        const value = (zigzag >>> 1) ^ -(zigzag & 1);
+        const value = (zigzag % 2 === 0) ? (zigzag / 2) : -((zigzag + 1) / 2);
         return { value, bytesRead };
     }
 
@@ -564,8 +615,24 @@ export class BinaryCodec {
      */
     decodeLenBytes(buffer, offset) {
         const { value: length, bytesRead: lengthBytes } = this.decodeUvarint(buffer, offset);
-        const bytes = buffer.slice(offset + lengthBytes, offset + lengthBytes + length);
+        this._checkAllocation(length, 'bytes');
+        const start = offset + lengthBytes;
+        const end = start + length;
+        this._ensureAvailable(buffer, start, length, 'bytes');
+        const bytes = buffer.slice(start, end);
         return { value: bytes, bytesRead: lengthBytes + length };
+    }
+
+    decodeCollectionCount(buffer, offset) {
+        const { value: count, bytesRead } = this.decodeUvarint(buffer, offset);
+        if (count > MaxCollectionCount) {
+            throw new Error('Protocol decode: collection count exceeds limit');
+        }
+        const remaining = buffer.length - (offset + bytesRead);
+        if (count > remaining) {
+            throw new Error('Protocol decode: collection count exceeds remaining buffer');
+        }
+        return { value: count, bytesRead };
     }
 
     /**
@@ -844,20 +911,27 @@ export class BinaryCodec {
     decodeServerHello(buffer) {
         // Need at least 4-byte header + 1-byte status
         if (buffer.length < 5) {
-            return { error: 'Buffer too short' };
+            throw new Error('Protocol decode: handshake frame too short');
         }
 
         // Frame header: [type:1][flags:1][len:2]
         const frameType = buffer[0];
         if (frameType !== 0x00) {
-            return { error: `Unexpected frame type: ${frameType}` };
+            throw new Error(`Protocol decode: unexpected frame type ${frameType}`);
         }
-        // Skip flags (buffer[1]) and length (buffer[2-3])
+        const length = (buffer[2] << 8) | buffer[3];
+        if (length > MaxFramePayload) {
+            throw new Error('Protocol decode: handshake payload exceeds max size');
+        }
+        if (buffer.length !== 4 + length) {
+            throw new Error('Protocol decode: handshake length mismatch');
+        }
 
         // Start at payload (offset 4)
         let offset = 4;
 
         // Status byte
+        this._ensureAvailable(buffer, offset, 1, 'handshake status');
         const status = buffer[offset++];
 
         // Session ID
@@ -896,6 +970,7 @@ export class BinaryCodec {
      * Decode uint16 big-endian (matches Go protocol)
      */
     decodeUint16(buffer, offset) {
+        this._ensureAvailable(buffer, offset, 2, 'uint16');
         return (buffer[offset] << 8) | buffer[offset + 1];
     }
 
@@ -922,9 +997,10 @@ export class BinaryCodec {
      * Decode uint32 big-endian (matches Go protocol)
      */
     decodeUint32(buffer, offset) {
-        return (buffer[offset] << 24) |
-            (buffer[offset + 1] << 16) |
-            (buffer[offset + 2] << 8) |
+        this._ensureAvailable(buffer, offset, 4, 'uint32');
+        return (buffer[offset] * 0x1000000) +
+            (buffer[offset + 1] << 16) +
+            (buffer[offset + 2] << 8) +
             buffer[offset + 3];
     }
 
@@ -935,7 +1011,26 @@ export class BinaryCodec {
     decodeUint64(buffer, offset) {
         const high = this.decodeUint32(buffer, offset);
         const low = this.decodeUint32(buffer, offset + 4);
-        return high * 0x100000000 + low;
+        const value = high * 0x100000000 + low;
+        if (!Number.isSafeInteger(value)) {
+            throw new Error('Protocol decode: uint64 exceeds JS safe integer');
+        }
+        return value;
+    }
+
+    _checkAllocation(length, context) {
+        if (length > HardMaxAllocation) {
+            throw new Error(`Protocol decode: ${context} exceeds hard cap`);
+        }
+        if (length > DefaultMaxAllocation) {
+            throw new Error(`Protocol decode: ${context} exceeds max allocation`);
+        }
+    }
+
+    _ensureAvailable(buffer, offset, needed, context) {
+        if (offset + needed > buffer.length) {
+            throw new Error(`Protocol decode: buffer too short for ${context}`);
+        }
     }
 
     /**

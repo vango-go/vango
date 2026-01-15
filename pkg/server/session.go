@@ -1773,6 +1773,13 @@ func (s *Session) Serialize() ([]byte, error) {
 	if data := s.GetAllData(); data != nil {
 		values = make(map[string]json.RawMessage, len(data))
 		for k, v := range data {
+			// Skip the user object - it's not JSON-stable and must be rehydrated
+			// from cookies/headers on resume via OnSessionResume.
+			// Keep the presence flag (DefaultAuthSessionKey + ":present") to detect
+			// whether the session was authenticated before.
+			if k == DefaultAuthSessionKey {
+				continue
+			}
 			b, err := json.Marshal(v)
 			if err != nil {
 				// Skip unserializable values
@@ -1885,7 +1892,12 @@ func (s *Session) HandleNavigate(path string, replace bool) error {
 
 	if result.Error != nil {
 		s.logger.Error("navigation error", "path", path, "error", result.Error)
-		s.sendErrorMessage(protocol.ErrRouteError, result.Error.Error())
+		// Map auth errors to ErrNotAuthorized protocol error
+		if IsAuthError(result.Error) {
+			s.sendErrorMessage(protocol.ErrNotAuthorized, result.Error.Error())
+		} else {
+			s.sendErrorMessage(protocol.ErrRouteError, result.Error.Error())
+		}
 		return result.Error
 	}
 

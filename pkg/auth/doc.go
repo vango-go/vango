@@ -5,6 +5,14 @@
 // middleware in Layer 1 (the infrastructure layer). Instead, it provides
 // type-safe access to the user data that was hydrated via the Context Bridge.
 //
+// # SSR and WebSocket Compatibility
+//
+// The auth package works seamlessly in both SSR and WebSocket modes:
+//
+//   - auth.Get and auth.IsAuthenticated use ctx.User() as the source of truth
+//   - ctx.User() checks: per-request user (SetUser) → session data → HTTP request context (SSR)
+//   - This means the same component code works in both modes
+//
 // # The Two-Layer Architecture
 //
 // Vango operates across two distinct lifecycles:
@@ -28,16 +36,40 @@
 // After this runs, r.Context() is dead (HTTP request complete), but the
 // session persists with the hydrated user data.
 //
+// # Session Resume
+//
+// When a client reconnects (e.g., after a page refresh within ResumeWindow),
+// auth data is revalidated via OnSessionResume:
+//
+//	OnSessionResume: func(httpCtx context.Context, session *vango.Session) error {
+//	    user, err := myauth.ValidateFromContext(httpCtx)
+//	    if err != nil {
+//	        return err  // Reject resume if previously authenticated
+//	    }
+//	    if user != nil {
+//	        auth.Set(session, user)
+//	    }
+//	    return nil
+//	}
+//
+// Important: User objects are NOT serialized to session storage. They must be
+// rehydrated from cookies/headers on each handshake and resume. This ensures
+// auth state is always validated against the current request.
+//
 // # Basic Usage
 //
-// For routes that require authentication:
+// Use middleware to protect routes that require authentication:
 //
-//	func Dashboard(ctx vango.Ctx) (vango.Component, error) {
-//	    user, err := auth.Require[*models.User](ctx)
-//	    if err != nil {
-//	        return nil, err // Returns 401, handled by error boundary
-//	    }
-//	    return renderDashboard(user), nil
+//	// In app/routes/dashboard/middleware.go
+//	func Middleware() []router.Middleware {
+//	    return []router.Middleware{auth.RequireAuth}
+//	}
+//
+//	// In app/routes/dashboard/page.go
+//	func Dashboard(ctx vango.Ctx) vango.Component {
+//	    // Middleware guarantees user is authenticated
+//	    user, _ := auth.Get[*models.User](ctx)
+//	    return renderDashboard(user)
 //	}
 //
 // For routes where auth is optional (guest allowed):
@@ -48,6 +80,28 @@
 //	        return renderLoggedInHome(user)
 //	    }
 //	    return renderGuestHome()
+//	}
+//
+// # Login and Logout
+//
+// Use auth.Login to authenticate a user during the session:
+//
+//	func HandleLogin(ctx vango.Ctx, email, password string) error {
+//	    user, err := validateCredentials(email, password)
+//	    if err != nil {
+//	        return err
+//	    }
+//	    auth.Login(ctx, user)  // Sets both request context and session
+//	    ctx.Navigate("/dashboard")
+//	    return nil
+//	}
+//
+// Use auth.Logout to clear authentication:
+//
+//	func HandleLogout(ctx vango.Ctx) error {
+//	    auth.Logout(ctx)
+//	    ctx.Navigate("/")
+//	    return nil
 //	}
 //
 // # Middleware
@@ -62,6 +116,26 @@
 //	            return u.IsAdmin
 //	        }),
 //	    }
+//	}
+//
+// # Error Handling
+//
+// Auth errors are mapped to appropriate HTTP status codes:
+//
+//   - auth.ErrUnauthorized → 401 Unauthorized
+//   - auth.ErrForbidden → 403 Forbidden
+//
+// In SSR and API routes, these errors produce the correct HTTP status.
+// In WebSocket navigation, they produce protocol.ErrNotAuthorized.
+//
+// Use auth.Require in action handlers for explicit error handling:
+//
+//	func DeleteProject(ctx vango.Ctx, id int) error {
+//	    user, err := auth.Require[*models.User](ctx)
+//	    if err != nil {
+//	        return err  // Returns 401/ErrNotAuthorized
+//	    }
+//	    // ... delete logic
 //	}
 //
 // # Type Safety
