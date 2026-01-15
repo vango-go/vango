@@ -35,14 +35,14 @@ func (s *recordingStore) Claim(string) (*upload.File, error) {
 }
 func (s *recordingStore) Cleanup(_ time.Duration) error { return errors.New("not implemented") }
 
-func newMultipartUploadRequest(t *testing.T, contentTypeHeader string, content []byte) (*http.Request, string) {
+func newMultipartUploadRequest(t *testing.T, filename string, contentTypeHeader string, content []byte) (*http.Request, string) {
 	t.Helper()
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
 	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", `form-data; name="file"; filename="test.txt"`)
+	h.Set("Content-Disposition", `form-data; name="file"; filename="`+filename+`"`)
 	if contentTypeHeader != "" {
 		h.Set("Content-Type", contentTypeHeader)
 	}
@@ -61,7 +61,7 @@ func newMultipartUploadRequest(t *testing.T, contentTypeHeader string, content [
 
 	req := httptest.NewRequest(http.MethodPost, "/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	return req, "test.txt"
+	return req, filename
 }
 
 func TestHandler_RejectsNonPOST(t *testing.T) {
@@ -125,7 +125,9 @@ func TestHandler_EnforcesAllowedTypes(t *testing.T) {
 		TempExpiry:   0,
 	})
 
-	req, _ := newMultipartUploadRequest(t, "image/jpeg; charset=binary", []byte("x"))
+	// Spoof Content-Type header, but upload bytes are JPEG.
+	content := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0x01}
+	req, _ := newMultipartUploadRequest(t, "test.png", "image/png; charset=binary", content)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -163,8 +165,8 @@ func TestHandler_AllowsAllowedTypes_CaseAndParams(t *testing.T) {
 		AllowedTypes: []string{"IMAGE/PNG"},
 	})
 
-	content := []byte("hello")
-	req, _ := newMultipartUploadRequest(t, "Image/PNG; charset=utf-8", content)
+	content := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}, []byte("not a real png, but signature is enough")...)
+	req, _ := newMultipartUploadRequest(t, "test.png", "Image/PNG; charset=utf-8", content)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -184,11 +186,11 @@ func TestHandler_AllowsAllowedTypes_CaseAndParams(t *testing.T) {
 		t.Fatalf("temp_id = %q, want %q", resp["temp_id"], "abc123")
 	}
 
-	if got.filename != "test.txt" {
-		t.Fatalf("Save filename = %q, want %q", got.filename, "test.txt")
+	if got.filename != "test.png" {
+		t.Fatalf("Save filename = %q, want %q", got.filename, "test.png")
 	}
-	if got.contentType != "Image/PNG; charset=utf-8" {
-		t.Fatalf("Save contentType = %q, want %q", got.contentType, "Image/PNG; charset=utf-8")
+	if got.contentType != "image/png" {
+		t.Fatalf("Save contentType = %q, want %q", got.contentType, "image/png")
 	}
 	if got.size != int64(len(content)) {
 		t.Fatalf("Save size = %d, want %d", got.size, len(content))
@@ -198,12 +200,62 @@ func TestHandler_AllowsAllowedTypes_CaseAndParams(t *testing.T) {
 	}
 }
 
+func TestHandler_EnforcesAllowedExtensions(t *testing.T) {
+	store := &recordingStore{
+		saveFn: func(string, string, int64, io.Reader) (string, error) {
+			t.Fatal("Save should not be called when extension is rejected")
+			return "", nil
+		},
+	}
+
+	h := upload.HandlerWithConfig(store, &upload.Config{
+		MaxFileSize:       1024 * 1024,
+		AllowedTypes:      []string{"image/png"},
+		AllowedExtensions: []string{".png"},
+	})
+
+	content := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}
+	req, _ := newMultipartUploadRequest(t, "test.jpg", "image/png", content)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnsupportedMediaType)
+	}
+}
+
+func TestHandler_RequireExtensionMatchRejectsMismatch(t *testing.T) {
+	store := &recordingStore{
+		saveFn: func(string, string, int64, io.Reader) (string, error) {
+			t.Fatal("Save should not be called when extension does not match detected type")
+			return "", nil
+		},
+	}
+
+	h := upload.HandlerWithConfig(store, &upload.Config{
+		MaxFileSize:           1024 * 1024,
+		AllowedTypes:          []string{"image/png"},
+		RequireExtensionMatch: true,
+	})
+
+	content := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}
+	req, _ := newMultipartUploadRequest(t, "test.jpg", "image/png", content)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnsupportedMediaType)
+	}
+}
+
 func TestHandler_RejectsTooLargeBodyAtHTTPLevel(t *testing.T) {
 	h := upload.HandlerWithConfig(&recordingStore{}, &upload.Config{
 		MaxFileSize: 16, // intentionally tiny; includes multipart overhead
 	})
 
-	req, _ := newMultipartUploadRequest(t, "text/plain", bytes.Repeat([]byte("a"), 256))
+	req, _ := newMultipartUploadRequest(t, "test.txt", "text/plain", bytes.Repeat([]byte("a"), 256))
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -223,7 +275,7 @@ func TestHandler_MapsStoreErrTooLargeTo413(t *testing.T) {
 		MaxFileSize: 1024 * 1024,
 	})
 
-	req, _ := newMultipartUploadRequest(t, "text/plain", []byte("x"))
+	req, _ := newMultipartUploadRequest(t, "test.txt", "text/plain", []byte("x"))
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -243,7 +295,7 @@ func TestHandler_MapsStoreErrorTo500(t *testing.T) {
 		MaxFileSize: 1024 * 1024,
 	})
 
-	req, _ := newMultipartUploadRequest(t, "text/plain", []byte("x"))
+	req, _ := newMultipartUploadRequest(t, "test.txt", "text/plain", []byte("x"))
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)

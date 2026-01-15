@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/vango-go/vango/pkg/protocol"
+	"github.com/vango-go/vango/pkg/routepath"
 	"github.com/vango-go/vango/pkg/vango"
 	"github.com/vango-go/vango/pkg/vdom"
 )
@@ -60,42 +60,12 @@ type Router interface {
 // =============================================================================
 
 // CanonicalizePath normalizes a URL path for navigation.
-// This is a simplified version that handles the most common cases.
-// For full canonicalization, use router.CanonicalizePath.
 func CanonicalizePath(path string) (canonPath, query string, changed bool, err error) {
-	if path == "" {
-		return "/", "", true, nil
+	result, err := routepath.CanonicalizePath(path)
+	if err != nil {
+		return "", "", false, err
 	}
-
-	// Split path and query
-	canonPath, query, _ = strings.Cut(path, "?")
-
-	// SECURITY: Reject backslash and null
-	if strings.Contains(canonPath, "\\") {
-		return "", "", false, errors.New("path contains backslash")
-	}
-	if strings.Contains(canonPath, "\x00") {
-		return "", "", false, errors.New("path contains null byte")
-	}
-
-	original := canonPath
-
-	// Ensure starts with /
-	if !strings.HasPrefix(canonPath, "/") {
-		canonPath = "/" + canonPath
-	}
-
-	// Collapse multiple slashes
-	for strings.Contains(canonPath, "//") {
-		canonPath = strings.ReplaceAll(canonPath, "//", "/")
-	}
-
-	// Remove trailing slash (except root)
-	if len(canonPath) > 1 && strings.HasSuffix(canonPath, "/") {
-		canonPath = strings.TrimSuffix(canonPath, "/")
-	}
-
-	return canonPath, query, canonPath != original, nil
+	return result.Path, result.Query, result.Changed, nil
 }
 
 // =============================================================================
@@ -179,8 +149,7 @@ func (rn *RouteNavigator) Navigate(path string, replace bool) *NavigateResult {
 	const maxRedirects = 10
 
 	for redirects := 0; redirects <= maxRedirects; redirects++ {
-		// Canonicalize the path
-		canonPath, query, changed, err := CanonicalizePath(path)
+		canonPath, query, changed, err := canonicalizeNavPath(path)
 		if err != nil {
 			result.Error = err
 			return result
@@ -271,6 +240,16 @@ func (rn *RouteNavigator) Navigate(path string, replace bool) *NavigateResult {
 
 	result.Error = errors.New("too many redirects")
 	return result
+}
+
+func canonicalizeNavPath(path string) (canonPath, query string, changed bool, err error) {
+	fullPath, err := routepath.CanonicalizeAndValidateNavPath(path)
+	if err != nil {
+		return "", "", false, err
+	}
+
+	canonPath, query = routepath.SplitPathAndQuery(fullPath)
+	return canonPath, query, fullPath != path, nil
 }
 
 // simpleRouteMatch is a minimal implementation of RouteMatch for 404 pages.

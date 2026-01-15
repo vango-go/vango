@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vango-go/vango/pkg/protocol"
+	"github.com/vango-go/vango/pkg/routepath"
 )
 
 // Server is the main HTTP/WebSocket server for Vango.
@@ -261,17 +262,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Per Section 1.2.4 (Path Canonicalization):
 	// HTTP requests with non-canonical paths should redirect with 308 Permanent Redirect.
 	// This ensures consistent URL handling and prevents duplicate content issues.
-	if canonPath, query, changed, err := CanonicalizePath(r.URL.Path); err == nil && changed {
-		// Build canonical URL
-		canonURL := canonPath
-		if query != "" {
-			canonURL = canonPath + "?" + query
+	rawPath := r.URL.EscapedPath()
+	input := rawPath
+	if r.URL.RawQuery != "" {
+		input = rawPath + "?" + r.URL.RawQuery
+	}
+	if result, err := routepath.CanonicalizePath(input); err != nil {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	} else if result.Changed {
+		// Build canonical URL.
+		canonURL := result.Path
+		if result.Query != "" {
+			canonURL = result.Path + "?" + result.Query
 		} else if r.URL.RawQuery != "" {
-			canonURL = canonPath + "?" + r.URL.RawQuery
+			canonURL = result.Path + "?" + r.URL.RawQuery
 		}
 
-		// 308 Permanent Redirect preserves the HTTP method (unlike 301)
-		// This is important for POST/PUT/DELETE requests
+		// 308 Permanent Redirect preserves the HTTP method (unlike 301).
+		// This is important for POST/PUT/DELETE requests.
 		http.Redirect(w, r, canonURL, http.StatusPermanentRedirect)
 		return
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/vango-go/vango/pkg/features/store"
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/render"
+	"github.com/vango-go/vango/pkg/routepath"
 	"github.com/vango-go/vango/pkg/session"
 	"github.com/vango-go/vango/pkg/urlparam"
 	"github.com/vango-go/vango/pkg/vango"
@@ -1965,11 +1966,12 @@ func (s *Session) handlePrefetch(data []byte) {
 //   - Timeout: 100ms (abort if handler takes too long)
 func (s *Session) executePrefetch(path string) {
 	// Canonicalize the path
-	canonPath, query, _, err := CanonicalizePath(path)
+	canonFullPath, err := routepath.CanonicalizeAndValidateNavPath(path)
 	if err != nil {
 		s.logger.Warn("prefetch path canonicalization failed", "path", path, "error", err)
 		return
 	}
+	canonPath, query := routepath.SplitPathAndQuery(canonFullPath)
 
 	// Check if already cached
 	if s.prefetchCache.Get(canonPath) != nil {

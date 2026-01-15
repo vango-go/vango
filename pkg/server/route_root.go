@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/vango-go/vango/pkg/routepath"
 	"github.com/vango-go/vango/pkg/vango"
 	"github.com/vango-go/vango/pkg/vdom"
 )
@@ -61,10 +62,11 @@ func newRouteRootComponent(session *Session, router Router, fullPath string) (Co
 		return nil, "", errors.New("router is nil")
 	}
 
-	canonPath, query, _, err := CanonicalizePath(fullPath)
+	canonFullPath, err := routepath.CanonicalizeAndValidateNavPath(fullPath)
 	if err != nil {
 		return nil, "", err
 	}
+	canonPath, query := routepath.SplitPathAndQuery(canonFullPath)
 
 	match, ok := router.Match("GET", canonPath)
 	if !ok {

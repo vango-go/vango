@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -119,9 +121,34 @@ func HandlerWithConfig(store Store, config *Config) http.Handler {
 		}
 		defer file.Close()
 
+		// SECURITY: Never trust client-provided part headers (e.g. Content-Type). Detect from bytes.
+		sniff := make([]byte, 512)
+		n, err := io.ReadFull(file, sniff)
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+			http.Error(w, "Failed to read upload", http.StatusBadRequest)
+			return
+		}
+		sniff = sniff[:n]
+		contentType := http.DetectContentType(sniff)
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			http.Error(w, "Failed to read upload", http.StatusBadRequest)
+			return
+		}
+
 		// Check MIME type if AllowedTypes is configured
-		contentType := header.Header.Get("Content-Type")
 		if len(config.AllowedTypes) > 0 && !isTypeAllowed(contentType, config.AllowedTypes) {
+			http.Error(w, "File type not allowed", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		// Optional extension allowlist.
+		if len(config.AllowedExtensions) > 0 && !isExtensionAllowed(header.Filename, config.AllowedExtensions) {
+			http.Error(w, "File type not allowed", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		// Optional extension-to-mime match enforcement.
+		if config.RequireExtensionMatch && !extensionMatchesType(header.Filename, contentType) {
 			http.Error(w, "File type not allowed", http.StatusUnsupportedMediaType)
 			return
 		}
@@ -175,6 +202,14 @@ type Config struct {
 	// If empty, all types are allowed.
 	AllowedTypes []string
 
+	// AllowedExtensions is a list of allowed filename extensions (e.g. ".png", "jpg").
+	// If empty, all extensions are allowed.
+	AllowedExtensions []string
+
+	// RequireExtensionMatch rejects uploads whose filename extension does not match the detected MIME type.
+	// This is an optional defense-in-depth check to avoid content-type/extension confusion.
+	RequireExtensionMatch bool
+
 	// TempExpiry is how long temp files live before cleanup.
 	// Default: 1 hour.
 	TempExpiry time.Duration
@@ -188,16 +223,107 @@ func DefaultConfig() *Config {
 	}
 }
 
+func normalizeMIMEType(contentType string) string {
+	if idx := strings.Index(contentType, ";"); idx != -1 {
+		contentType = contentType[:idx]
+	}
+	return strings.ToLower(strings.TrimSpace(contentType))
+}
+
 // isTypeAllowed checks if contentType is in the allowed list (case-insensitive).
 func isTypeAllowed(contentType string, allowed []string) bool {
-	// Normalize: take only the base MIME type (before ;)
-	if idx := strings.Index(contentType, ";"); idx != -1 {
-		contentType = strings.TrimSpace(contentType[:idx])
-	}
-	contentType = strings.ToLower(contentType)
+	contentType = normalizeMIMEType(contentType)
 
 	for _, a := range allowed {
-		if strings.ToLower(a) == contentType {
+		if normalizeMIMEType(a) == contentType {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeExtension(ext string) string {
+	ext = strings.TrimSpace(ext)
+	if ext == "" {
+		return ""
+	}
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	return strings.ToLower(ext)
+}
+
+func isExtensionAllowed(filename string, allowed []string) bool {
+	ext := normalizeExtension(filepath.Ext(filename))
+	if ext == "" {
+		return false
+	}
+	for _, a := range allowed {
+		if normalizeExtension(a) == ext {
+			return true
+		}
+	}
+	return false
+}
+
+func extensionMatchesType(filename, contentType string) bool {
+	ext := normalizeExtension(filepath.Ext(filename))
+	if ext == "" {
+		return false
+	}
+
+	baseType := normalizeMIMEType(contentType)
+	if baseType == "" {
+		return false
+	}
+
+	// Start with a small deterministic mapping for common types.
+	switch baseType {
+	case "image/jpeg":
+		if ext == ".jpg" || ext == ".jpeg" || ext == ".jpe" {
+			return true
+		}
+	case "image/png":
+		if ext == ".png" {
+			return true
+		}
+	case "image/gif":
+		if ext == ".gif" {
+			return true
+		}
+	case "image/webp":
+		if ext == ".webp" {
+			return true
+		}
+	case "application/pdf":
+		if ext == ".pdf" {
+			return true
+		}
+	case "text/plain":
+		if ext == ".txt" {
+			return true
+		}
+	case "text/html":
+		if ext == ".html" || ext == ".htm" {
+			return true
+		}
+	case "application/json":
+		if ext == ".json" {
+			return true
+		}
+	case "application/zip":
+		if ext == ".zip" {
+			return true
+		}
+	}
+
+	// Fall back to the Go MIME database.
+	exts, err := mime.ExtensionsByType(baseType)
+	if err != nil {
+		return false
+	}
+	for _, e := range exts {
+		if normalizeExtension(e) == ext {
 			return true
 		}
 	}

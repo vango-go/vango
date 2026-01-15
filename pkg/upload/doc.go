@@ -24,6 +24,16 @@
 //
 //	r.Post("/upload", upload.Handler(uploadStore))
 //
+// # Security
+//
+// The upload handler enforces Config.AllowedTypes against a server-side detected MIME type
+// (http.DetectContentType). Client-provided part headers like Content-Type are not trusted.
+//
+// For defense-in-depth, also consider:
+//   - Restricting filename extensions via Config.AllowedExtensions
+//   - Enforcing extension-to-type match via Config.RequireExtensionMatch
+//   - Virus/malware scanning before making uploads available to end users
+//
 // Handle the uploaded file in your Vango component:
 //
 //	func CreatePost(ctx vango.Ctx, formData server.FormData) error {
