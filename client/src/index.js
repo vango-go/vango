@@ -96,6 +96,13 @@ export class VangoClient {
         });
         this.urlManager = new URLManager(this, { debug: options.debug });
         this.prefs = new PrefManager(this, { debug: options.debug });
+        this._authChannel = 'vango:auth';
+        this._authBroadcast = null;
+        this._authStorageHandler = null;
+        this._authReloadScheduled = false;
+        this._authPollUrl = options.authPollUrl || '';
+        this._authPollInterval = options.authPollInterval || 30000;
+        this._authPollTimer = null;
 
         // Callbacks
         this.onConnect = options.onConnect || (() => { });
@@ -110,6 +117,7 @@ export class VangoClient {
 
         // Initialize
         this._buildNodeMap();
+        this._initAuthBroadcast();
         this.wsManager.connect(this.options.wsUrl);
         this.eventCapture.attach();
         this.hooks.initializeFromDOM();
@@ -379,6 +387,110 @@ export class VangoClient {
         }
     }
 
+    _initAuthBroadcast() {
+        if (typeof BroadcastChannel !== 'undefined') {
+            this._authBroadcast = new BroadcastChannel(this._authChannel);
+            this._authBroadcast.onmessage = (event) => {
+                this._handleAuthBroadcast(event.data);
+            };
+            return;
+        }
+
+        if (!this._canUseLocalStorage()) {
+            this._startAuthPolling();
+            return;
+        }
+
+        if (typeof window === 'undefined' || !window.addEventListener) {
+            this._startAuthPolling();
+            return;
+        }
+
+        this._authStorageHandler = (event) => {
+            if (!event || !event.key || event.key !== `__vango_auth_${this._authChannel}`) {
+                return;
+            }
+            if (!event.newValue) {
+                return;
+            }
+            try {
+                const msg = JSON.parse(event.newValue);
+                this._handleAuthBroadcast(msg.payload);
+            } catch {
+                // Ignore malformed payloads.
+            }
+        };
+        window.addEventListener('storage', this._authStorageHandler);
+    }
+
+    _handleAuthBroadcast(payload) {
+        if (!payload || (payload.type !== 'expired' && payload.type !== 'logout')) {
+            return;
+        }
+        this._scheduleAuthReload(payload);
+    }
+
+    _scheduleAuthReload(payload) {
+        if (this._authReloadScheduled) {
+            return;
+        }
+        this._authReloadScheduled = true;
+        if (this.options.debug) {
+            console.log('[Vango] Auth reload scheduled:', payload || {});
+        }
+        setTimeout(() => location.reload(), 0);
+    }
+
+    _startAuthPolling() {
+        if (!this._authPollUrl || this._authPollInterval <= 0) {
+            return;
+        }
+        if (this._authPollTimer) {
+            return;
+        }
+
+        const pollOnce = async () => {
+            try {
+                const res = await fetch(this._authPollUrl, {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    headers: { 'X-Vango-Auth-Poll': '1' },
+                });
+                if (res.status === 401) {
+                    this._scheduleAuthReload({ type: 'expired', reason: 'poll' });
+                }
+            } catch {
+                // Ignore polling errors; rely on the next interval.
+            }
+        };
+
+        pollOnce();
+        this._authPollTimer = setInterval(pollOnce, this._authPollInterval);
+    }
+
+    _stopAuthPolling() {
+        if (!this._authPollTimer) {
+            return;
+        }
+        clearInterval(this._authPollTimer);
+        this._authPollTimer = null;
+    }
+
+    _canUseLocalStorage() {
+        try {
+            if (typeof localStorage === 'undefined') {
+                return false;
+            }
+            const key = '__vango_auth_probe__';
+            localStorage.setItem(key, '1');
+            localStorage.removeItem(key);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     _broadcastAuth(channel, type, reason) {
         const payload = { type, reason };
         if (typeof BroadcastChannel !== 'undefined') {
@@ -629,6 +741,14 @@ export class VangoClient {
         this.eventCapture.detach();
         this.hooks.destroyAll();
         this.prefs.destroy();
+        if (this._authBroadcast) {
+            this._authBroadcast.close();
+            this._authBroadcast = null;
+        }
+        if (this._authStorageHandler && typeof window !== 'undefined') {
+            window.removeEventListener('storage', this._authStorageHandler);
+        }
+        this._stopAuthPolling();
         this.wsManager.close();
     }
 }
