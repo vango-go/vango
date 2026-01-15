@@ -395,7 +395,7 @@ Each method is registered independently. The naming scheme (exact method vs reso
 // Function returning middleware
 func Middleware() []router.Middleware {
     return []router.Middleware{
-        auth.RequireAuth(),
+        authmw.RequireAuth,
         ratelimit.New(100),
     }
 }

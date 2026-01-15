@@ -1,0 +1,3402 @@
+# github.com/vango-go/vango/pkg/server
+pkg/server/user_context.go:6:2: could not import github.com/vango-go/vango/pkg/auth (open : no such file or directory)
+FAIL	github.com/vango-go/vango [build failed]
+FAIL	github.com/vango-go/vango/benchmark/e2e_load [build failed]
+FAIL	github.com/vango-go/vango/benchmark/e2e_server [build failed]
+?   	github.com/vango-go/vango/client/dist	[no test files]
+FAIL	github.com/vango-go/vango/cmd/vango [build failed]
+FAIL	github.com/vango-go/vango/el [build failed]
+=== RUN   TestNew
+--- PASS: TestNew (0.00s)
+=== RUN   TestNew_OptionsOverride
+--- PASS: TestNew_OptionsOverride (0.00s)
+=== RUN   TestHashFile
+--- PASS: TestHashFile (0.00s)
+=== RUN   TestHashFile_NotFound
+--- PASS: TestHashFile_NotFound (0.00s)
+=== RUN   TestCopyFile
+--- PASS: TestCopyFile (0.00s)
+=== RUN   TestCopyFile_SrcNotFound
+--- PASS: TestCopyFile_SrcNotFound (0.00s)
+=== RUN   TestBuilder_Clean
+--- PASS: TestBuilder_Clean (0.00s)
+=== RUN   TestBuilder_Progress
+--- PASS: TestBuilder_Progress (0.00s)
+=== RUN   TestResult_Fields
+--- PASS: TestResult_Fields (0.00s)
+=== RUN   TestOptions_Defaults
+--- PASS: TestOptions_Defaults (0.00s)
+=== RUN   TestBuilder_buildGo_SetsEnvAndFlags
+--- PASS: TestBuilder_buildGo_SetsEnvAndFlags (0.65s)
+=== RUN   TestBuilder_buildGo_FailureWrapsStderr
+--- PASS: TestBuilder_buildGo_FailureWrapsStderr (0.89s)
+=== RUN   TestBuilder_bundleClient_Esbuild_HashesOutputAndRespectsFlags
+--- PASS: TestBuilder_bundleClient_Esbuild_HashesOutputAndRespectsFlags (1.12s)
+=== RUN   TestBuilder_bundleClient_EsbuildFailure_FallsBackToPrebuilt
+--- PASS: TestBuilder_bundleClient_EsbuildFailure_FallsBackToPrebuilt (0.37s)
+=== RUN   TestBuilder_Build_EndToEnd_NoTailwind_CopiesAssetsAndWritesManifest
+--- PASS: TestBuilder_Build_EndToEnd_NoTailwind_CopiesAssetsAndWritesManifest (0.12s)
+=== RUN   TestBuilder_Build_WithTailwind_UsesEsbuildAndFingerprintsCSS
+--- PASS: TestBuilder_Build_WithTailwind_UsesEsbuildAndFingerprintsCSS (3.43s)
+=== RUN   TestBuilder_compileTailwind_MissingBinary_ReturnsE123
+--- PASS: TestBuilder_compileTailwind_MissingBinary_ReturnsE123 (0.00s)
+PASS
+coverage: 83.2% of statements
+ok  	github.com/vango-go/vango/internal/build	7.334s	coverage: 83.2% of statements
+=== RUN   TestPhase14ConfigSchema
+=== RUN   TestPhase14ConfigSchema/New_creates_config_with_Phase_14_defaults
+=== RUN   TestPhase14ConfigSchema/LoadFile_applies_defaults
+=== RUN   TestPhase14ConfigSchema/paths_prefer_new_Paths_over_legacy_fields
+--- PASS: TestPhase14ConfigSchema (0.00s)
+    --- PASS: TestPhase14ConfigSchema/New_creates_config_with_Phase_14_defaults (0.00s)
+    --- PASS: TestPhase14ConfigSchema/LoadFile_applies_defaults (0.00s)
+    --- PASS: TestPhase14ConfigSchema/paths_prefer_new_Paths_over_legacy_fields (0.00s)
+=== RUN   TestPathHelpers
+=== RUN   TestPathHelpers/RoutesPath_returns_absolute_path
+=== RUN   TestPathHelpers/ComponentsPath_returns_absolute_path
+=== RUN   TestPathHelpers/StorePath_returns_absolute_path
+=== RUN   TestPathHelpers/MiddlewarePath_returns_absolute_path
+=== RUN   TestPathHelpers/StaticPrefix_returns_correct_prefix
+--- PASS: TestPathHelpers (0.00s)
+    --- PASS: TestPathHelpers/RoutesPath_returns_absolute_path (0.00s)
+    --- PASS: TestPathHelpers/ComponentsPath_returns_absolute_path (0.00s)
+    --- PASS: TestPathHelpers/StorePath_returns_absolute_path (0.00s)
+    --- PASS: TestPathHelpers/MiddlewarePath_returns_absolute_path (0.00s)
+    --- PASS: TestPathHelpers/StaticPrefix_returns_correct_prefix (0.00s)
+=== RUN   TestConfigSaveLoad
+--- PASS: TestConfigSaveLoad (0.00s)
+=== RUN   TestNew
+--- PASS: TestNew (0.00s)
+=== RUN   TestLoad
+--- PASS: TestLoad (0.00s)
+=== RUN   TestLoadFile_InvalidJSON
+--- PASS: TestLoadFile_InvalidJSON (0.00s)
+=== RUN   TestSave
+--- PASS: TestSave (0.00s)
+=== RUN   TestValidate
+--- PASS: TestValidate (0.00s)
+=== RUN   TestDevAddress
+--- PASS: TestDevAddress (0.00s)
+=== RUN   TestDevURL
+--- PASS: TestDevURL (0.00s)
+=== RUN   TestPaths
+--- PASS: TestPaths (0.00s)
+=== RUN   TestHasTailwind
+--- PASS: TestHasTailwind (0.00s)
+=== RUN   TestTailwindConfigPath
+--- PASS: TestTailwindConfigPath (0.00s)
+=== RUN   TestExists
+--- PASS: TestExists (0.00s)
+=== RUN   TestFindProjectRoot
+--- PASS: TestFindProjectRoot (0.00s)
+=== RUN   TestItoa
+--- PASS: TestItoa (0.00s)
+=== RUN   TestApplyDefaults
+--- PASS: TestApplyDefaults (0.00s)
+=== RUN   TestUIComponentsPath
+--- PASS: TestUIComponentsPath (0.00s)
+PASS
+coverage: 79.8% of statements
+ok  	github.com/vango-go/vango/internal/config	0.282s	coverage: 79.8% of statements
+FAIL	github.com/vango-go/vango/internal/dev [build failed]
+=== RUN   TestNew
+=== RUN   TestNew/known_error_code
+=== RUN   TestNew/hydration_error
+=== RUN   TestNew/protocol_error
+=== RUN   TestNew/unknown_error_code
+--- PASS: TestNew (0.00s)
+    --- PASS: TestNew/known_error_code (0.00s)
+    --- PASS: TestNew/hydration_error (0.00s)
+    --- PASS: TestNew/protocol_error (0.00s)
+    --- PASS: TestNew/unknown_error_code (0.00s)
+=== RUN   TestNewf
+--- PASS: TestNewf (0.00s)
+=== RUN   TestVangoError_Error
+--- PASS: TestVangoError_Error (0.00s)
+=== RUN   TestVangoError_WithLocation
+--- PASS: TestVangoError_WithLocation (0.00s)
+=== RUN   TestVangoError_WithSuggestion
+--- PASS: TestVangoError_WithSuggestion (0.00s)
+=== RUN   TestVangoError_WithExample
+--- PASS: TestVangoError_WithExample (0.00s)
+=== RUN   TestVangoError_WithDetail
+--- PASS: TestVangoError_WithDetail (0.00s)
+=== RUN   TestVangoError_Wrap
+--- PASS: TestVangoError_Wrap (0.00s)
+=== RUN   TestFromError
+--- PASS: TestFromError (0.00s)
+=== RUN   TestLocation_String
+=== RUN   TestLocation_String/nil_location
+=== RUN   TestLocation_String/with_column
+=== RUN   TestLocation_String/without_column
+--- PASS: TestLocation_String (0.00s)
+    --- PASS: TestLocation_String/nil_location (0.00s)
+    --- PASS: TestLocation_String/with_column (0.00s)
+    --- PASS: TestLocation_String/without_column (0.00s)
+=== RUN   TestFormat
+--- PASS: TestFormat (0.00s)
+=== RUN   TestFormatCompact
+--- PASS: TestFormatCompact (0.00s)
+=== RUN   TestFormatJSON
+--- PASS: TestFormatJSON (0.00s)
+=== RUN   TestGetAllCodes
+--- PASS: TestGetAllCodes (0.00s)
+=== RUN   TestGetTemplate
+--- PASS: TestGetTemplate (0.00s)
+=== RUN   TestRegister
+--- PASS: TestRegister (0.00s)
+=== RUN   TestWrapText
+--- PASS: TestWrapText (0.00s)
+=== RUN   TestColorFunctions
+--- PASS: TestColorFunctions (0.00s)
+PASS
+coverage: 87.8% of statements
+ok  	github.com/vango-go/vango/internal/errors	0.530s	coverage: 87.8% of statements
+=== RUN   TestBinary_binaryPath_IncludesVersionDir
+--- PASS: TestBinary_binaryPath_IncludesVersionDir (0.00s)
+=== RUN   TestBinary_Path_CachesResolvedPath
+--- PASS: TestBinary_Path_CachesResolvedPath (0.00s)
+=== RUN   TestBinary_Path_Missing_ReturnsError
+--- PASS: TestBinary_Path_Missing_ReturnsError (0.00s)
+=== RUN   TestBinary_IsInstalled
+--- PASS: TestBinary_IsInstalled (0.00s)
+=== RUN   TestBinary_EnsureInstalled_UsesBaseURLAndProgress
+--- PASS: TestBinary_EnsureInstalled_UsesBaseURLAndProgress (0.00s)
+=== RUN   TestBinary_EnsureInstalled_NonOKStatus_ReturnsError
+--- PASS: TestBinary_EnsureInstalled_NonOKStatus_ReturnsError (0.00s)
+=== RUN   TestBinary_downloadURL_DefaultsToGitHub
+--- PASS: TestBinary_downloadURL_DefaultsToGitHub (0.00s)
+=== RUN   TestRunner_Build_And_Watch_Lifecycle
+--- PASS: TestRunner_Build_And_Watch_Lifecycle (0.66s)
+=== RUN   TestRunner_Stop_NoOpWhenNotRunning
+--- PASS: TestRunner_Stop_NoOpWhenNotRunning (0.00s)
+=== RUN   TestRunner_Build_DownloadError_ReturnsError
+--- PASS: TestRunner_Build_DownloadError_ReturnsError (0.00s)
+=== RUN   TestBinary_downloadURL_TrimsTrailingSlash
+--- PASS: TestBinary_downloadURL_TrimsTrailingSlash (0.00s)
+=== RUN   TestBinaryName
+--- PASS: TestBinaryName (0.00s)
+=== RUN   TestPlatformName
+--- PASS: TestPlatformName (0.00s)
+=== RUN   TestNewBinary
+--- PASS: TestNewBinary (0.00s)
+=== RUN   TestNewBinaryWithVersion
+--- PASS: TestNewBinaryWithVersion (0.00s)
+=== RUN   TestDownloadURL
+--- PASS: TestDownloadURL (0.00s)
+PASS
+coverage: 87.4% of statements
+ok  	github.com/vango-go/vango/internal/tailwind	1.543s	coverage: 87.4% of statements
+	github.com/vango-go/vango/internal/templates		coverage: 0.0% of statements
+=== RUN   TestManifestResolve
+=== RUN   TestManifestResolve/found_entry
+=== RUN   TestManifestResolve/found_entry_css
+=== RUN   TestManifestResolve/missing_entry_returns_original
+=== RUN   TestManifestResolve/empty_string_returns_empty
+--- PASS: TestManifestResolve (0.00s)
+    --- PASS: TestManifestResolve/found_entry (0.00s)
+    --- PASS: TestManifestResolve/found_entry_css (0.00s)
+    --- PASS: TestManifestResolve/missing_entry_returns_original (0.00s)
+    --- PASS: TestManifestResolve/empty_string_returns_empty (0.00s)
+=== RUN   TestManifestHas
+--- PASS: TestManifestHas (0.00s)
+=== RUN   TestManifestLen
+--- PASS: TestManifestLen (0.00s)
+=== RUN   TestManifestAll
+--- PASS: TestManifestAll (0.00s)
+=== RUN   TestLoad
+--- PASS: TestLoad (0.00s)
+=== RUN   TestLoadMissingFile
+--- PASS: TestLoadMissingFile (0.00s)
+=== RUN   TestLoadInvalidJSON
+--- PASS: TestLoadInvalidJSON (0.00s)
+=== RUN   TestResolverWithPrefix
+=== RUN   TestResolverWithPrefix/found_entry
+=== RUN   TestResolverWithPrefix/found_entry_css
+=== RUN   TestResolverWithPrefix/missing_entry_gets_prefix
+--- PASS: TestResolverWithPrefix (0.00s)
+    --- PASS: TestResolverWithPrefix/found_entry (0.00s)
+    --- PASS: TestResolverWithPrefix/found_entry_css (0.00s)
+    --- PASS: TestResolverWithPrefix/missing_entry_gets_prefix (0.00s)
+=== RUN   TestResolverWithoutPrefix
+--- PASS: TestResolverWithoutPrefix (0.00s)
+=== RUN   TestPassthroughResolver
+=== RUN   TestPassthroughResolver/js_file
+=== RUN   TestPassthroughResolver/css_file
+=== RUN   TestPassthroughResolver/nested_path
+--- PASS: TestPassthroughResolver (0.00s)
+    --- PASS: TestPassthroughResolver/js_file (0.00s)
+    --- PASS: TestPassthroughResolver/css_file (0.00s)
+    --- PASS: TestPassthroughResolver/nested_path (0.00s)
+=== RUN   TestPassthroughResolverWithoutPrefix
+--- PASS: TestPassthroughResolverWithoutPrefix (0.00s)
+PASS
+coverage: 100.0% of statements
+ok  	github.com/vango-go/vango/pkg/assets	0.159s	coverage: 100.0% of statements
+FAIL	github.com/vango-go/vango/pkg/auth [build failed]
+FAIL	github.com/vango-go/vango/pkg/authmw [build failed]
+=== RUN   TestFormValidationWorkflow
+--- PASS: TestFormValidationWorkflow (0.00s)
+=== RUN   TestResourceMatchWorkflow
+--- PASS: TestResourceMatchWorkflow (0.01s)
+=== RUN   TestResourceErrorHandling
+--- PASS: TestResourceErrorHandling (0.00s)
+=== RUN   TestContextProviderWorkflow
+--- PASS: TestContextProviderWorkflow (0.00s)
+=== RUN   TestStoreSessionIsolation
+--- PASS: TestStoreSessionIsolation (0.00s)
+=== RUN   TestGlobalStoreSharedAcrossSessions
+--- PASS: TestGlobalStoreSharedAcrossSessions (0.00s)
+=== RUN   TestFormArrayWorkflow
+--- PASS: TestFormArrayWorkflow (0.00s)
+=== RUN   TestResourceRefetchWithMutation
+--- PASS: TestResourceRefetchWithMutation (0.02s)
+=== RUN   TestContextWithFallback
+--- PASS: TestContextWithFallback (0.00s)
+=== RUN   TestFormDirtyState
+--- PASS: TestFormDirtyState (0.00s)
+=== RUN   TestFormReset
+--- PASS: TestFormReset (0.00s)
+=== RUN   TestResourceRetryWorkflow
+--- PASS: TestResourceRetryWorkflow (0.01s)
+PASS
+coverage: [no statements]
+ok  	github.com/vango-go/vango/pkg/features	1.044s	coverage: [no statements]
+=== RUN   TestCreate
+=== RUN   TestCreate/string_context
+=== RUN   TestCreate/int_context
+=== RUN   TestCreate/bool_context
+=== RUN   TestCreate/struct_context
+=== RUN   TestCreate/nil_context
+--- PASS: TestCreate (0.00s)
+    --- PASS: TestCreate/string_context (0.00s)
+    --- PASS: TestCreate/int_context (0.00s)
+    --- PASS: TestCreate/bool_context (0.00s)
+    --- PASS: TestCreate/struct_context (0.00s)
+    --- PASS: TestCreate/nil_context (0.00s)
+=== RUN   TestContextDefault
+--- PASS: TestContextDefault (0.00s)
+=== RUN   TestProvider
+--- PASS: TestProvider (0.00s)
+=== RUN   TestProviderWithMultipleChildren
+--- PASS: TestProviderWithMultipleChildren (0.00s)
+=== RUN   TestNestedProvidersByRenderingComponents
+--- PASS: TestNestedProvidersByRenderingComponents (0.00s)
+=== RUN   TestMultipleContexts
+--- PASS: TestMultipleContexts (0.00s)
+=== RUN   TestContextWithStructValue
+--- PASS: TestContextWithStructValue (0.00s)
+=== RUN   TestContextWithPointerValue
+--- PASS: TestContextWithPointerValue (0.00s)
+=== RUN   TestContextWithSliceValue
+--- PASS: TestContextWithSliceValue (0.00s)
+PASS
+coverage: 100.0% of statements
+ok  	github.com/vango-go/vango/pkg/features/context	0.794s	coverage: 100.0% of statements
+=== RUN   TestUseForm
+--- PASS: TestUseForm (0.00s)
+=== RUN   TestFormGet
+--- PASS: TestFormGet (0.00s)
+=== RUN   TestFormSet
+--- PASS: TestFormSet (0.00s)
+=== RUN   TestFormSetValues
+--- PASS: TestFormSetValues (0.00s)
+=== RUN   TestFormReset
+--- PASS: TestFormReset (0.00s)
+=== RUN   TestFormValidate
+--- PASS: TestFormValidate (0.00s)
+=== RUN   TestFormValidateWithValidData
+--- PASS: TestFormValidateWithValidData (0.00s)
+=== RUN   TestFormValidateField
+--- PASS: TestFormValidateField (0.00s)
+=== RUN   TestFormErrors
+--- PASS: TestFormErrors (0.00s)
+=== RUN   TestFormSetError
+--- PASS: TestFormSetError (0.00s)
+=== RUN   TestFormClearErrors
+--- PASS: TestFormClearErrors (0.00s)
+=== RUN   TestFormDirtyState
+--- PASS: TestFormDirtyState (0.00s)
+=== RUN   TestFormSubmittingState
+--- PASS: TestFormSubmittingState (0.00s)
+=== RUN   TestFormNestedFields
+--- PASS: TestFormNestedFields (0.00s)
+=== RUN   TestFormIsValid
+--- PASS: TestFormIsValid (0.00s)
+=== RUN   TestFormAddValidators
+--- PASS: TestFormAddValidators (0.00s)
+=== RUN   TestFormGetInt
+--- PASS: TestFormGetInt (0.00s)
+=== RUN   TestFormGetBool
+--- PASS: TestFormGetBool (0.00s)
+=== RUN   TestFormField
+--- PASS: TestFormField (0.00s)
+=== RUN   TestFormFieldWithError
+--- PASS: TestFormFieldWithError (0.00s)
+=== RUN   TestFormFieldWithCustomValidators
+--- PASS: TestFormFieldWithCustomValidators (0.00s)
+=== RUN   TestFormArray
+--- PASS: TestFormArray (0.00s)
+=== RUN   TestFormArrayAppendTo
+--- PASS: TestFormArrayAppendTo (0.00s)
+=== RUN   TestFormArrayRemoveAt
+--- PASS: TestFormArrayRemoveAt (0.00s)
+=== RUN   TestFormArrayInsertAt
+--- PASS: TestFormArrayInsertAt (0.00s)
+=== RUN   TestFormArrayEmpty
+--- PASS: TestFormArrayEmpty (0.00s)
+=== RUN   TestFormArrayNonSliceField
+--- PASS: TestFormArrayNonSliceField (0.00s)
+=== RUN   TestFormGetIntVariousTypes
+=== RUN   TestFormGetIntVariousTypes/int8
+=== RUN   TestFormGetIntVariousTypes/int16
+=== RUN   TestFormGetIntVariousTypes/int32
+=== RUN   TestFormGetIntVariousTypes/int64
+=== RUN   TestFormGetIntVariousTypes/uint
+=== RUN   TestFormGetIntVariousTypes/uint8
+=== RUN   TestFormGetIntVariousTypes/uint16
+=== RUN   TestFormGetIntVariousTypes/uint32
+=== RUN   TestFormGetIntVariousTypes/uint64
+=== RUN   TestFormGetIntVariousTypes/float32
+=== RUN   TestFormGetIntVariousTypes/float64
+--- PASS: TestFormGetIntVariousTypes (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/int8 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/int16 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/int32 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/int64 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/uint (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/uint8 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/uint16 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/uint32 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/uint64 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/float32 (0.00s)
+    --- PASS: TestFormGetIntVariousTypes/float64 (0.00s)
+=== RUN   TestFormGetBoolVariousValues
+--- PASS: TestFormGetBoolVariousValues (0.00s)
+=== RUN   TestFormNestedFieldAccess
+--- PASS: TestFormNestedFieldAccess (0.00s)
+=== RUN   TestFormNestedFieldSet
+--- PASS: TestFormNestedFieldSet (0.00s)
+=== RUN   TestFormIsTouched
+--- PASS: TestFormIsTouched (0.00s)
+=== RUN   TestFormPointerStruct
+--- PASS: TestFormPointerStruct (0.00s)
+=== RUN   TestFormUnexportedFields
+--- PASS: TestFormUnexportedFields (0.00s)
+=== RUN   TestFormTagDash
+--- PASS: TestFormTagDash (0.00s)
+=== RUN   TestFormArrayItemField
+--- PASS: TestFormArrayItemField (0.00s)
+=== RUN   TestFormArrayItemRemove
+--- PASS: TestFormArrayItemRemove (0.00s)
+=== RUN   TestFormArrayRemoveAtReindexesErrors
+--- PASS: TestFormArrayRemoveAtReindexesErrors (0.00s)
+=== RUN   TestFormArrayInsertAtEdgeCases
+--- PASS: TestFormArrayInsertAtEdgeCases (0.00s)
+=== RUN   TestFormGetNilField
+--- PASS: TestFormGetNilField (0.00s)
+=== RUN   TestFormGetStringNonString
+--- PASS: TestFormGetStringNonString (0.00s)
+=== RUN   TestRequiredValidator
+--- PASS: TestRequiredValidator (0.00s)
+=== RUN   TestMinLengthValidator
+--- PASS: TestMinLengthValidator (0.00s)
+=== RUN   TestMaxLengthValidator
+--- PASS: TestMaxLengthValidator (0.00s)
+=== RUN   TestEmailValidator
+--- PASS: TestEmailValidator (0.00s)
+=== RUN   TestURLValidator
+--- PASS: TestURLValidator (0.00s)
+=== RUN   TestUUIDValidator
+--- PASS: TestUUIDValidator (0.00s)
+=== RUN   TestAlphaValidator
+--- PASS: TestAlphaValidator (0.00s)
+=== RUN   TestAlphaNumericValidator
+--- PASS: TestAlphaNumericValidator (0.00s)
+=== RUN   TestNumericValidator
+--- PASS: TestNumericValidator (0.00s)
+=== RUN   TestMinValidator
+--- PASS: TestMinValidator (0.00s)
+=== RUN   TestMaxValidator
+--- PASS: TestMaxValidator (0.00s)
+=== RUN   TestBetweenValidator
+--- PASS: TestBetweenValidator (0.00s)
+=== RUN   TestPositiveValidator
+--- PASS: TestPositiveValidator (0.00s)
+=== RUN   TestNonNegativeValidator
+--- PASS: TestNonNegativeValidator (0.00s)
+=== RUN   TestPatternValidator
+--- PASS: TestPatternValidator (0.00s)
+=== RUN   TestDateAfterValidator
+--- PASS: TestDateAfterValidator (0.00s)
+=== RUN   TestDateBeforeValidator
+--- PASS: TestDateBeforeValidator (0.00s)
+=== RUN   TestFutureValidator
+--- PASS: TestFutureValidator (0.00s)
+=== RUN   TestPastValidator
+--- PASS: TestPastValidator (0.00s)
+=== RUN   TestCustomValidator
+--- PASS: TestCustomValidator (0.00s)
+=== RUN   TestPhoneValidator
+--- PASS: TestPhoneValidator (0.00s)
+=== RUN   TestValidatorFromTag
+--- PASS: TestValidatorFromTag (0.00s)
+=== RUN   TestParseValidateTag
+--- PASS: TestParseValidateTag (0.00s)
+=== RUN   TestEmptyParseValidateTag
+--- PASS: TestEmptyParseValidateTag (0.00s)
+=== RUN   TestValidationError
+--- PASS: TestValidationError (0.00s)
+PASS
+coverage: 77.8% of statements
+ok  	github.com/vango-go/vango/pkg/features/form	0.444s	coverage: 77.8% of statements
+=== RUN   TestHook
+--- PASS: TestHook (0.00s)
+=== RUN   TestHookEmptyConfig
+--- PASS: TestHookEmptyConfig (0.00s)
+=== RUN   TestHookWithNestedConfig
+--- PASS: TestHookWithNestedConfig (0.00s)
+=== RUN   TestOnEvent
+--- PASS: TestOnEvent (0.00s)
+=== RUN   TestHookEventAccessors
+--- PASS: TestHookEventAccessors (0.00s)
+=== RUN   TestHookEventStringMissing
+--- PASS: TestHookEventStringMissing (0.00s)
+=== RUN   TestHookEventIntEdgeCases
+--- PASS: TestHookEventIntEdgeCases (0.00s)
+=== RUN   TestHookEventFloatEdgeCases
+--- PASS: TestHookEventFloatEdgeCases (0.00s)
+=== RUN   TestHookEventBoolEdgeCases
+--- PASS: TestHookEventBoolEdgeCases (0.00s)
+=== RUN   TestHookEventStringsEdgeCases
+--- PASS: TestHookEventStringsEdgeCases (0.00s)
+=== RUN   TestHookEventRaw
+--- PASS: TestHookEventRaw (0.00s)
+=== RUN   TestHookEventRevert
+--- PASS: TestHookEventRevert (0.00s)
+=== RUN   TestHookEventName
+--- PASS: TestHookEventName (0.00s)
+=== RUN   TestHookEventNilData
+--- PASS: TestHookEventNilData (0.00s)
+PASS
+coverage: 100.0% of statements
+ok  	github.com/vango-go/vango/pkg/features/hooks	0.807s	coverage: 100.0% of statements
+=== RUN   TestSortable
+--- PASS: TestSortable (0.00s)
+=== RUN   TestSortableDefaults
+--- PASS: TestSortableDefaults (0.00s)
+=== RUN   TestDraggable
+--- PASS: TestDraggable (0.00s)
+=== RUN   TestDraggableAxisY
+--- PASS: TestDraggableAxisY (0.00s)
+=== RUN   TestDraggableBoth
+--- PASS: TestDraggableBoth (0.00s)
+=== RUN   TestTooltip
+--- PASS: TestTooltip (0.00s)
+=== RUN   TestTooltipPlacements
+=== RUN   TestTooltipPlacements/top
+=== RUN   TestTooltipPlacements/bottom
+=== RUN   TestTooltipPlacements/left
+=== RUN   TestTooltipPlacements/right
+--- PASS: TestTooltipPlacements (0.00s)
+    --- PASS: TestTooltipPlacements/top (0.00s)
+    --- PASS: TestTooltipPlacements/bottom (0.00s)
+    --- PASS: TestTooltipPlacements/left (0.00s)
+    --- PASS: TestTooltipPlacements/right (0.00s)
+=== RUN   TestTooltipTriggers
+=== RUN   TestTooltipTriggers/hover
+=== RUN   TestTooltipTriggers/click
+=== RUN   TestTooltipTriggers/focus
+--- PASS: TestTooltipTriggers (0.00s)
+    --- PASS: TestTooltipTriggers/hover (0.00s)
+    --- PASS: TestTooltipTriggers/click (0.00s)
+    --- PASS: TestTooltipTriggers/focus (0.00s)
+=== RUN   TestDropdown
+--- PASS: TestDropdown (0.00s)
+=== RUN   TestDropdownFalseOptions
+--- PASS: TestDropdownFalseOptions (0.00s)
+=== RUN   TestDropdownMixedOptions
+--- PASS: TestDropdownMixedOptions (0.00s)
+=== RUN   TestAllHooksReturnValidAttr
+=== RUN   TestAllHooksReturnValidAttr/Sortable
+=== RUN   TestAllHooksReturnValidAttr/Draggable
+=== RUN   TestAllHooksReturnValidAttr/Tooltip
+=== RUN   TestAllHooksReturnValidAttr/Dropdown
+--- PASS: TestAllHooksReturnValidAttr (0.00s)
+    --- PASS: TestAllHooksReturnValidAttr/Sortable (0.00s)
+    --- PASS: TestAllHooksReturnValidAttr/Draggable (0.00s)
+    --- PASS: TestAllHooksReturnValidAttr/Tooltip (0.00s)
+    --- PASS: TestAllHooksReturnValidAttr/Dropdown (0.00s)
+PASS
+coverage: 100.0% of statements
+ok  	github.com/vango-go/vango/pkg/features/hooks/standard	0.564s	coverage: 100.0% of statements
+=== RUN   TestJSIsland
+--- PASS: TestJSIsland (0.00s)
+=== RUN   TestPlaceholders
+--- PASS: TestPlaceholders (0.00s)
+PASS
+coverage: 100.0% of statements
+ok  	github.com/vango-go/vango/pkg/features/islands	0.929s	coverage: 100.0% of statements
+=== RUN   TestClass
+=== RUN   TestClass/add_class
+=== RUN   TestClass/remove_class
+=== RUN   TestClass/add_class_with_hyphen
+--- PASS: TestClass (0.00s)
+    --- PASS: TestClass/add_class (0.00s)
+    --- PASS: TestClass/remove_class (0.00s)
+    --- PASS: TestClass/add_class_with_hyphen (0.00s)
+=== RUN   TestClassToggle
+--- PASS: TestClassToggle (0.00s)
+=== RUN   TestText
+=== RUN   TestText/simple_text
+=== RUN   TestText/number_text
+=== RUN   TestText/empty_text
+=== RUN   TestText/text_with_special_chars
+--- PASS: TestText (0.00s)
+    --- PASS: TestText/simple_text (0.00s)
+    --- PASS: TestText/number_text (0.00s)
+    --- PASS: TestText/empty_text (0.00s)
+    --- PASS: TestText/text_with_special_chars (0.00s)
+=== RUN   TestAttr
+=== RUN   TestAttr/checked_attribute
+=== RUN   TestAttr/aria_attribute
+=== RUN   TestAttr/data_attribute
+--- PASS: TestAttr (0.00s)
+    --- PASS: TestAttr/checked_attribute (0.00s)
+    --- PASS: TestAttr/aria_attribute (0.00s)
+    --- PASS: TestAttr/data_attribute (0.00s)
+=== RUN   TestAttrRemove
+--- PASS: TestAttrRemove (0.00s)
+=== RUN   TestParentClass
+=== RUN   TestParentClass/add_parent_class
+=== RUN   TestParentClass/remove_parent_class
+--- PASS: TestParentClass (0.00s)
+    --- PASS: TestParentClass/add_parent_class (0.00s)
+    --- PASS: TestParentClass/remove_parent_class (0.00s)
+=== RUN   TestParentClassToggle
+--- PASS: TestParentClassToggle (0.00s)
+=== RUN   TestDisable
+--- PASS: TestDisable (0.00s)
+=== RUN   TestHide
+--- PASS: TestHide (0.00s)
+=== RUN   TestShow
+--- PASS: TestShow (0.00s)
+=== RUN   TestLoading
+=== RUN   TestLoading/loading_without_disable
+=== RUN   TestLoading/loading_with_disable
+--- PASS: TestLoading (0.00s)
+    --- PASS: TestLoading/loading_without_disable (0.00s)
+    --- PASS: TestLoading/loading_with_disable (0.00s)
+=== RUN   TestMultiple
+--- PASS: TestMultiple (0.00s)
+=== RUN   TestTarget
+=== RUN   TestTarget/id_selector
+=== RUN   TestTarget/class_selector
+=== RUN   TestTarget/hid_selector
+--- PASS: TestTarget (0.00s)
+    --- PASS: TestTarget/id_selector (0.00s)
+    --- PASS: TestTarget/class_selector (0.00s)
+    --- PASS: TestTarget/hid_selector (0.00s)
+=== RUN   TestSwap
+--- PASS: TestSwap (0.00s)
+=== RUN   TestParseClassAction
+=== RUN   TestParseClassAction/add_action
+=== RUN   TestParseClassAction/remove_action
+=== RUN   TestParseClassAction/toggle_action
+=== RUN   TestParseClassAction/set_action
+=== RUN   TestParseClassAction/invalid_format_-_no_colon
+=== RUN   TestParseClassAction/invalid_action
+=== RUN   TestParseClassAction/empty_string
+--- PASS: TestParseClassAction (0.00s)
+    --- PASS: TestParseClassAction/add_action (0.00s)
+    --- PASS: TestParseClassAction/remove_action (0.00s)
+    --- PASS: TestParseClassAction/toggle_action (0.00s)
+    --- PASS: TestParseClassAction/set_action (0.00s)
+    --- PASS: TestParseClassAction/invalid_format_-_no_colon (0.00s)
+    --- PASS: TestParseClassAction/invalid_action (0.00s)
+    --- PASS: TestParseClassAction/empty_string (0.00s)
+=== RUN   TestParseAttrAction
+=== RUN   TestParseAttrAction/simple_attribute
+=== RUN   TestParseAttrAction/attribute_with_colons_in_value
+=== RUN   TestParseAttrAction/invalid_format
+=== RUN   TestParseAttrAction/empty_string
+--- PASS: TestParseAttrAction (0.00s)
+    --- PASS: TestParseAttrAction/simple_attribute (0.00s)
+    --- PASS: TestParseAttrAction/attribute_with_colons_in_value (0.00s)
+    --- PASS: TestParseAttrAction/invalid_format (0.00s)
+    --- PASS: TestParseAttrAction/empty_string (0.00s)
+=== RUN   TestParseMultiple
+=== RUN   TestParseMultiple/single_item
+=== RUN   TestParseMultiple/multiple_items
+=== RUN   TestParseMultiple/empty_string
+=== RUN   TestParseMultiple/invalid_format_-_no_equals
+--- PASS: TestParseMultiple (0.00s)
+    --- PASS: TestParseMultiple/single_item (0.00s)
+    --- PASS: TestParseMultiple/multiple_items (0.00s)
+    --- PASS: TestParseMultiple/empty_string (0.00s)
+    --- PASS: TestParseMultiple/invalid_format_-_no_equals (0.00s)
+=== RUN   TestParseMultipleValues
+--- PASS: TestParseMultipleValues (0.00s)
+=== RUN   TestAttrIntegration
+=== RUN   TestAttrIntegration/Class
+=== RUN   TestAttrIntegration/ClassToggle
+=== RUN   TestAttrIntegration/Text
+=== RUN   TestAttrIntegration/Attr
+=== RUN   TestAttrIntegration/AttrRemove
+=== RUN   TestAttrIntegration/ParentClass
+=== RUN   TestAttrIntegration/ParentClassToggle
+=== RUN   TestAttrIntegration/Disable
+=== RUN   TestAttrIntegration/Hide
+=== RUN   TestAttrIntegration/Show
+=== RUN   TestAttrIntegration/Loading
+=== RUN   TestAttrIntegration/Target
+=== RUN   TestAttrIntegration/Swap
+--- PASS: TestAttrIntegration (0.00s)
+    --- PASS: TestAttrIntegration/Class (0.00s)
+    --- PASS: TestAttrIntegration/ClassToggle (0.00s)
+    --- PASS: TestAttrIntegration/Text (0.00s)
+    --- PASS: TestAttrIntegration/Attr (0.00s)
+    --- PASS: TestAttrIntegration/AttrRemove (0.00s)
+    --- PASS: TestAttrIntegration/ParentClass (0.00s)
+    --- PASS: TestAttrIntegration/ParentClassToggle (0.00s)
+    --- PASS: TestAttrIntegration/Disable (0.00s)
+    --- PASS: TestAttrIntegration/Hide (0.00s)
+    --- PASS: TestAttrIntegration/Show (0.00s)
+    --- PASS: TestAttrIntegration/Loading (0.00s)
+    --- PASS: TestAttrIntegration/Target (0.00s)
+    --- PASS: TestAttrIntegration/Swap (0.00s)
+PASS
+coverage: 74.2% of statements
+ok  	github.com/vango-go/vango/pkg/features/optimistic	0.690s	coverage: 74.2% of statements
+=== RUN   TestNewResource
+--- PASS: TestNewResource (0.00s)
+=== RUN   TestResourceSuccess
+--- PASS: TestResourceSuccess (0.00s)
+=== RUN   TestResourceError
+--- PASS: TestResourceError (0.00s)
+=== RUN   TestResourceStaleTime
+--- PASS: TestResourceStaleTime (0.21s)
+=== RUN   TestResourceRefetch
+--- PASS: TestResourceRefetch (0.05s)
+=== RUN   TestResourceMutate
+--- PASS: TestResourceMutate (0.01s)
+=== RUN   TestResourceMatch
+--- PASS: TestResourceMatch (0.00s)
+=== RUN   TestMatchLoadingOrPending
+--- PASS: TestMatchLoadingOrPending (0.00s)
+=== RUN   TestResourceState
+--- PASS: TestResourceState (0.00s)
+=== RUN   TestResourceIsLoading
+--- PASS: TestResourceIsLoading (0.00s)
+=== RUN   TestResourceDataOr
+--- PASS: TestResourceDataOr (0.00s)
+=== RUN   TestResourceDataOrWhenNotReady
+--- PASS: TestResourceDataOrWhenNotReady (0.00s)
+=== RUN   TestResourceInvalidate
+--- PASS: TestResourceInvalidate (0.01s)
+=== RUN   TestResourceRetryOnError
+--- PASS: TestResourceRetryOnError (0.01s)
+=== RUN   TestResourceRetryOnErrorExhausted
+--- PASS: TestResourceRetryOnErrorExhausted (0.01s)
+=== RUN   TestMatchPending
+--- PASS: TestMatchPending (0.00s)
+=== RUN   TestMatchError
+--- PASS: TestMatchError (0.00s)
+=== RUN   TestMatchNoHandlerMatches
+--- PASS: TestMatchNoHandlerMatches (0.00s)
+=== RUN   TestMatchLoading
+--- PASS: TestMatchLoading (0.01s)
+=== RUN   TestResourceOnSuccessOnError
+--- PASS: TestResourceOnSuccessOnError (0.00s)
+=== RUN   TestResourceOnErrorCallback
+--- PASS: TestResourceOnErrorCallback (0.00s)
+=== RUN   TestResourceStaleTimeChaining
+--- PASS: TestResourceStaleTimeChaining (0.00s)
+=== RUN   TestResourceRetryOnErrorChaining
+--- PASS: TestResourceRetryOnErrorChaining (0.00s)
+=== RUN   TestResourceOnSuccessChaining
+--- PASS: TestResourceOnSuccessChaining (0.00s)
+=== RUN   TestResourceOnErrorChaining
+--- PASS: TestResourceOnErrorChaining (0.00s)
+=== RUN   TestResourceRefetchBudgetExceeded
+--- PASS: TestResourceRefetchBudgetExceeded (0.00s)
+PASS
+coverage: 77.6% of statements
+ok  	github.com/vango-go/vango/pkg/features/resource	0.983s	coverage: 77.6% of statements
+=== RUN   TestNewGlobalSignal
+--- PASS: TestNewGlobalSignal (0.00s)
+=== RUN   TestNewSharedSignal
+--- PASS: TestNewSharedSignal (0.00s)
+=== RUN   TestSharedSignalUndefinedContext
+--- PASS: TestSharedSignalUndefinedContext (0.00s)
+=== RUN   TestSharedSignalUpdate
+--- PASS: TestSharedSignalUpdate (0.00s)
+=== RUN   TestSharedSignalUpdateWithoutContext
+--- PASS: TestSharedSignalUpdateWithoutContext (0.00s)
+=== RUN   TestGlobalSignalWithStruct
+--- PASS: TestGlobalSignalWithStruct (0.00s)
+=== RUN   TestSharedSignalWithDifferentTypes
+--- PASS: TestSharedSignalWithDifferentTypes (0.00s)
+=== RUN   TestSessionStoreMultipleSignals
+--- PASS: TestSessionStoreMultipleSignals (0.00s)
+=== RUN   TestNewSessionStore
+--- PASS: TestNewSessionStore (0.00s)
+=== RUN   TestSharedSignalConcurrentAccess
+--- PASS: TestSharedSignalConcurrentAccess (0.00s)
+=== RUN   TestSessionKeyUniqueness
+--- PASS: TestSessionKeyUniqueness (0.00s)
+=== RUN   TestSharedSignalWrongContextType
+--- PASS: TestSharedSignalWrongContextType (0.00s)
+PASS
+coverage: 94.4% of statements
+ok  	github.com/vango-go/vango/pkg/features/store	0.606s	coverage: 94.4% of statements
+=== RUN   TestUseURLState
+--- PASS: TestUseURLState (0.00s)
+=== RUN   TestURLStateOptions
+--- PASS: TestURLStateOptions (0.00s)
+=== RUN   TestDefaultSerializer
+--- PASS: TestDefaultSerializer (0.00s)
+=== RUN   TestDefaultDeserializer
+--- PASS: TestDefaultDeserializer (0.00s)
+=== RUN   TestHashState
+--- PASS: TestHashState (0.00s)
+=== RUN   TestURLStateReplace
+--- PASS: TestURLStateReplace (0.00s)
+=== RUN   TestURLStateDebounce
+--- PASS: TestURLStateDebounce (0.10s)
+=== RUN   TestURLStateCustomSerializer
+--- PASS: TestURLStateCustomSerializer (0.00s)
+=== RUN   TestURLStateCustomDeserializer
+--- PASS: TestURLStateCustomDeserializer (0.00s)
+=== RUN   TestDefaultSerializerFloat
+--- PASS: TestDefaultSerializerFloat (0.00s)
+=== RUN   TestDefaultSerializerSlice
+--- PASS: TestDefaultSerializerSlice (0.00s)
+=== RUN   TestDefaultDeserializerFloat
+--- PASS: TestDefaultDeserializerFloat (0.00s)
+=== RUN   TestDefaultDeserializerInvalidInt
+--- PASS: TestDefaultDeserializerInvalidInt (0.00s)
+=== RUN   TestDefaultDeserializerInvalidFloat
+--- PASS: TestDefaultDeserializerInvalidFloat (0.00s)
+=== RUN   TestDefaultDeserializerInvalidBool
+--- PASS: TestDefaultDeserializerInvalidBool (0.00s)
+=== RUN   TestDefaultDeserializerSlice
+--- PASS: TestDefaultDeserializerSlice (0.00s)
+=== RUN   TestDefaultDeserializerStringSlice
+--- PASS: TestDefaultDeserializerStringSlice (0.00s)
+=== RUN   TestURLStateIsSetAfterSet
+--- PASS: TestURLStateIsSetAfterSet (0.00s)
+=== RUN   TestURLStateMethodChaining
+--- PASS: TestURLStateMethodChaining (0.00s)
+=== RUN   TestURLState_InitialHydrationAndPatchQueueing
+--- PASS: TestURLState_InitialHydrationAndPatchQueueing (0.00s)
+=== RUN   TestURLState_ReplaceQueuesURLReplace
+--- PASS: TestURLState_ReplaceQueuesURLReplace (0.00s)
+=== RUN   TestHashState_QueuesHashDispatchPatch
+--- PASS: TestHashState_QueuesHashDispatchPatch (0.00s)
+=== RUN   TestUseWithDifferentTypes
+--- PASS: TestUseWithDifferentTypes (0.00s)
+=== RUN   TestURLStateReset
+--- PASS: TestURLStateReset (0.00s)
+=== RUN   TestHashStateMultipleUpdates
+--- PASS: TestHashStateMultipleUpdates (0.00s)
+=== RUN   TestDefaultSerializerMap
+--- PASS: TestDefaultSerializerMap (0.00s)
+=== RUN   TestDefaultDeserializerMap
+--- PASS: TestDefaultDeserializerMap (0.00s)
+PASS
+coverage: 84.7% of statements
+ok  	github.com/vango-go/vango/pkg/features/urlstate	0.933s	coverage: 84.7% of statements
+FAIL	github.com/vango-go/vango/pkg/middleware [build failed]
+=== RUN   TestPrefNew
+=== RUN   TestPrefNew/WithDefaults
+=== RUN   TestPrefNew/WithMergeStrategy
+=== RUN   TestPrefNew/WithLocalOnly
+--- PASS: TestPrefNew (0.00s)
+    --- PASS: TestPrefNew/WithDefaults (0.00s)
+    --- PASS: TestPrefNew/WithMergeStrategy (0.00s)
+    --- PASS: TestPrefNew/WithLocalOnly (0.00s)
+=== RUN   TestPrefSetGet
+--- PASS: TestPrefSetGet (0.00s)
+=== RUN   TestPrefReset
+--- PASS: TestPrefReset (0.00s)
+=== RUN   TestPrefSetFromRemote
+=== RUN   TestPrefSetFromRemote/DBWins
+=== RUN   TestPrefSetFromRemote/LocalWins
+=== RUN   TestPrefSetFromRemote/LWW_RemoteNewer
+=== RUN   TestPrefSetFromRemote/LWW_LocalNewer
+--- PASS: TestPrefSetFromRemote (0.00s)
+    --- PASS: TestPrefSetFromRemote/DBWins (0.00s)
+    --- PASS: TestPrefSetFromRemote/LocalWins (0.00s)
+    --- PASS: TestPrefSetFromRemote/LWW_RemoteNewer (0.00s)
+    --- PASS: TestPrefSetFromRemote/LWW_LocalNewer (0.00s)
+=== RUN   TestPrefCustomConflictHandler
+--- PASS: TestPrefCustomConflictHandler (0.00s)
+=== RUN   TestPrefJSON
+--- PASS: TestPrefJSON (0.00s)
+=== RUN   TestPrefConcurrency
+--- PASS: TestPrefConcurrency (0.00s)
+=== RUN   TestMergeStrategyValues
+--- PASS: TestMergeStrategyValues (0.00s)
+=== RUN   TestPrefTypedValues
+=== RUN   TestPrefTypedValues/String
+=== RUN   TestPrefTypedValues/Int
+=== RUN   TestPrefTypedValues/Bool
+=== RUN   TestPrefTypedValues/Struct
+--- PASS: TestPrefTypedValues (0.00s)
+    --- PASS: TestPrefTypedValues/String (0.00s)
+    --- PASS: TestPrefTypedValues/Int (0.00s)
+    --- PASS: TestPrefTypedValues/Bool (0.00s)
+    --- PASS: TestPrefTypedValues/Struct (0.00s)
+PASS
+coverage: 82.5% of statements
+ok  	github.com/vango-go/vango/pkg/pref	0.698s	coverage: 82.5% of statements
+=== RUN   TestAckEncodeDecode
+=== RUN   TestAckEncodeDecode/zero
+=== RUN   TestAckEncodeDecode/typical
+=== RUN   TestAckEncodeDecode/large_values
+=== RUN   TestAckEncodeDecode/max_values
+--- PASS: TestAckEncodeDecode (0.00s)
+    --- PASS: TestAckEncodeDecode/zero (0.00s)
+    --- PASS: TestAckEncodeDecode/typical (0.00s)
+    --- PASS: TestAckEncodeDecode/large_values (0.00s)
+    --- PASS: TestAckEncodeDecode/max_values (0.00s)
+=== RUN   TestNewAck
+--- PASS: TestNewAck (0.00s)
+=== RUN   TestDefaultWindow
+--- PASS: TestDefaultWindow (0.00s)
+=== RUN   TestAckEncodingSize
+--- PASS: TestAckEncodingSize (0.00s)
+=== RUN   TestEncoderDecoder
+--- PASS: TestEncoderDecoder (0.00s)
+=== RUN   TestEncoderReset
+--- PASS: TestEncoderReset (0.00s)
+=== RUN   TestEncoderWithCap
+--- PASS: TestEncoderWithCap (0.00s)
+=== RUN   TestDecoderErrors
+--- PASS: TestDecoderErrors (0.00s)
+=== RUN   TestDecoderSkip
+--- PASS: TestDecoderSkip (0.00s)
+=== RUN   TestDecoderRemaining
+--- PASS: TestDecoderRemaining (0.00s)
+=== RUN   TestEmptyString
+--- PASS: TestEmptyString (0.00s)
+=== RUN   TestBinaryData
+--- PASS: TestBinaryData (0.00s)
+=== RUN   TestEdgeCases
+--- PASS: TestEdgeCases (0.00s)
+=== RUN   TestControlEncodeDecode
+=== RUN   TestControlEncodeDecode/ping
+=== RUN   TestControlEncodeDecode/pong
+=== RUN   TestControlEncodeDecode/resync_request
+=== RUN   TestControlEncodeDecode/resync_patches
+=== RUN   TestControlEncodeDecode/resync_full
+=== RUN   TestControlEncodeDecode/close_normal
+=== RUN   TestControlEncodeDecode/close_with_message
+--- PASS: TestControlEncodeDecode (0.00s)
+    --- PASS: TestControlEncodeDecode/ping (0.00s)
+    --- PASS: TestControlEncodeDecode/pong (0.00s)
+    --- PASS: TestControlEncodeDecode/resync_request (0.00s)
+    --- PASS: TestControlEncodeDecode/resync_patches (0.00s)
+    --- PASS: TestControlEncodeDecode/resync_full (0.00s)
+    --- PASS: TestControlEncodeDecode/close_normal (0.00s)
+    --- PASS: TestControlEncodeDecode/close_with_message (0.00s)
+=== RUN   TestControlTypeString
+--- PASS: TestControlTypeString (0.00s)
+=== RUN   TestCloseReasonString
+--- PASS: TestCloseReasonString (0.00s)
+=== RUN   TestNewControlHelpers
+--- PASS: TestNewControlHelpers (0.00s)
+=== RUN   TestErrorMessageEncodeDecode
+=== RUN   TestErrorMessageEncodeDecode/simple_error
+=== RUN   TestErrorMessageEncodeDecode/fatal_error
+=== RUN   TestErrorMessageEncodeDecode/empty_message
+=== RUN   TestErrorMessageEncodeDecode/server_error
+--- PASS: TestErrorMessageEncodeDecode (0.00s)
+    --- PASS: TestErrorMessageEncodeDecode/simple_error (0.00s)
+    --- PASS: TestErrorMessageEncodeDecode/fatal_error (0.00s)
+    --- PASS: TestErrorMessageEncodeDecode/empty_message (0.00s)
+    --- PASS: TestErrorMessageEncodeDecode/server_error (0.00s)
+=== RUN   TestErrorCodeString
+--- PASS: TestErrorCodeString (0.00s)
+=== RUN   TestNewError
+--- PASS: TestNewError (0.00s)
+=== RUN   TestNewFatalError
+--- PASS: TestNewFatalError (0.00s)
+=== RUN   TestErrorMessageError
+--- PASS: TestErrorMessageError (0.00s)
+=== RUN   TestErrorMessageIsFatal
+--- PASS: TestErrorMessageIsFatal (0.00s)
+=== RUN   TestEventEncodeDecode
+=== RUN   TestEventEncodeDecode/click
+=== RUN   TestEventEncodeDecode/dblclick
+=== RUN   TestEventEncodeDecode/input
+=== RUN   TestEventEncodeDecode/change
+=== RUN   TestEventEncodeDecode/submit
+=== RUN   TestEventEncodeDecode/keydown
+=== RUN   TestEventEncodeDecode/keyup
+=== RUN   TestEventEncodeDecode/mousedown
+=== RUN   TestEventEncodeDecode/mousemove_negative
+=== RUN   TestEventEncodeDecode/scroll
+=== RUN   TestEventEncodeDecode/resize
+=== RUN   TestEventEncodeDecode/touchstart
+=== RUN   TestEventEncodeDecode/dragstart
+=== RUN   TestEventEncodeDecode/hook
+=== RUN   TestEventEncodeDecode/navigate
+=== RUN   TestEventEncodeDecode/custom
+=== RUN   TestEventEncodeDecode/focus
+=== RUN   TestEventEncodeDecode/blur
+--- PASS: TestEventEncodeDecode (0.00s)
+    --- PASS: TestEventEncodeDecode/click (0.00s)
+    --- PASS: TestEventEncodeDecode/dblclick (0.00s)
+    --- PASS: TestEventEncodeDecode/input (0.00s)
+    --- PASS: TestEventEncodeDecode/change (0.00s)
+    --- PASS: TestEventEncodeDecode/submit (0.00s)
+    --- PASS: TestEventEncodeDecode/keydown (0.00s)
+    --- PASS: TestEventEncodeDecode/keyup (0.00s)
+    --- PASS: TestEventEncodeDecode/mousedown (0.00s)
+    --- PASS: TestEventEncodeDecode/mousemove_negative (0.00s)
+    --- PASS: TestEventEncodeDecode/scroll (0.00s)
+    --- PASS: TestEventEncodeDecode/resize (0.00s)
+    --- PASS: TestEventEncodeDecode/touchstart (0.00s)
+    --- PASS: TestEventEncodeDecode/dragstart (0.00s)
+    --- PASS: TestEventEncodeDecode/hook (0.00s)
+    --- PASS: TestEventEncodeDecode/navigate (0.00s)
+    --- PASS: TestEventEncodeDecode/custom (0.00s)
+    --- PASS: TestEventEncodeDecode/focus (0.00s)
+    --- PASS: TestEventEncodeDecode/blur (0.00s)
+=== RUN   TestEventTypeString
+--- PASS: TestEventTypeString (0.00s)
+=== RUN   TestModifiersHas
+--- PASS: TestModifiersHas (0.00s)
+=== RUN   TestEventEncodingSize
+--- PASS: TestEventEncodingSize (0.00s)
+=== RUN   TestHookEventWithComplexData
+--- PASS: TestHookEventWithComplexData (0.00s)
+=== RUN   TestEmptyPayloads
+--- PASS: TestEmptyPayloads (0.00s)
+=== RUN   TestFrameEncodeDecode
+=== RUN   TestFrameEncodeDecode/empty_payload
+=== RUN   TestFrameEncodeDecode/with_payload
+=== RUN   TestFrameEncodeDecode/with_flags
+=== RUN   TestFrameEncodeDecode/handshake
+--- PASS: TestFrameEncodeDecode (0.00s)
+    --- PASS: TestFrameEncodeDecode/empty_payload (0.00s)
+    --- PASS: TestFrameEncodeDecode/with_payload (0.00s)
+    --- PASS: TestFrameEncodeDecode/with_flags (0.00s)
+    --- PASS: TestFrameEncodeDecode/handshake (0.00s)
+=== RUN   TestFrameEncodeTo
+--- PASS: TestFrameEncodeTo (0.00s)
+=== RUN   TestDecodeFrameHeader
+--- PASS: TestDecodeFrameHeader (0.00s)
+=== RUN   TestDecodeFrameErrors
+--- PASS: TestDecodeFrameErrors (0.00s)
+=== RUN   TestReadWriteFrame
+--- PASS: TestReadWriteFrame (0.00s)
+=== RUN   TestReadFrameErrors
+--- PASS: TestReadFrameErrors (0.00s)
+=== RUN   TestWriteFrameTooLarge
+--- PASS: TestWriteFrameTooLarge (0.00s)
+=== RUN   TestFrameTypeString
+--- PASS: TestFrameTypeString (0.00s)
+=== RUN   TestFrameFlagsHas
+--- PASS: TestFrameFlagsHas (0.00s)
+=== RUN   TestNewFrame
+--- PASS: TestNewFrame (0.00s)
+=== RUN   TestNewFrameWithFlags
+--- PASS: TestNewFrameWithFlags (0.00s)
+=== RUN   TestMultipleFrames
+--- PASS: TestMultipleFrames (0.00s)
+=== RUN   TestClientHelloEncodeDecode
+=== RUN   TestClientHelloEncodeDecode/new_session
+=== RUN   TestClientHelloEncodeDecode/reconnect
+=== RUN   TestClientHelloEncodeDecode/minimal
+--- PASS: TestClientHelloEncodeDecode (0.00s)
+    --- PASS: TestClientHelloEncodeDecode/new_session (0.00s)
+    --- PASS: TestClientHelloEncodeDecode/reconnect (0.00s)
+    --- PASS: TestClientHelloEncodeDecode/minimal (0.00s)
+=== RUN   TestServerHelloEncodeDecode
+=== RUN   TestServerHelloEncodeDecode/success
+=== RUN   TestServerHelloEncodeDecode/version_mismatch
+=== RUN   TestServerHelloEncodeDecode/session_expired
+--- PASS: TestServerHelloEncodeDecode (0.00s)
+    --- PASS: TestServerHelloEncodeDecode/success (0.00s)
+    --- PASS: TestServerHelloEncodeDecode/version_mismatch (0.00s)
+    --- PASS: TestServerHelloEncodeDecode/session_expired (0.00s)
+=== RUN   TestHandshakeStatusString
+--- PASS: TestHandshakeStatusString (0.00s)
+=== RUN   TestNewClientHello
+--- PASS: TestNewClientHello (0.00s)
+=== RUN   TestNewServerHello
+--- PASS: TestNewServerHello (0.00s)
+=== RUN   TestNewServerHelloError
+--- PASS: TestNewServerHelloError (0.00s)
+=== RUN   TestPatchEncodeDecode
+=== RUN   TestPatchEncodeDecode/set_text
+=== RUN   TestPatchEncodeDecode/set_attr
+=== RUN   TestPatchEncodeDecode/remove_attr
+=== RUN   TestPatchEncodeDecode/insert_node
+=== RUN   TestPatchEncodeDecode/remove_node
+=== RUN   TestPatchEncodeDecode/move_node
+=== RUN   TestPatchEncodeDecode/replace_node
+=== RUN   TestPatchEncodeDecode/set_value
+=== RUN   TestPatchEncodeDecode/set_checked_true
+=== RUN   TestPatchEncodeDecode/set_checked_false
+=== RUN   TestPatchEncodeDecode/set_selected_true
+=== RUN   TestPatchEncodeDecode/focus
+=== RUN   TestPatchEncodeDecode/blur
+=== RUN   TestPatchEncodeDecode/scroll_to_instant
+=== RUN   TestPatchEncodeDecode/scroll_to_smooth
+=== RUN   TestPatchEncodeDecode/add_class
+=== RUN   TestPatchEncodeDecode/remove_class
+=== RUN   TestPatchEncodeDecode/toggle_class
+=== RUN   TestPatchEncodeDecode/set_style
+=== RUN   TestPatchEncodeDecode/remove_style
+=== RUN   TestPatchEncodeDecode/set_data
+=== RUN   TestPatchEncodeDecode/dispatch
+=== RUN   TestPatchEncodeDecode/url_push
+=== RUN   TestPatchEncodeDecode/url_replace
+=== RUN   TestPatchEncodeDecode/nav_push
+=== RUN   TestPatchEncodeDecode/nav_replace
+=== RUN   TestPatchEncodeDecode/nav_push_root
+--- PASS: TestPatchEncodeDecode (0.00s)
+    --- PASS: TestPatchEncodeDecode/set_text (0.00s)
+    --- PASS: TestPatchEncodeDecode/set_attr (0.00s)
+    --- PASS: TestPatchEncodeDecode/remove_attr (0.00s)
+    --- PASS: TestPatchEncodeDecode/insert_node (0.00s)
+    --- PASS: TestPatchEncodeDecode/remove_node (0.00s)
+    --- PASS: TestPatchEncodeDecode/move_node (0.00s)
+    --- PASS: TestPatchEncodeDecode/replace_node (0.00s)
+    --- PASS: TestPatchEncodeDecode/set_value (0.00s)
+    --- PASS: TestPatchEncodeDecode/set_checked_true (0.00s)
+    --- PASS: TestPatchEncodeDecode/set_checked_false (0.00s)
+    --- PASS: TestPatchEncodeDecode/set_selected_true (0.00s)
+    --- PASS: TestPatchEncodeDecode/focus (0.00s)
+    --- PASS: TestPatchEncodeDecode/blur (0.00s)
+    --- PASS: TestPatchEncodeDecode/scroll_to_instant (0.00s)
+    --- PASS: TestPatchEncodeDecode/scroll_to_smooth (0.00s)
+    --- PASS: TestPatchEncodeDecode/add_class (0.00s)
+    --- PASS: TestPatchEncodeDecode/remove_class (0.00s)
+    --- PASS: TestPatchEncodeDecode/toggle_class (0.00s)
+    --- PASS: TestPatchEncodeDecode/set_style (0.00s)
+    --- PASS: TestPatchEncodeDecode/remove_style (0.00s)
+    --- PASS: TestPatchEncodeDecode/set_data (0.00s)
+    --- PASS: TestPatchEncodeDecode/dispatch (0.00s)
+    --- PASS: TestPatchEncodeDecode/url_push (0.00s)
+    --- PASS: TestPatchEncodeDecode/url_replace (0.00s)
+    --- PASS: TestPatchEncodeDecode/nav_push (0.00s)
+    --- PASS: TestPatchEncodeDecode/nav_replace (0.00s)
+    --- PASS: TestPatchEncodeDecode/nav_push_root (0.00s)
+=== RUN   TestPatchesFrameMultiple
+--- PASS: TestPatchesFrameMultiple (0.00s)
+=== RUN   TestPatchOpString
+--- PASS: TestPatchOpString (0.00s)
+=== RUN   TestEmptyPatchesFrame
+--- PASS: TestEmptyPatchesFrame (0.00s)
+=== RUN   TestPatchEncodingSize
+--- PASS: TestPatchEncodingSize (0.00s)
+=== RUN   TestAllocationLimits
+=== RUN   TestAllocationLimits/string_exceeds_limit
+=== RUN   TestAllocationLimits/collection_exceeds_limit
+--- PASS: TestAllocationLimits (0.00s)
+    --- PASS: TestAllocationLimits/string_exceeds_limit (0.00s)
+    --- PASS: TestAllocationLimits/collection_exceeds_limit (0.00s)
+=== RUN   TestDepthLimits
+=== RUN   TestDepthLimits/at_limit
+=== RUN   TestDepthLimits/exceeds_limit
+=== RUN   TestDepthLimits/well_under_limit
+--- PASS: TestDepthLimits (0.00s)
+    --- PASS: TestDepthLimits/at_limit (0.00s)
+    --- PASS: TestDepthLimits/exceeds_limit (0.00s)
+    --- PASS: TestDepthLimits/well_under_limit (0.00s)
+=== RUN   TestVNodeDepthLimit
+--- PASS: TestVNodeDepthLimit (0.00s)
+=== RUN   TestPatchDepthLimit
+--- PASS: TestPatchDepthLimit (0.00s)
+=== RUN   TestValidInputsStillWork
+=== RUN   TestValidInputsStillWork/normal_VNode
+=== RUN   TestValidInputsStillWork/normal_patches
+=== RUN   TestValidInputsStillWork/moderately_nested_VNode
+--- PASS: TestValidInputsStillWork (0.00s)
+    --- PASS: TestValidInputsStillWork/normal_VNode (0.00s)
+    --- PASS: TestValidInputsStillWork/normal_patches (0.00s)
+    --- PASS: TestValidInputsStillWork/moderately_nested_VNode (0.00s)
+=== RUN   TestAllDecodePathsProtected
+=== RUN   TestAllDecodePathsProtected/decoder_primitives
+=== RUN   TestAllDecodePathsProtected/vnode_decode
+=== RUN   TestAllDecodePathsProtected/patch_decode
+=== RUN   TestAllDecodePathsProtected/event_decode
+--- PASS: TestAllDecodePathsProtected (0.00s)
+    --- PASS: TestAllDecodePathsProtected/decoder_primitives (0.00s)
+    --- PASS: TestAllDecodePathsProtected/vnode_decode (0.00s)
+    --- PASS: TestAllDecodePathsProtected/patch_decode (0.00s)
+    --- PASS: TestAllDecodePathsProtected/event_decode (0.00s)
+=== RUN   TestDepthContextHelper
+--- PASS: TestDepthContextHelper (0.00s)
+=== RUN   TestEncodeDecodeUvarint
+=== RUN   TestEncodeDecodeUvarint/zero
+=== RUN   TestEncodeDecodeUvarint/one
+=== RUN   TestEncodeDecodeUvarint/max_1byte
+=== RUN   TestEncodeDecodeUvarint/min_2byte
+=== RUN   TestEncodeDecodeUvarint/max_2byte
+=== RUN   TestEncodeDecodeUvarint/min_3byte
+=== RUN   TestEncodeDecodeUvarint/medium
+=== RUN   TestEncodeDecodeUvarint/large
+=== RUN   TestEncodeDecodeUvarint/max_uint32
+=== RUN   TestEncodeDecodeUvarint/max_uint64
+--- PASS: TestEncodeDecodeUvarint (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/zero (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/one (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/max_1byte (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/min_2byte (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/max_2byte (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/min_3byte (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/medium (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/large (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/max_uint32 (0.00s)
+    --- PASS: TestEncodeDecodeUvarint/max_uint64 (0.00s)
+=== RUN   TestEncodeDecodeSvarint
+=== RUN   TestEncodeDecodeSvarint/zero
+=== RUN   TestEncodeDecodeSvarint/one
+=== RUN   TestEncodeDecodeSvarint/neg_one
+=== RUN   TestEncodeDecodeSvarint/small_pos
+=== RUN   TestEncodeDecodeSvarint/small_neg
+=== RUN   TestEncodeDecodeSvarint/medium_pos
+=== RUN   TestEncodeDecodeSvarint/medium_neg
+=== RUN   TestEncodeDecodeSvarint/max_int32
+=== RUN   TestEncodeDecodeSvarint/min_int32
+=== RUN   TestEncodeDecodeSvarint/max_int64
+=== RUN   TestEncodeDecodeSvarint/min_int64
+--- PASS: TestEncodeDecodeSvarint (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/zero (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/one (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/neg_one (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/small_pos (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/small_neg (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/medium_pos (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/medium_neg (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/max_int32 (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/min_int32 (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/max_int64 (0.00s)
+    --- PASS: TestEncodeDecodeSvarint/min_int64 (0.00s)
+=== RUN   TestUvarintLen
+--- PASS: TestUvarintLen (0.00s)
+=== RUN   TestSvarintLen
+--- PASS: TestSvarintLen (0.00s)
+=== RUN   TestDecodeUvarintErrors
+--- PASS: TestDecodeUvarintErrors (0.00s)
+=== RUN   TestZigZagEncoding
+--- PASS: TestZigZagEncoding (0.00s)
+=== RUN   TestVNodeWireEncodeDecode
+=== RUN   TestVNodeWireEncodeDecode/text_node
+=== RUN   TestVNodeWireEncodeDecode/simple_element
+=== RUN   TestVNodeWireEncodeDecode/element_with_children
+=== RUN   TestVNodeWireEncodeDecode/element_with_hid
+=== RUN   TestVNodeWireEncodeDecode/fragment
+=== RUN   TestVNodeWireEncodeDecode/raw_html
+=== RUN   TestVNodeWireEncodeDecode/deeply_nested
+=== RUN   TestVNodeWireEncodeDecode/empty_element
+=== RUN   TestVNodeWireEncodeDecode/nil_node
+--- PASS: TestVNodeWireEncodeDecode (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/text_node (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/simple_element (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/element_with_children (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/element_with_hid (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/fragment (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/raw_html (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/deeply_nested (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/empty_element (0.00s)
+    --- PASS: TestVNodeWireEncodeDecode/nil_node (0.00s)
+=== RUN   TestVNodeToWire
+--- PASS: TestVNodeToWire (0.00s)
+=== RUN   TestVNodeWireToVNode
+--- PASS: TestVNodeWireToVNode (0.00s)
+=== RUN   TestVNodeWireRoundTrip
+--- PASS: TestVNodeWireRoundTrip (0.00s)
+=== RUN   TestVNodeWireNilHandling
+--- PASS: TestVNodeWireNilHandling (0.00s)
+=== RUN   FuzzDecodeUvarint
+=== RUN   FuzzDecodeUvarint/seed#0
+=== RUN   FuzzDecodeUvarint/seed#1
+=== RUN   FuzzDecodeUvarint/seed#2
+=== RUN   FuzzDecodeUvarint/seed#3
+=== RUN   FuzzDecodeUvarint/seed#4
+--- PASS: FuzzDecodeUvarint (0.00s)
+    --- PASS: FuzzDecodeUvarint/seed#0 (0.00s)
+    --- PASS: FuzzDecodeUvarint/seed#1 (0.00s)
+    --- PASS: FuzzDecodeUvarint/seed#2 (0.00s)
+    --- PASS: FuzzDecodeUvarint/seed#3 (0.00s)
+    --- PASS: FuzzDecodeUvarint/seed#4 (0.00s)
+=== RUN   FuzzDecodeSvarint
+=== RUN   FuzzDecodeSvarint/seed#0
+=== RUN   FuzzDecodeSvarint/seed#1
+=== RUN   FuzzDecodeSvarint/seed#2
+--- PASS: FuzzDecodeSvarint (0.00s)
+    --- PASS: FuzzDecodeSvarint/seed#0 (0.00s)
+    --- PASS: FuzzDecodeSvarint/seed#1 (0.00s)
+    --- PASS: FuzzDecodeSvarint/seed#2 (0.00s)
+=== RUN   FuzzDecodeFrame
+=== RUN   FuzzDecodeFrame/seed#0
+=== RUN   FuzzDecodeFrame/seed#1
+--- PASS: FuzzDecodeFrame (0.00s)
+    --- PASS: FuzzDecodeFrame/seed#0 (0.00s)
+    --- PASS: FuzzDecodeFrame/seed#1 (0.00s)
+=== RUN   FuzzDecodeEvent
+=== RUN   FuzzDecodeEvent/seed#0
+=== RUN   FuzzDecodeEvent/seed#1
+=== RUN   FuzzDecodeEvent/seed#2
+--- PASS: FuzzDecodeEvent (0.00s)
+    --- PASS: FuzzDecodeEvent/seed#0 (0.00s)
+    --- PASS: FuzzDecodeEvent/seed#1 (0.00s)
+    --- PASS: FuzzDecodeEvent/seed#2 (0.00s)
+=== RUN   FuzzDecodePatches
+=== RUN   FuzzDecodePatches/seed#0
+=== RUN   FuzzDecodePatches/seed#1
+--- PASS: FuzzDecodePatches (0.00s)
+    --- PASS: FuzzDecodePatches/seed#0 (0.00s)
+    --- PASS: FuzzDecodePatches/seed#1 (0.00s)
+=== RUN   FuzzDecodeVNodeWire
+=== RUN   FuzzDecodeVNodeWire/seed#0
+=== RUN   FuzzDecodeVNodeWire/seed#1
+--- PASS: FuzzDecodeVNodeWire (0.00s)
+    --- PASS: FuzzDecodeVNodeWire/seed#0 (0.00s)
+    --- PASS: FuzzDecodeVNodeWire/seed#1 (0.00s)
+=== RUN   FuzzDecodeClientHello
+=== RUN   FuzzDecodeClientHello/seed#0
+--- PASS: FuzzDecodeClientHello (0.00s)
+    --- PASS: FuzzDecodeClientHello/seed#0 (0.00s)
+=== RUN   FuzzDecodeServerHello
+=== RUN   FuzzDecodeServerHello/seed#0
+--- PASS: FuzzDecodeServerHello (0.00s)
+    --- PASS: FuzzDecodeServerHello/seed#0 (0.00s)
+=== RUN   FuzzDecodeControl
+=== RUN   FuzzDecodeControl/seed#0
+=== RUN   FuzzDecodeControl/seed#1
+--- PASS: FuzzDecodeControl (0.00s)
+    --- PASS: FuzzDecodeControl/seed#0 (0.00s)
+    --- PASS: FuzzDecodeControl/seed#1 (0.00s)
+=== RUN   FuzzDecodeAck
+=== RUN   FuzzDecodeAck/seed#0
+=== RUN   FuzzDecodeAck/seed#1
+--- PASS: FuzzDecodeAck (0.00s)
+    --- PASS: FuzzDecodeAck/seed#0 (0.00s)
+    --- PASS: FuzzDecodeAck/seed#1 (0.00s)
+=== RUN   FuzzDecodeErrorMessage
+=== RUN   FuzzDecodeErrorMessage/seed#0
+=== RUN   FuzzDecodeErrorMessage/seed#1
+--- PASS: FuzzDecodeErrorMessage (0.00s)
+    --- PASS: FuzzDecodeErrorMessage/seed#0 (0.00s)
+    --- PASS: FuzzDecodeErrorMessage/seed#1 (0.00s)
+=== RUN   FuzzRoundTrip
+=== RUN   FuzzRoundTrip/seed#0
+--- PASS: FuzzRoundTrip (0.00s)
+    --- PASS: FuzzRoundTrip/seed#0 (0.00s)
+=== RUN   FuzzDecodeHookPayload
+=== RUN   FuzzDecodeHookPayload/seed#0
+=== RUN   FuzzDecodeHookPayload/seed#1
+=== RUN   FuzzDecodeHookPayload/seed#2
+=== RUN   FuzzDecodeHookPayload/seed#3
+=== RUN   FuzzDecodeHookPayload/seed#4
+=== RUN   FuzzDecodeHookPayload/seed#5
+=== RUN   FuzzDecodeHookPayload/seed#6
+=== RUN   FuzzDecodeHookPayload/seed#7
+=== RUN   FuzzDecodeHookPayload/seed#8
+=== RUN   FuzzDecodeHookPayload/seed#9
+=== RUN   FuzzDecodeHookPayload/seed#10
+=== RUN   FuzzDecodeHookPayload/seed#11
+--- PASS: FuzzDecodeHookPayload (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#0 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#1 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#2 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#3 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#4 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#5 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#6 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#7 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#8 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#9 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#10 (0.00s)
+    --- PASS: FuzzDecodeHookPayload/seed#11 (0.00s)
+=== RUN   FuzzDeeplyNestedVNode
+=== RUN   FuzzDeeplyNestedVNode/seed#0
+=== RUN   FuzzDeeplyNestedVNode/seed#1
+--- PASS: FuzzDeeplyNestedVNode (0.00s)
+    --- PASS: FuzzDeeplyNestedVNode/seed#0 (0.00s)
+    --- PASS: FuzzDeeplyNestedVNode/seed#1 (0.00s)
+=== RUN   FuzzPatchesWithVNodes
+=== RUN   FuzzPatchesWithVNodes/seed#0
+--- PASS: FuzzPatchesWithVNodes (0.00s)
+    --- PASS: FuzzPatchesWithVNodes/seed#0 (0.00s)
+PASS
+coverage: 75.3% of statements
+ok  	github.com/vango-go/vango/pkg/protocol	0.933s	coverage: 75.3% of statements
+=== RUN   TestRenderMetaTagWriteErrorPaths
+--- PASS: TestRenderMetaTagWriteErrorPaths (0.00s)
+=== RUN   TestRenderLinkTagWriteErrorPaths
+--- PASS: TestRenderLinkTagWriteErrorPaths (0.00s)
+=== RUN   TestRenderScriptTagWriteErrorPaths
+--- PASS: TestRenderScriptTagWriteErrorPaths (0.00s)
+=== RUN   TestRenderHeadWriteErrorPaths
+--- PASS: TestRenderHeadWriteErrorPaths (0.00s)
+=== RUN   TestRenderPageWriteErrorPaths
+--- PASS: TestRenderPageWriteErrorPaths (0.00s)
+=== RUN   TestStreamingRendererRenderPageWriteErrorPaths
+--- PASS: TestStreamingRendererRenderPageWriteErrorPaths (0.00s)
+=== RUN   TestEscapeHTML
+=== RUN   TestEscapeHTML/empty_string
+=== RUN   TestEscapeHTML/plain_text
+=== RUN   TestEscapeHTML/ampersand
+=== RUN   TestEscapeHTML/less_than
+=== RUN   TestEscapeHTML/greater_than
+=== RUN   TestEscapeHTML/double_quote
+=== RUN   TestEscapeHTML/single_quote
+=== RUN   TestEscapeHTML/script_tag
+=== RUN   TestEscapeHTML/multiple_special_chars
+=== RUN   TestEscapeHTML/unicode_preserved
+--- PASS: TestEscapeHTML (0.00s)
+    --- PASS: TestEscapeHTML/empty_string (0.00s)
+    --- PASS: TestEscapeHTML/plain_text (0.00s)
+    --- PASS: TestEscapeHTML/ampersand (0.00s)
+    --- PASS: TestEscapeHTML/less_than (0.00s)
+    --- PASS: TestEscapeHTML/greater_than (0.00s)
+    --- PASS: TestEscapeHTML/double_quote (0.00s)
+    --- PASS: TestEscapeHTML/single_quote (0.00s)
+    --- PASS: TestEscapeHTML/script_tag (0.00s)
+    --- PASS: TestEscapeHTML/multiple_special_chars (0.00s)
+    --- PASS: TestEscapeHTML/unicode_preserved (0.00s)
+=== RUN   TestEscapeAttr
+=== RUN   TestEscapeAttr/empty_string
+=== RUN   TestEscapeAttr/plain_text
+=== RUN   TestEscapeAttr/ampersand
+=== RUN   TestEscapeAttr/double_quote
+=== RUN   TestEscapeAttr/newline
+=== RUN   TestEscapeAttr/carriage_return
+=== RUN   TestEscapeAttr/tab
+=== RUN   TestEscapeAttr/mixed_whitespace
+=== RUN   TestEscapeAttr/all_special_chars
+--- PASS: TestEscapeAttr (0.00s)
+    --- PASS: TestEscapeAttr/empty_string (0.00s)
+    --- PASS: TestEscapeAttr/plain_text (0.00s)
+    --- PASS: TestEscapeAttr/ampersand (0.00s)
+    --- PASS: TestEscapeAttr/double_quote (0.00s)
+    --- PASS: TestEscapeAttr/newline (0.00s)
+    --- PASS: TestEscapeAttr/carriage_return (0.00s)
+    --- PASS: TestEscapeAttr/tab (0.00s)
+    --- PASS: TestEscapeAttr/mixed_whitespace (0.00s)
+    --- PASS: TestEscapeAttr/all_special_chars (0.00s)
+=== RUN   TestRenderMetaTagAllFields
+--- PASS: TestRenderMetaTagAllFields (0.00s)
+=== RUN   TestRenderLinkTagAllFields
+--- PASS: TestRenderLinkTagAllFields (0.00s)
+=== RUN   TestRenderScriptTagTypeAndInline
+--- PASS: TestRenderScriptTagTypeAndInline (0.00s)
+=== RUN   TestRenderPageSkipsNonDeferOrAsyncScriptsInHead
+--- PASS: TestRenderPageSkipsNonDeferOrAsyncScriptsInHead (0.00s)
+=== RUN   TestRenderPage
+--- PASS: TestRenderPage (0.00s)
+=== RUN   TestRenderPageWithSessionAndCSRF
+--- PASS: TestRenderPageWithSessionAndCSRF (0.00s)
+=== RUN   TestRenderPageWithMeta
+--- PASS: TestRenderPageWithMeta (0.00s)
+=== RUN   TestRenderPageWithLinks
+--- PASS: TestRenderPageWithLinks (0.00s)
+=== RUN   TestRenderPageWithStyleSheets
+--- PASS: TestRenderPageWithStyleSheets (0.00s)
+=== RUN   TestRenderPageWithInlineStyles
+--- PASS: TestRenderPageWithInlineStyles (0.00s)
+=== RUN   TestRenderPageWithScripts
+--- PASS: TestRenderPageWithScripts (0.00s)
+=== RUN   TestRenderPageWithCustomClientScript
+--- PASS: TestRenderPageWithCustomClientScript (0.00s)
+=== RUN   TestRenderPageWithCustomLang
+--- PASS: TestRenderPageWithCustomLang (0.00s)
+=== RUN   TestRenderPageEscaping
+--- PASS: TestRenderPageEscaping (0.00s)
+=== RUN   TestRenderHookConfig
+--- PASS: TestRenderHookConfig (0.00s)
+=== RUN   TestRenderOptimisticConfig
+--- PASS: TestRenderOptimisticConfig (0.00s)
+=== RUN   TestRenderOptimisticConfigWithAttr
+--- PASS: TestRenderOptimisticConfigWithAttr (0.00s)
+=== RUN   TestRenderOptimisticConfigEmpty
+--- PASS: TestRenderOptimisticConfigEmpty (0.00s)
+=== RUN   TestRenderPageWithDebugMode
+--- PASS: TestRenderPageWithDebugMode (0.00s)
+=== RUN   TestRenderPageWithoutDebugMode
+--- PASS: TestRenderPageWithoutDebugMode (0.00s)
+=== RUN   TestRenderElementDangerouslySetInnerHTMLProp
+--- PASS: TestRenderElementDangerouslySetInnerHTMLProp (0.00s)
+=== RUN   TestRenderElementPreservesExistingHID
+--- PASS: TestRenderElementPreservesExistingHID (0.00s)
+=== RUN   TestRenderAttributesSpecialMappingsAndSkipping
+--- PASS: TestRenderAttributesSpecialMappingsAndSkipping (0.00s)
+=== RUN   TestRenderAttributesRejectsInjectedOnAttributes
+--- PASS: TestRenderAttributesRejectsInjectedOnAttributes (0.00s)
+=== RUN   TestRenderAttributesDataVeSortedAndModifiersRendered
+--- PASS: TestRenderAttributesDataVeSortedAndModifiersRendered (0.00s)
+=== RUN   TestRenderNodeUnknownKindErrors
+--- PASS: TestRenderNodeUnknownKindErrors (0.00s)
+=== RUN   TestNeedsHIDNonElementReturnsFalse
+--- PASS: TestNeedsHIDNonElementReturnsFalse (0.00s)
+=== RUN   TestRenderFragmentPropagatesChildError
+--- PASS: TestRenderFragmentPropagatesChildError (0.00s)
+=== RUN   TestRenderComponentNilIsNoop
+--- PASS: TestRenderComponentNilIsNoop (0.00s)
+=== RUN   TestGetModifierAttrsAllFields
+--- PASS: TestGetModifierAttrsAllFields (0.00s)
+=== RUN   TestIsEventHandlerAndAttrToStringVariants
+--- PASS: TestIsEventHandlerAndAttrToStringVariants (0.00s)
+=== RUN   TestRenderVHookSuccessAndErrors
+--- PASS: TestRenderVHookSuccessAndErrors (0.00s)
+=== RUN   TestRenderHookConfigMarshalError
+--- PASS: TestRenderHookConfigMarshalError (0.00s)
+=== RUN   TestRenderAttributesVHookInvalidPropErrors
+--- PASS: TestRenderAttributesVHookInvalidPropErrors (0.00s)
+=== RUN   TestRenderText
+--- PASS: TestRenderText (0.00s)
+=== RUN   TestRenderTextEscaping
+--- PASS: TestRenderTextEscaping (0.00s)
+=== RUN   TestRenderElement
+--- PASS: TestRenderElement (0.00s)
+=== RUN   TestRenderVoidElements
+=== RUN   TestRenderVoidElements/input
+=== RUN   TestRenderVoidElements/br
+=== RUN   TestRenderVoidElements/img
+=== RUN   TestRenderVoidElements/hr
+--- PASS: TestRenderVoidElements (0.00s)
+    --- PASS: TestRenderVoidElements/input (0.00s)
+    --- PASS: TestRenderVoidElements/br (0.00s)
+    --- PASS: TestRenderVoidElements/img (0.00s)
+    --- PASS: TestRenderVoidElements/hr (0.00s)
+=== RUN   TestRenderBooleanAttributes
+--- PASS: TestRenderBooleanAttributes (0.00s)
+=== RUN   TestRenderFragment
+--- PASS: TestRenderFragment (0.00s)
+=== RUN   TestRenderHydrationID
+--- PASS: TestRenderHydrationID (0.00s)
+=== RUN   TestRenderMultipleHandlers
+--- PASS: TestRenderMultipleHandlers (0.00s)
+=== RUN   TestRenderRaw
+--- PASS: TestRenderRaw (0.00s)
+=== RUN   TestRenderPretty
+--- PASS: TestRenderPretty (0.00s)
+=== RUN   TestRenderNilNode
+--- PASS: TestRenderNilNode (0.00s)
+=== RUN   TestRenderNestedFragments
+--- PASS: TestRenderNestedFragments (0.00s)
+=== RUN   TestRenderComponent
+--- PASS: TestRenderComponent (0.00s)
+=== RUN   TestRendererReset
+--- PASS: TestRendererReset (0.00s)
+=== RUN   TestRenderToWriter
+--- PASS: TestRenderToWriter (0.00s)
+=== RUN   TestRenderAttributeEscaping
+--- PASS: TestRenderAttributeEscaping (0.00s)
+=== RUN   TestRenderEmptyElement
+--- PASS: TestRenderEmptyElement (0.00s)
+=== RUN   TestRenderDataAttributes
+--- PASS: TestRenderDataAttributes (0.00s)
+=== RUN   TestStreamingRendererRenderPage
+--- PASS: TestStreamingRendererRenderPage (0.00s)
+=== RUN   TestStreamingRendererFlushes
+--- PASS: TestStreamingRendererFlushes (0.00s)
+=== RUN   TestStreamingRendererWithHttpTest
+--- PASS: TestStreamingRendererWithHttpTest (0.00s)
+=== RUN   TestStreamingRendererNilFlusher
+--- PASS: TestStreamingRendererNilFlusher (0.00s)
+=== RUN   TestStreamingRendererLargeContent
+--- PASS: TestStreamingRendererLargeContent (0.00s)
+PASS
+coverage: 93.4% of statements
+ok  	github.com/vango-go/vango/pkg/render	0.886s	coverage: 93.4% of statements
+	github.com/vango-go/vango/pkg/routepath		coverage: 0.0% of statements
+FAIL	github.com/vango-go/vango/pkg/router [build failed]
+FAIL	github.com/vango-go/vango/pkg/server [build failed]
+=== RUN   TestSessionNotFoundError_Error
+--- PASS: TestSessionNotFoundError_Error (0.00s)
+=== RUN   TestErrStoreClosed_Error
+--- PASS: TestErrStoreClosed_Error (0.00s)
+=== RUN   TestManager_EvictionPolicy_LRU
+--- PASS: TestManager_EvictionPolicy_LRU (0.00s)
+=== RUN   TestManager_EvictionPolicy_Oldest
+--- PASS: TestManager_EvictionPolicy_Oldest (0.00s)
+=== RUN   TestManager_EvictionPolicy_Random_Deterministic
+--- PASS: TestManager_EvictionPolicy_Random_Deterministic (0.00s)
+=== RUN   TestManager_EvictionPolicy_Random_ClampsOutOfRangeIndex
+--- PASS: TestManager_EvictionPolicy_Random_ClampsOutOfRangeIndex (0.00s)
+=== RUN   TestManager_OnDisconnect_DeduplicatesDetachedQueue
+--- PASS: TestManager_OnDisconnect_DeduplicatesDetachedQueue (0.00s)
+=== RUN   TestManager_OnReconnect_LoadsFromStoreWhenNotInMemory
+--- PASS: TestManager_OnReconnect_LoadsFromStoreWhenNotInMemory (0.00s)
+=== RUN   TestManager_OnReconnect_ExpiredSessionIsRemoved
+--- PASS: TestManager_OnReconnect_ExpiredSessionIsRemoved (0.00s)
+=== RUN   TestManager_TouchUpdatesLRUOrder
+--- PASS: TestManager_TouchUpdatesLRUOrder (0.00s)
+=== RUN   TestManager_CleanupExpired_RemovesDetachedOnly
+--- PASS: TestManager_CleanupExpired_RemovesDetachedOnly (0.00s)
+=== RUN   TestManager_ShutdownStopsManager
+--- PASS: TestManager_ShutdownStopsManager (0.00s)
+=== RUN   TestManagerRegister
+--- PASS: TestManagerRegister (0.00s)
+=== RUN   TestManagerIPLimit
+--- PASS: TestManagerIPLimit (0.00s)
+=== RUN   TestManagerDisconnectReconnect
+--- PASS: TestManagerDisconnectReconnect (0.00s)
+=== RUN   TestManagerLRUEviction
+2026/01/15 05:06:38 INFO persisted sessions on shutdown component=session_manager count=2
+--- PASS: TestManagerLRUEviction (0.03s)
+=== RUN   TestManagerStats
+2026/01/15 05:06:38 INFO persisted sessions on shutdown component=session_manager count=2
+--- PASS: TestManagerStats (0.00s)
+=== RUN   TestManagerShutdown
+2026/01/15 05:06:38 INFO persisted sessions on shutdown component=session_manager count=1
+--- PASS: TestManagerShutdown (0.00s)
+=== RUN   TestMemoryStore_CopyOnSaveAndLoad
+--- PASS: TestMemoryStore_CopyOnSaveAndLoad (0.00s)
+=== RUN   TestMemoryStore_SaveAllCopiesInput
+--- PASS: TestMemoryStore_SaveAllCopiesInput (0.00s)
+=== RUN   TestMemoryStore_CloseMakesOperationsFail
+--- PASS: TestMemoryStore_CloseMakesOperationsFail (0.00s)
+=== RUN   TestMemoryStore_CleanupRemovesExpired
+--- PASS: TestMemoryStore_CleanupRemovesExpired (0.00s)
+=== RUN   TestRedisStore_PrefixAndKeying
+--- PASS: TestRedisStore_PrefixAndKeying (0.00s)
+=== RUN   TestRedisStore_Save_ExpiredDeletes
+--- PASS: TestRedisStore_Save_ExpiredDeletes (0.00s)
+=== RUN   TestRedisStore_Load_MissingReturnsNilData
+--- PASS: TestRedisStore_Load_MissingReturnsNilData (0.00s)
+=== RUN   TestRedisStore_Touch_ExpiredDeletes
+--- PASS: TestRedisStore_Touch_ExpiredDeletes (0.00s)
+=== RUN   TestRedisStore_SaveAll_SkipsExpiredAndPipelines
+--- PASS: TestRedisStore_SaveAll_SkipsExpiredAndPipelines (0.00s)
+=== RUN   TestRedisStore_Close_MakesOperationsFail
+--- PASS: TestRedisStore_Close_MakesOperationsFail (0.00s)
+=== RUN   TestSerialize_SetsVersionAndRoundTrips
+--- PASS: TestSerialize_SetsVersionAndRoundTrips (0.00s)
+=== RUN   TestDeserialize_InvalidJSONErrors
+--- PASS: TestDeserialize_InvalidJSONErrors (0.00s)
+=== RUN   TestNewSignalConfig_Defaults
+--- PASS: TestNewSignalConfig_Defaults (0.00s)
+=== RUN   TestSQLStore_Placeholders
+--- PASS: TestSQLStore_Placeholders (0.00s)
+=== RUN   TestSQLStore_SaveLoadDeleteTouch_PostgresQueries
+--- PASS: TestSQLStore_SaveLoadDeleteTouch_PostgresQueries (0.00s)
+=== RUN   TestSQLStore_Load_NoRowsReturnsNil
+--- PASS: TestSQLStore_Load_NoRowsReturnsNil (0.00s)
+=== RUN   TestSQLStore_SaveAll_UsesTransaction
+--- PASS: TestSQLStore_SaveAll_UsesTransaction (0.00s)
+=== RUN   TestSQLStore_CleanupAndCreateTable
+--- PASS: TestSQLStore_CleanupAndCreateTable (0.00s)
+=== RUN   TestSQLStore_Close_MakesOperationsFail
+--- PASS: TestSQLStore_Close_MakesOperationsFail (0.00s)
+=== RUN   TestMemoryStore
+=== RUN   TestMemoryStore/Save
+=== RUN   TestMemoryStore/Load
+=== RUN   TestMemoryStore/LoadNonExistent
+=== RUN   TestMemoryStore/Touch
+=== RUN   TestMemoryStore/Delete
+=== RUN   TestMemoryStore/SaveAll
+--- PASS: TestMemoryStore (0.00s)
+    --- PASS: TestMemoryStore/Save (0.00s)
+    --- PASS: TestMemoryStore/Load (0.00s)
+    --- PASS: TestMemoryStore/LoadNonExistent (0.00s)
+    --- PASS: TestMemoryStore/Touch (0.00s)
+    --- PASS: TestMemoryStore/Delete (0.00s)
+    --- PASS: TestMemoryStore/SaveAll (0.00s)
+=== RUN   TestMemoryStoreExpiry
+--- PASS: TestMemoryStoreExpiry (0.02s)
+=== RUN   TestMemoryStoreConcurrency
+--- PASS: TestMemoryStoreConcurrency (0.00s)
+PASS
+coverage: 86.8% of statements
+ok  	github.com/vango-go/vango/pkg/session	1.099s	coverage: 86.8% of statements
+FAIL	github.com/vango-go/vango/pkg/toast [build failed]
+=== RUN   TestDiskStore_SaveRejectsWhenReaderExceedsLimitEvenIfDeclaredSizeIsSmaller
+--- PASS: TestDiskStore_SaveRejectsWhenReaderExceedsLimitEvenIfDeclaredSizeIsSmaller (0.00s)
+=== RUN   TestDiskStore_ClaimLoadsMetadataFromDiskWhenNotInMemory
+--- PASS: TestDiskStore_ClaimLoadsMetadataFromDiskWhenNotInMemory (0.00s)
+=== RUN   TestDiskStore_ClaimValidTempIDButMissingFileReturnsNotFound
+--- PASS: TestDiskStore_ClaimValidTempIDButMissingFileReturnsNotFound (0.00s)
+=== RUN   TestDiskStore_ClaimRejectsTraversalTempID
+--- PASS: TestDiskStore_ClaimRejectsTraversalTempID (0.00s)
+=== RUN   TestDiskStore_CleanupRemovesOrphanedOldFilesButNotDirectories
+--- PASS: TestDiskStore_CleanupRemovesOrphanedOldFilesButNotDirectories (0.00s)
+=== RUN   TestFile_CloseClosesReaderWhenPresent
+--- PASS: TestFile_CloseClosesReaderWhenPresent (0.00s)
+=== RUN   TestFile_CloseNoopWhenNoReader
+--- PASS: TestFile_CloseNoopWhenNoReader (0.00s)
+=== RUN   TestClaim_DelegatesToStore
+--- PASS: TestClaim_DelegatesToStore (0.00s)
+=== RUN   TestHandler_RejectsNonPOST
+--- PASS: TestHandler_RejectsNonPOST (0.00s)
+=== RUN   TestHandler_FailsWhenNotMultipart
+--- PASS: TestHandler_FailsWhenNotMultipart (0.00s)
+=== RUN   TestHandler_FailsWhenNoFileProvided
+--- PASS: TestHandler_FailsWhenNoFileProvided (0.00s)
+=== RUN   TestHandler_EnforcesAllowedTypes
+--- PASS: TestHandler_EnforcesAllowedTypes (0.00s)
+=== RUN   TestHandler_AllowsAllowedTypes_CaseAndParams
+--- PASS: TestHandler_AllowsAllowedTypes_CaseAndParams (0.00s)
+=== RUN   TestHandler_EnforcesAllowedExtensions
+--- PASS: TestHandler_EnforcesAllowedExtensions (0.00s)
+=== RUN   TestHandler_RequireExtensionMatchRejectsMismatch
+--- PASS: TestHandler_RequireExtensionMatchRejectsMismatch (0.00s)
+=== RUN   TestHandler_RejectsTooLargeBodyAtHTTPLevel
+--- PASS: TestHandler_RejectsTooLargeBodyAtHTTPLevel (0.00s)
+=== RUN   TestHandler_MapsStoreErrTooLargeTo413
+--- PASS: TestHandler_MapsStoreErrTooLargeTo413 (0.00s)
+=== RUN   TestHandler_MapsStoreErrorTo500
+--- PASS: TestHandler_MapsStoreErrorTo500 (0.00s)
+=== RUN   TestDiskStore_SaveAndClaim
+--- PASS: TestDiskStore_SaveAndClaim (0.00s)
+=== RUN   TestDiskStore_ClaimDeletesFile
+--- PASS: TestDiskStore_ClaimDeletesFile (0.00s)
+=== RUN   TestDiskStore_ClaimNotFound
+--- PASS: TestDiskStore_ClaimNotFound (0.00s)
+=== RUN   TestDiskStore_SizeLimitExceeded
+--- PASS: TestDiskStore_SizeLimitExceeded (0.00s)
+=== RUN   TestDiskStore_Cleanup
+--- PASS: TestDiskStore_Cleanup (0.01s)
+=== RUN   TestDiskStore_DoubleClaim
+--- PASS: TestDiskStore_DoubleClaim (0.00s)
+PASS
+coverage: 78.3% of statements
+ok  	github.com/vango-go/vango/pkg/upload	1.075s	coverage: 78.3% of statements
+=== RUN   TestInitialURLState_ConsumeOnce
+--- PASS: TestInitialURLState_ConsumeOnce (0.00s)
+=== RUN   TestNavigator_NavigateQueuesCorrectPatch
+--- PASS: TestNavigator_NavigateQueuesCorrectPatch (0.00s)
+=== RUN   TestURLParam_SetAndUpdate_NavigateModeAndParams
+--- PASS: TestURLParam_SetAndUpdate_NavigateModeAndParams (0.00s)
+=== RUN   TestURLParam_SetFromURL_DoesNotNavigate
+--- PASS: TestURLParam_SetFromURL_DoesNotNavigate (0.04s)
+=== RUN   TestURLParam_Debounce_CoalescesURLUpdates
+--- PASS: TestURLParam_Debounce_CoalescesURLUpdates (0.03s)
+=== RUN   TestURLParam_SerializeFlat_StructTagsSkipZero
+--- PASS: TestURLParam_SerializeFlat_StructTagsSkipZero (0.00s)
+=== RUN   TestURLParam_Serialize_EncodingFallbackForWrongKind
+--- PASS: TestURLParam_Serialize_EncodingFallbackForWrongKind (0.00s)
+=== RUN   TestURLParam_SerializeComma_Slice
+--- PASS: TestURLParam_SerializeComma_Slice (0.00s)
+=== RUN   TestURLParam_SerializeJSON_RoundTripAndMarshalError
+--- PASS: TestURLParam_SerializeJSON_RoundTripAndMarshalError (0.00s)
+=== RUN   TestURLParam_DeserializeJSON_Errors
+--- PASS: TestURLParam_DeserializeJSON_Errors (0.00s)
+=== RUN   TestURLParam_DeserializeComma_ErrorsAndParse
+--- PASS: TestURLParam_DeserializeComma_ErrorsAndParse (0.00s)
+=== RUN   TestURLParam_DeserializeFlat_ErrorsAndNonStruct
+--- PASS: TestURLParam_DeserializeFlat_ErrorsAndNonStruct (0.00s)
+=== RUN   TestURLParam_ParseValue_UnsupportedType
+--- PASS: TestURLParam_ParseValue_UnsupportedType (0.00s)
+=== RUN   TestURLParam_HookSlotStableIdentityAndInitialHydration
+--- PASS: TestURLParam_HookSlotStableIdentityAndInitialHydration (0.00s)
+=== RUN   TestURLParamCreation
+=== RUN   TestURLParamCreation/SimpleString
+=== RUN   TestURLParamCreation/WithDefault
+=== RUN   TestURLParamCreation/WithPushMode
+=== RUN   TestURLParamCreation/WithReplaceMode
+=== RUN   TestURLParamCreation/WithDebounce
+=== RUN   TestURLParamCreation/WithEncoding
+=== RUN   TestURLParamCreation/CombinedOptions
+--- PASS: TestURLParamCreation (0.00s)
+    --- PASS: TestURLParamCreation/SimpleString (0.00s)
+    --- PASS: TestURLParamCreation/WithDefault (0.00s)
+    --- PASS: TestURLParamCreation/WithPushMode (0.00s)
+    --- PASS: TestURLParamCreation/WithReplaceMode (0.00s)
+    --- PASS: TestURLParamCreation/WithDebounce (0.00s)
+    --- PASS: TestURLParamCreation/WithEncoding (0.00s)
+    --- PASS: TestURLParamCreation/CombinedOptions (0.00s)
+=== RUN   TestURLParamGetSet
+--- PASS: TestURLParamGetSet (0.00s)
+=== RUN   TestURLParamReset
+--- PASS: TestURLParamReset (0.00s)
+=== RUN   TestURLParamUpdate
+--- PASS: TestURLParamUpdate (0.00s)
+=== RUN   TestURLParamSetFromURL
+=== RUN   TestURLParamSetFromURL/SimpleString
+=== RUN   TestURLParamSetFromURL/IntValue
+=== RUN   TestURLParamSetFromURL/MissingKey
+--- PASS: TestURLParamSetFromURL (0.00s)
+    --- PASS: TestURLParamSetFromURL/SimpleString (0.00s)
+    --- PASS: TestURLParamSetFromURL/IntValue (0.00s)
+    --- PASS: TestURLParamSetFromURL/MissingKey (0.00s)
+=== RUN   TestURLParamFlatEncoding
+--- PASS: TestURLParamFlatEncoding (0.00s)
+=== RUN   TestURLParamCommaEncoding
+--- PASS: TestURLParamCommaEncoding (0.00s)
+=== RUN   TestURLParamJSONEncoding
+--- PASS: TestURLParamJSONEncoding (0.00s)
+=== RUN   TestModeConstants
+--- PASS: TestModeConstants (0.00s)
+=== RUN   TestEncodingConstants
+--- PASS: TestEncodingConstants (0.00s)
+PASS
+coverage: 87.6% of statements
+ok  	github.com/vango-go/vango/pkg/urlparam	0.281s	coverage: 87.6% of statements
+=== RUN   TestActionCancelLatestOption_CancelsInFlight
+--- PASS: TestActionCancelLatestOption_CancelsInFlight (0.01s)
+=== RUN   TestActionQueue_PreservesOrder_QueueFullAndCallbacks
+--- PASS: TestActionQueue_PreservesOrder_QueueFullAndCallbacks (0.01s)
+=== RUN   TestActionOnErrorCallback_FiresOnWorkError
+--- PASS: TestActionOnErrorCallback_FiresOnWorkError (0.01s)
+=== RUN   TestActionIsRunning
+--- PASS: TestActionIsRunning (0.01s)
+=== RUN   TestActionStateStrings
+--- PASS: TestActionStateStrings (0.00s)
+=== RUN   TestActionBasic
+--- PASS: TestActionBasic (0.01s)
+=== RUN   TestActionError
+--- PASS: TestActionError (0.01s)
+=== RUN   TestActionReset
+--- PASS: TestActionReset (0.01s)
+=== RUN   TestActionDropWhileRunning
+--- PASS: TestActionDropWhileRunning (0.01s)
+=== RUN   TestActionHelpers
+--- PASS: TestActionHelpers (0.01s)
+=== RUN   TestActionBudgetExceeded
+--- PASS: TestActionBudgetExceeded (0.01s)
+=== RUN   TestActionBudgetOK
+--- PASS: TestActionBudgetOK (0.01s)
+=== RUN   TestBatchSingleNotification
+--- PASS: TestBatchSingleNotification (0.00s)
+=== RUN   TestBatchDeduplication
+--- PASS: TestBatchDeduplication (0.00s)
+=== RUN   TestBatchNested
+--- PASS: TestBatchNested (0.00s)
+=== RUN   TestBatchMultipleListeners
+--- PASS: TestBatchMultipleListeners (0.00s)
+=== RUN   TestBatchNoChanges
+--- PASS: TestBatchNoChanges (0.00s)
+=== RUN   TestBatchWithPanic
+--- PASS: TestBatchWithPanic (0.00s)
+=== RUN   TestUntracked
+--- PASS: TestUntracked (0.00s)
+=== RUN   TestUntrackedNested
+--- PASS: TestUntrackedNested (0.00s)
+=== RUN   TestUntrackedRestoresContext
+--- PASS: TestUntrackedRestoresContext (0.00s)
+=== RUN   TestUntrackedGet
+--- PASS: TestUntrackedGet (0.00s)
+=== RUN   TestBatchWithMemo
+--- PASS: TestBatchWithMemo (0.00s)
+=== RUN   TestTxIsAliasForBatch
+--- PASS: TestTxIsAliasForBatch (0.00s)
+=== RUN   TestTxNested
+--- PASS: TestTxNested (0.00s)
+=== RUN   TestTxWithBatchNested
+--- PASS: TestTxWithBatchNested (0.00s)
+=== RUN   TestTxNamed
+--- PASS: TestTxNamed (0.00s)
+=== RUN   TestTxNamedDebugMode
+[TX] debug-transaction start
+[TX] debug-transaction end
+--- PASS: TestTxNamedDebugMode (0.00s)
+=== RUN   TestTxNamedNested
+--- PASS: TestTxNamedNested (0.00s)
+=== RUN   TestTxMultipleSignals
+--- PASS: TestTxMultipleSignals (0.00s)
+=== RUN   TestTxPanicRecovery
+--- PASS: TestTxPanicRecovery (0.00s)
+=== RUN   TestTxNamedPanicRecovery
+--- PASS: TestTxNamedPanicRecovery (0.00s)
+=== RUN   TestContextProvider_CreatesComponentVNode
+--- PASS: TestContextProvider_CreatesComponentVNode (0.00s)
+=== RUN   TestContextProviderComponent_Render_NoOwnerReturnsFragment
+--- PASS: TestContextProviderComponent_Render_NoOwnerReturnsFragment (0.00s)
+=== RUN   TestContextProviderComponent_Render_UpdatesSignalQuietly
+--- PASS: TestContextProviderComponent_Render_UpdatesSignalQuietly (0.00s)
+=== RUN   TestOwnerSetGetValue
+--- PASS: TestOwnerSetGetValue (0.00s)
+=== RUN   TestOwnerValueInheritance
+--- PASS: TestOwnerValueInheritance (0.00s)
+=== RUN   TestSetGetContext
+--- PASS: TestSetGetContext (0.00s)
+=== RUN   TestContextWithNoOwner
+--- PASS: TestContextWithNoOwner (0.00s)
+=== RUN   TestContextInheritanceViaSetContext
+--- PASS: TestContextInheritanceViaSetContext (0.00s)
+=== RUN   TestCreateContextWithDefaultValue
+--- PASS: TestCreateContextWithDefaultValue (0.00s)
+=== RUN   TestContextUseWithoutProvider
+--- PASS: TestContextUseWithoutProvider (0.00s)
+=== RUN   TestContextProviderScoping
+--- PASS: TestContextProviderScoping (0.00s)
+=== RUN   TestContextUseIsReactive
+--- PASS: TestContextUseIsReactive (0.00s)
+=== RUN   TestContextNestedProviders
+--- PASS: TestContextNestedProviders (0.00s)
+=== RUN   TestContextHookOrderTracking
+--- PASS: TestContextHookOrderTracking (0.00s)
+=== RUN   TestContextProviderRerender
+--- PASS: TestContextProviderRerender (0.00s)
+=== RUN   TestContextProviderDoesNotNotifyDuringRender
+--- PASS: TestContextProviderDoesNotNotifyDuringRender (0.00s)
+=== RUN   TestGetValueLocal
+--- PASS: TestGetValueLocal (0.00s)
+=== RUN   TestEffectStrictMode_PanicsWithoutAllowWrites_AllowsWithOption
+--- PASS: TestEffectStrictMode_PanicsWithoutAllowWrites_AllowsWithOption (0.00s)
+=== RUN   TestEffectRunsOnCreate
+--- PASS: TestEffectRunsOnCreate (0.00s)
+=== RUN   TestEffectTracksDependencies
+--- PASS: TestEffectTracksDependencies (0.00s)
+=== RUN   TestEffectCleanup
+--- PASS: TestEffectCleanup (0.00s)
+=== RUN   TestEffectCleanupBeforeRerun
+--- PASS: TestEffectCleanupBeforeRerun (0.00s)
+=== RUN   TestEffectDynamicDependencies
+--- PASS: TestEffectDynamicDependencies (0.00s)
+=== RUN   TestOnMount
+--- PASS: TestOnMount (0.00s)
+=== RUN   TestOnUnmount
+--- PASS: TestOnUnmount (0.00s)
+=== RUN   TestOnUpdate
+--- PASS: TestOnUpdate (0.00s)
+=== RUN   TestEffectID
+--- PASS: TestEffectID (0.00s)
+=== RUN   TestEffectNoOwner
+--- PASS: TestEffectNoOwner (0.00s)
+=== RUN   TestEffectDisposed
+--- PASS: TestEffectDisposed (0.00s)
+=== RUN   TestEffectMarkDirtyIdempotent
+--- PASS: TestEffectMarkDirtyIdempotent (0.00s)
+=== RUN   TestKeyMod_HasAndString
+--- PASS: TestKeyMod_HasAndString (0.00s)
+=== RUN   TestModifiedHandler_Unwrap_Merge_Modifiers
+--- PASS: TestModifiedHandler_Unwrap_Merge_Modifiers (0.00s)
+=== RUN   TestDragEvent_DataTransfer
+--- PASS: TestDragEvent_DataTransfer (0.00s)
+=== RUN   TestFormData_BehaviorAndCopies
+--- PASS: TestFormData_BehaviorAndCopies (0.00s)
+=== RUN   TestHookEvent_TypedGetters_Revert_SetContext
+--- PASS: TestHookEvent_TypedGetters_Revert_SetContext (0.00s)
+=== RUN   TestFuncReExport
+--- PASS: TestFuncReExport (0.00s)
+=== RUN   TestOptionInterfaces_AreCallable
+--- PASS: TestOptionInterfaces_AreCallable (0.00s)
+=== RUN   TestSubscribeTxName_WrapsDispatchTx
+--- PASS: TestSubscribeTxName_WrapsDispatchTx (0.01s)
+=== RUN   TestGoLatestForceRestart_StartsNewWorkOnSameKey
+--- PASS: TestGoLatestForceRestart_StartsNewWorkOnSameKey (0.02s)
+=== RUN   TestTimeoutTxName_OptionIsApplied
+--- PASS: TestTimeoutTxName_OptionIsApplied (0.00s)
+=== RUN   TestInterval
+--- PASS: TestInterval (0.06s)
+=== RUN   TestIntervalImmediate
+--- PASS: TestIntervalImmediate (0.01s)
+=== RUN   TestIntervalTxName
+--- PASS: TestIntervalTxName (0.01s)
+=== RUN   TestIntervalPanicWithoutContext
+--- PASS: TestIntervalPanicWithoutContext (0.00s)
+=== RUN   TestSubscribe
+--- PASS: TestSubscribe (0.01s)
+=== RUN   TestGoLatestBasic
+--- PASS: TestGoLatestBasic (0.00s)
+=== RUN   TestGoLatestKeyCoalescing
+--- PASS: TestGoLatestKeyCoalescing (0.02s)
+=== RUN   TestTimeoutBasic
+--- PASS: TestTimeoutBasic (0.02s)
+=== RUN   TestTimeoutCancellation
+--- PASS: TestTimeoutCancellation (0.06s)
+=== RUN   TestGoLatestBudgetExceeded
+--- PASS: TestGoLatestBudgetExceeded (0.02s)
+=== RUN   TestHTTPError_Error_Unwrap_StatusCode
+--- PASS: TestHTTPError_Error_Unwrap_StatusCode (0.00s)
+=== RUN   TestHTTPErrorHelpers_DefaultMessagesAndOverrides
+--- PASS: TestHTTPErrorHelpers_DefaultMessagesAndOverrides (0.00s)
+=== RUN   TestNewGlobalMemo_RecomputesOnDependencyChange
+--- PASS: TestNewGlobalMemo_RecomputesOnDependencyChange (0.00s)
+=== RUN   TestNewSharedMemo_PerSessionIsolationAndReactivity
+--- PASS: TestNewSharedMemo_PerSessionIsolationAndReactivity (0.00s)
+=== RUN   TestMemoBasic
+--- PASS: TestMemoBasic (0.00s)
+=== RUN   TestMemoRecomputation
+--- PASS: TestMemoRecomputation (0.00s)
+=== RUN   TestMemoPeek
+--- PASS: TestMemoPeek (0.00s)
+=== RUN   TestMemoChain
+--- PASS: TestMemoChain (0.00s)
+=== RUN   TestMemoSubscription
+--- PASS: TestMemoSubscription (0.00s)
+=== RUN   TestMemoDiamondDependency
+--- PASS: TestMemoDiamondDependency (0.00s)
+=== RUN   TestMemoLazyComputation
+--- PASS: TestMemoLazyComputation (0.00s)
+=== RUN   TestMemoDynamicDependencies
+--- PASS: TestMemoDynamicDependencies (0.00s)
+=== RUN   TestMemoCustomEquals
+    memo_test.go:285: notifications: 0 (expected behavior may vary)
+--- PASS: TestMemoCustomEquals (0.00s)
+=== RUN   TestMemoConcurrentAccess
+--- PASS: TestMemoConcurrentAccess (0.03s)
+=== RUN   TestMemoNoSubscribersNoNotification
+--- PASS: TestMemoNoSubscribersNoNotification (0.00s)
+=== RUN   TestMemoID
+--- PASS: TestMemoID (0.00s)
+=== RUN   TestNumericSignals_AllSupportedTypes
+=== RUN   TestNumericSignals_AllSupportedTypes/int
+=== RUN   TestNumericSignals_AllSupportedTypes/int8
+=== RUN   TestNumericSignals_AllSupportedTypes/int16
+=== RUN   TestNumericSignals_AllSupportedTypes/int32
+=== RUN   TestNumericSignals_AllSupportedTypes/int64
+=== RUN   TestNumericSignals_AllSupportedTypes/uint
+=== RUN   TestNumericSignals_AllSupportedTypes/uint8
+=== RUN   TestNumericSignals_AllSupportedTypes/uint16
+=== RUN   TestNumericSignals_AllSupportedTypes/uint32
+=== RUN   TestNumericSignals_AllSupportedTypes/uint64
+=== RUN   TestNumericSignals_AllSupportedTypes/float32
+=== RUN   TestNumericSignals_AllSupportedTypes/float64
+--- PASS: TestNumericSignals_AllSupportedTypes (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/int (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/int8 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/int16 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/int32 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/int64 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/uint (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/uint8 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/uint16 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/uint32 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/uint64 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/float32 (0.00s)
+    --- PASS: TestNumericSignals_AllSupportedTypes/float64 (0.00s)
+=== RUN   TestDefaultEqualsAndMemoDefaultEquals_CoverAllCases
+--- PASS: TestDefaultEqualsAndMemoDefaultEquals_CoverAllCases (0.00s)
+=== RUN   TestOwnerHasPendingEffects_RecursesIntoChildren
+--- PASS: TestOwnerHasPendingEffects_RecursesIntoChildren (0.00s)
+=== RUN   TestOwnerBasic
+--- PASS: TestOwnerBasic (0.00s)
+=== RUN   TestOwnerHierarchy
+--- PASS: TestOwnerHierarchy (0.00s)
+=== RUN   TestOwnerDispose
+--- PASS: TestOwnerDispose (0.00s)
+=== RUN   TestOwnerDisposeHierarchy
+--- PASS: TestOwnerDisposeHierarchy (0.00s)
+=== RUN   TestOwnerOnCleanup
+--- PASS: TestOwnerOnCleanup (0.00s)
+=== RUN   TestOwnerOnCleanupMultiple
+--- PASS: TestOwnerOnCleanupMultiple (0.00s)
+=== RUN   TestOwnerOnCleanupAfterDispose
+--- PASS: TestOwnerOnCleanupAfterDispose (0.00s)
+=== RUN   TestOwnerDoubleDispose
+--- PASS: TestOwnerDoubleDispose (0.00s)
+=== RUN   TestOwnerDisposeRemovesFromParent
+--- PASS: TestOwnerDisposeRemovesFromParent (0.00s)
+=== RUN   TestOwnerScheduleEffect
+--- PASS: TestOwnerScheduleEffect (0.00s)
+=== RUN   TestOwnerRunPendingEffects
+--- PASS: TestOwnerRunPendingEffects (0.00s)
+=== RUN   TestOwnerConcurrent
+--- PASS: TestOwnerConcurrent (0.00s)
+=== RUN   TestHookOrderTrackingDisabledByDefault
+--- PASS: TestHookOrderTrackingDisabledByDefault (0.00s)
+=== RUN   TestHookOrderTrackingFirstRender
+--- PASS: TestHookOrderTrackingFirstRender (0.00s)
+=== RUN   TestHookOrderTrackingSecondRenderSameOrder
+--- PASS: TestHookOrderTrackingSecondRenderSameOrder (0.00s)
+=== RUN   TestHookOrderTrackingWrongTypePanics
+--- PASS: TestHookOrderTrackingWrongTypePanics (0.00s)
+=== RUN   TestHookOrderTrackingExtraHookPanics
+--- PASS: TestHookOrderTrackingExtraHookPanics (0.00s)
+=== RUN   TestHookOrderTrackingMissingHookPanics
+--- PASS: TestHookOrderTrackingMissingHookPanics (0.00s)
+=== RUN   TestHookTypeString
+=== RUN   TestHookTypeString/Signal
+=== RUN   TestHookTypeString/Memo
+=== RUN   TestHookTypeString/Effect
+=== RUN   TestHookTypeString/Resource
+=== RUN   TestHookTypeString/Form
+=== RUN   TestHookTypeString/URLParam
+=== RUN   TestHookTypeString/Ref
+=== RUN   TestHookTypeString/Context
+=== RUN   TestHookTypeString/Unknown
+--- PASS: TestHookTypeString (0.00s)
+    --- PASS: TestHookTypeString/Signal (0.00s)
+    --- PASS: TestHookTypeString/Memo (0.00s)
+    --- PASS: TestHookTypeString/Effect (0.00s)
+    --- PASS: TestHookTypeString/Resource (0.00s)
+    --- PASS: TestHookTypeString/Form (0.00s)
+    --- PASS: TestHookTypeString/URLParam (0.00s)
+    --- PASS: TestHookTypeString/Ref (0.00s)
+    --- PASS: TestHookTypeString/Context (0.00s)
+    --- PASS: TestHookTypeString/Unknown (0.00s)
+=== RUN   TestTrackHookPublicAPI
+--- PASS: TestTrackHookPublicAPI (0.00s)
+=== RUN   TestTrackHookNoOwnerNoOp
+--- PASS: TestTrackHookNoOwnerNoOp (0.00s)
+=== RUN   TestHookSlotFirstRenderReturnsNil
+--- PASS: TestHookSlotFirstRenderReturnsNil (0.00s)
+=== RUN   TestHookSlotSubsequentRenderReturnsStored
+--- PASS: TestHookSlotSubsequentRenderReturnsStored (0.00s)
+=== RUN   TestHookSlotMultipleSlots
+--- PASS: TestHookSlotMultipleSlots (0.00s)
+=== RUN   TestHookSlotNoOwnerReturnsNil
+--- PASS: TestHookSlotNoOwnerReturnsNil (0.00s)
+=== RUN   TestRunPendingEffectsBudgetExceeded
+--- PASS: TestRunPendingEffectsBudgetExceeded (0.00s)
+=== RUN   TestRunPendingEffectsBudgetReset
+--- PASS: TestRunPendingEffectsBudgetReset (0.00s)
+=== RUN   TestRunPendingEffectsNoBudget
+--- PASS: TestRunPendingEffectsNoBudget (0.00s)
+=== RUN   TestIsPrefetchModeNoContext
+--- PASS: TestIsPrefetchModeNoContext (0.00s)
+=== RUN   TestIsPrefetchModeNormal
+--- PASS: TestIsPrefetchModeNormal (0.00s)
+=== RUN   TestIsPrefetchModePrefetch
+--- PASS: TestIsPrefetchModePrefetch (0.00s)
+=== RUN   TestCheckPrefetchWriteNormalMode
+--- PASS: TestCheckPrefetchWriteNormalMode (0.00s)
+=== RUN   TestCheckPrefetchWritePrefetchModeProd
+--- PASS: TestCheckPrefetchWritePrefetchModeProd (0.00s)
+=== RUN   TestCheckPrefetchWritePrefetchModeDev
+--- PASS: TestCheckPrefetchWritePrefetchModeDev (0.00s)
+=== RUN   TestCheckPrefetchSideEffectNormalMode
+--- PASS: TestCheckPrefetchSideEffectNormalMode (0.00s)
+=== RUN   TestCheckPrefetchSideEffectPrefetchModeProd
+--- PASS: TestCheckPrefetchSideEffectPrefetchModeProd (0.00s)
+=== RUN   TestCheckPrefetchSideEffectPrefetchModeDev
+--- PASS: TestCheckPrefetchSideEffectPrefetchModeDev (0.00s)
+=== RUN   TestSignalSetBlockedInPrefetch
+--- PASS: TestSignalSetBlockedInPrefetch (0.00s)
+=== RUN   TestSignalUpdateBlockedInPrefetch
+--- PASS: TestSignalUpdateBlockedInPrefetch (0.00s)
+=== RUN   TestSignalIncBlockedInPrefetch
+--- PASS: TestSignalIncBlockedInPrefetch (0.00s)
+=== RUN   TestSignalToggleBlockedInPrefetch
+--- PASS: TestSignalToggleBlockedInPrefetch (0.00s)
+=== RUN   TestSignalAppendBlockedInPrefetch
+--- PASS: TestSignalAppendBlockedInPrefetch (0.00s)
+=== RUN   TestSignalGetAllowedInPrefetch
+--- PASS: TestSignalGetAllowedInPrefetch (0.00s)
+=== RUN   TestSignalPeekAllowedInPrefetch
+--- PASS: TestSignalPeekAllowedInPrefetch (0.00s)
+=== RUN   TestSubscribeBlockedInPrefetch
+--- PASS: TestSubscribeBlockedInPrefetch (0.00s)
+=== RUN   TestSubscribePanicsInDevPrefetch
+--- PASS: TestSubscribePanicsInDevPrefetch (0.00s)
+=== RUN   TestGoLatestBlockedInPrefetch
+--- PASS: TestGoLatestBlockedInPrefetch (0.00s)
+=== RUN   TestGoLatestPanicsInDevPrefetch
+--- PASS: TestGoLatestPanicsInDevPrefetch (0.00s)
+=== RUN   TestIntegrationSignalMemoChain
+--- PASS: TestIntegrationSignalMemoChain (0.00s)
+=== RUN   TestIntegrationDiamondDependency
+--- PASS: TestIntegrationDiamondDependency (0.00s)
+=== RUN   TestIntegrationBatchedUpdatesWithMemos
+--- PASS: TestIntegrationBatchedUpdatesWithMemos (0.00s)
+=== RUN   TestIntegrationEffectCleanupChain
+--- PASS: TestIntegrationEffectCleanupChain (0.00s)
+=== RUN   TestIntegrationConcurrentReadersWriters
+    reactive_test.go:253: Note: memo consistency took multiple reads to stabilize (expected in concurrent scenarios)
+--- PASS: TestIntegrationConcurrentReadersWriters (0.09s)
+=== RUN   TestIntegrationOwnerHierarchyCleanup
+--- PASS: TestIntegrationOwnerHierarchyCleanup (0.00s)
+=== RUN   TestIntegrationTypedSignalsWithMemo
+--- PASS: TestIntegrationTypedSignalsWithMemo (0.00s)
+=== RUN   TestIntegrationCompleteExample
+--- PASS: TestIntegrationCompleteExample (0.00s)
+=== RUN   TestRefMethods_Current_Set_IsSet_Clear
+--- PASS: TestRefMethods_Current_Set_IsSet_Clear (0.00s)
+=== RUN   TestResponse_StatusCodes_Meta_Pagination_JSON_Write
+--- PASS: TestResponse_StatusCodes_Meta_Pagination_JSON_Write (0.00s)
+=== RUN   TestPaginatedResponseHelper
+--- PASS: TestPaginatedResponseHelper (0.00s)
+=== RUN   TestSharedMemoDef_PeekAndWithEquals
+--- PASS: TestSharedMemoDef_PeekAndWithEquals (0.00s)
+=== RUN   TestGlobalMemo_WithEqualsChaining
+--- PASS: TestGlobalMemo_WithEqualsChaining (0.00s)
+=== RUN   TestSharedSignalDef_OutsideSessionContextUsesInitialAndNoops
+--- PASS: TestSharedSignalDef_OutsideSessionContextUsesInitialAndNoops (0.00s)
+=== RUN   TestSharedSignalDef_SignalCreationAndProxyMethods
+--- PASS: TestSharedSignalDef_SignalCreationAndProxyMethods (0.00s)
+=== RUN   TestSharedSignalDef_SignalNilWhenNoStoreOrWrongType
+--- PASS: TestSharedSignalDef_SignalNilWhenNoStoreOrWrongType (0.00s)
+=== RUN   TestSignalBase_GetIDAndNumericOps
+--- PASS: TestSignalBase_GetIDAndNumericOps (0.00s)
+=== RUN   TestSignalSliceOps_UpdateWhere_Filter_SetAt_UpdateAt_RemoveAt
+--- PASS: TestSignalSliceOps_UpdateWhere_Filter_SetAt_UpdateAt_RemoveAt (0.00s)
+=== RUN   TestSignalPersistenceOptionsAndSetAny
+--- PASS: TestSignalPersistenceOptionsAndSetAny (0.00s)
+=== RUN   TestSignalBasic
+--- PASS: TestSignalBasic (0.00s)
+=== RUN   TestSignalPeek
+--- PASS: TestSignalPeek (0.00s)
+=== RUN   TestSignalSubscription
+--- PASS: TestSignalSubscription (0.00s)
+=== RUN   TestSignalNoTrackingOutsideContext
+--- PASS: TestSignalNoTrackingOutsideContext (0.00s)
+=== RUN   TestSignalMultipleSubscribers
+--- PASS: TestSignalMultipleSubscribers (0.00s)
+=== RUN   TestSignalDeduplicateSubscription
+--- PASS: TestSignalDeduplicateSubscription (0.00s)
+=== RUN   TestSignalCustomEquals
+--- PASS: TestSignalCustomEquals (0.00s)
+=== RUN   TestSignalSliceEquality
+--- PASS: TestSignalSliceEquality (0.00s)
+=== RUN   TestSignalMapEquality
+--- PASS: TestSignalMapEquality (0.00s)
+=== RUN   TestSignalConcurrentAccess
+--- PASS: TestSignalConcurrentAccess (0.32s)
+=== RUN   TestSignalConcurrentSubscription
+--- PASS: TestSignalConcurrentSubscription (0.00s)
+=== RUN   TestSignalID
+--- PASS: TestSignalID (0.00s)
+=== RUN   TestSignalNilValue
+--- PASS: TestSignalNilValue (0.00s)
+=== RUN   TestSignalUpdateNoChange
+--- PASS: TestSignalUpdateNoChange (0.00s)
+=== RUN   TestSignalIncDec
+--- PASS: TestSignalIncDec (0.00s)
+=== RUN   TestSignalAddSubMulDiv
+--- PASS: TestSignalAddSubMulDiv (0.00s)
+=== RUN   TestSignalToggle
+--- PASS: TestSignalToggle (0.00s)
+=== RUN   TestSignalSetTrueSetFalse
+--- PASS: TestSignalSetTrueSetFalse (0.00s)
+=== RUN   TestSignalStringAppendPrepend
+--- PASS: TestSignalStringAppendPrepend (0.00s)
+=== RUN   TestSignalSliceAppendItem
+--- PASS: TestSignalSliceAppendItem (0.00s)
+=== RUN   TestSignalSlicePrependItem
+--- PASS: TestSignalSlicePrependItem (0.00s)
+=== RUN   TestSignalSliceRemoveAt
+--- PASS: TestSignalSliceRemoveAt (0.00s)
+=== RUN   TestSignalSliceRemoveFirstLast
+--- PASS: TestSignalSliceRemoveFirstLast (0.00s)
+=== RUN   TestSignalSliceRemoveWhere
+--- PASS: TestSignalSliceRemoveWhere (0.00s)
+=== RUN   TestSignalSliceInsertAt
+--- PASS: TestSignalSliceInsertAt (0.00s)
+=== RUN   TestSignalSliceSetAt
+--- PASS: TestSignalSliceSetAt (0.00s)
+=== RUN   TestSignalSliceUpdateAt
+--- PASS: TestSignalSliceUpdateAt (0.00s)
+=== RUN   TestSignalSliceFilter
+--- PASS: TestSignalSliceFilter (0.00s)
+=== RUN   TestSignalMapSetKeyRemoveKey
+--- PASS: TestSignalMapSetKeyRemoveKey (0.00s)
+=== RUN   TestSignalMapUpdateKey
+--- PASS: TestSignalMapUpdateKey (0.00s)
+=== RUN   TestSignalMapHasKey
+--- PASS: TestSignalMapHasKey (0.00s)
+=== RUN   TestSignalClearAndLen
+--- PASS: TestSignalClearAndLen (0.00s)
+=== RUN   TestSignalTypeMismatchPanics
+--- PASS: TestSignalTypeMismatchPanics (0.00s)
+=== RUN   TestSignalAddTypeMismatch
+--- PASS: TestSignalAddTypeMismatch (0.00s)
+=== RUN   TestIntSignal
+--- PASS: TestIntSignal (0.00s)
+=== RUN   TestIntSignalNotifications
+--- PASS: TestIntSignalNotifications (0.00s)
+=== RUN   TestInt64Signal
+--- PASS: TestInt64Signal (0.00s)
+=== RUN   TestFloat64Signal
+--- PASS: TestFloat64Signal (0.00s)
+=== RUN   TestBoolSignal
+--- PASS: TestBoolSignal (0.00s)
+=== RUN   TestBoolSignalNotifications
+--- PASS: TestBoolSignalNotifications (0.00s)
+=== RUN   TestSliceSignal
+--- PASS: TestSliceSignal (0.00s)
+=== RUN   TestSliceSignalFilter
+--- PASS: TestSliceSignalFilter (0.00s)
+=== RUN   TestSliceSignalBoundsCheck
+--- PASS: TestSliceSignalBoundsCheck (0.00s)
+=== RUN   TestSliceSignalNotifications
+--- PASS: TestSliceSignalNotifications (0.00s)
+=== RUN   TestMapSignal
+--- PASS: TestMapSignal (0.00s)
+=== RUN   TestMapSignalKeysValues
+--- PASS: TestMapSignalKeysValues (0.00s)
+=== RUN   TestMapSignalNotifications
+--- PASS: TestMapSignalNotifications (0.00s)
+=== RUN   TestNilSliceSignal
+--- PASS: TestNilSliceSignal (0.00s)
+=== RUN   TestNilMapSignal
+--- PASS: TestNilMapSignal (0.00s)
+=== RUN   TestIntSignalArithmetic
+--- PASS: TestIntSignalArithmetic (0.00s)
+=== RUN   TestInt64SignalFull
+--- PASS: TestInt64SignalFull (0.00s)
+=== RUN   TestFloat64SignalFull
+--- PASS: TestFloat64SignalFull (0.00s)
+=== RUN   TestSliceSignalPrepend
+--- PASS: TestSliceSignalPrepend (0.00s)
+=== RUN   TestSliceSignalInsertAt
+--- PASS: TestSliceSignalInsertAt (0.00s)
+=== RUN   TestSliceSignalRemoveFirst
+--- PASS: TestSliceSignalRemoveFirst (0.00s)
+=== RUN   TestSliceSignalRemoveLast
+--- PASS: TestSliceSignalRemoveLast (0.00s)
+=== RUN   TestSliceSignalRemoveWhere
+--- PASS: TestSliceSignalRemoveWhere (0.00s)
+=== RUN   TestSliceSignalUpdateAt
+--- PASS: TestSliceSignalUpdateAt (0.00s)
+=== RUN   TestSliceSignalUpdateWhere
+--- PASS: TestSliceSignalUpdateWhere (0.00s)
+=== RUN   TestMapSignalRemoveKey
+--- PASS: TestMapSignalRemoveKey (0.00s)
+=== RUN   TestMapSignalUpdateKey
+--- PASS: TestMapSignalUpdateKey (0.00s)
+=== RUN   TestStringSignal
+--- PASS: TestStringSignal (0.00s)
+=== RUN   TestStringSignalNotifications
+--- PASS: TestStringSignalNotifications (0.00s)
+=== RUN   TestStormBudgetTrackerNil
+--- PASS: TestStormBudgetTrackerNil (0.00s)
+=== RUN   TestStormBudgetResourceLimit
+--- PASS: TestStormBudgetResourceLimit (0.15s)
+=== RUN   TestStormBudgetActionLimit
+--- PASS: TestStormBudgetActionLimit (0.00s)
+=== RUN   TestStormBudgetGoLatestLimit
+--- PASS: TestStormBudgetGoLatestLimit (0.00s)
+=== RUN   TestStormBudgetEffectRunsPerTick
+--- PASS: TestStormBudgetEffectRunsPerTick (0.00s)
+=== RUN   TestStormBudgetUnlimited
+--- PASS: TestStormBudgetUnlimited (0.00s)
+=== RUN   TestStormBudgetStats
+--- PASS: TestStormBudgetStats (0.00s)
+=== RUN   TestStormBudgetGetOnExceeded
+--- PASS: TestStormBudgetGetOnExceeded (0.00s)
+=== RUN   TestSlidingWindowOldEventsExpire
+--- PASS: TestSlidingWindowOldEventsExpire (0.06s)
+=== RUN   TestWithCtx_SetsUseCtxAndRestores
+--- PASS: TestWithCtx_SetsUseCtxAndRestores (0.00s)
+=== RUN   TestTrackingContext_SetTrackingContextAndEffectCallSiteIdx
+--- PASS: TestTrackingContext_SetTrackingContextAndEffectCallSiteIdx (0.00s)
+=== RUN   TestGetTrackingContext
+--- PASS: TestGetTrackingContext (0.00s)
+=== RUN   TestTrackingContextIsolation
+--- PASS: TestTrackingContextIsolation (0.00s)
+=== RUN   TestCurrentListener
+--- PASS: TestCurrentListener (0.00s)
+=== RUN   TestWithListener
+--- PASS: TestWithListener (0.00s)
+=== RUN   TestWithListenerNested
+--- PASS: TestWithListenerNested (0.00s)
+=== RUN   TestBatchDepth
+--- PASS: TestBatchDepth (0.00s)
+=== RUN   TestPendingUpdates
+--- PASS: TestPendingUpdates (0.00s)
+=== RUN   TestCleanupGoroutineContext
+--- PASS: TestCleanupGoroutineContext (0.00s)
+=== RUN   TestConcurrentContextAccess
+--- PASS: TestConcurrentContextAccess (0.23s)
+=== RUN   TestRenderHookSlotStability
+--- PASS: TestRenderHookSlotStability (0.00s)
+=== RUN   TestEffectDeferredUntilAfterRender
+--- PASS: TestEffectDeferredUntilAfterRender (0.00s)
+=== RUN   TestRunPendingEffectsRecursive
+--- PASS: TestRunPendingEffectsRecursive (0.00s)
+PASS
+coverage: 84.8% of statements
+ok  	github.com/vango-go/vango/pkg/vango	1.539s	coverage: 84.8% of statements
+=== RUN   TestGlobalAttributes
+=== RUN   TestGlobalAttributes/ID
+=== RUN   TestGlobalAttributes/Class_single
+=== RUN   TestGlobalAttributes/Class_multiple
+=== RUN   TestGlobalAttributes/StyleAttr
+=== RUN   TestGlobalAttributes/DataAttr
+=== RUN   TestGlobalAttributes/Role
+=== RUN   TestGlobalAttributes/AriaLabel
+=== RUN   TestGlobalAttributes/AriaHidden_true
+=== RUN   TestGlobalAttributes/AriaHidden_false
+=== RUN   TestGlobalAttributes/AriaExpanded
+=== RUN   TestGlobalAttributes/TabIndex
+=== RUN   TestGlobalAttributes/TabIndex_negative
+=== RUN   TestGlobalAttributes/Hidden
+=== RUN   TestGlobalAttributes/TitleAttr
+=== RUN   TestGlobalAttributes/Lang
+=== RUN   TestGlobalAttributes/Dir
+--- PASS: TestGlobalAttributes (0.00s)
+    --- PASS: TestGlobalAttributes/ID (0.00s)
+    --- PASS: TestGlobalAttributes/Class_single (0.00s)
+    --- PASS: TestGlobalAttributes/Class_multiple (0.00s)
+    --- PASS: TestGlobalAttributes/StyleAttr (0.00s)
+    --- PASS: TestGlobalAttributes/DataAttr (0.00s)
+    --- PASS: TestGlobalAttributes/Role (0.00s)
+    --- PASS: TestGlobalAttributes/AriaLabel (0.00s)
+    --- PASS: TestGlobalAttributes/AriaHidden_true (0.00s)
+    --- PASS: TestGlobalAttributes/AriaHidden_false (0.00s)
+    --- PASS: TestGlobalAttributes/AriaExpanded (0.00s)
+    --- PASS: TestGlobalAttributes/TabIndex (0.00s)
+    --- PASS: TestGlobalAttributes/TabIndex_negative (0.00s)
+    --- PASS: TestGlobalAttributes/Hidden (0.00s)
+    --- PASS: TestGlobalAttributes/TitleAttr (0.00s)
+    --- PASS: TestGlobalAttributes/Lang (0.00s)
+    --- PASS: TestGlobalAttributes/Dir (0.00s)
+=== RUN   TestLinkAttributes
+=== RUN   TestLinkAttributes/Href
+=== RUN   TestLinkAttributes/Target
+=== RUN   TestLinkAttributes/Rel
+=== RUN   TestLinkAttributes/Download_empty
+=== RUN   TestLinkAttributes/Download_filename
+=== RUN   TestLinkAttributes/Hreflang
+--- PASS: TestLinkAttributes (0.00s)
+    --- PASS: TestLinkAttributes/Href (0.00s)
+    --- PASS: TestLinkAttributes/Target (0.00s)
+    --- PASS: TestLinkAttributes/Rel (0.00s)
+    --- PASS: TestLinkAttributes/Download_empty (0.00s)
+    --- PASS: TestLinkAttributes/Download_filename (0.00s)
+    --- PASS: TestLinkAttributes/Hreflang (0.00s)
+=== RUN   TestFormAttributes
+=== RUN   TestFormAttributes/Name
+=== RUN   TestFormAttributes/Value
+=== RUN   TestFormAttributes/Type
+=== RUN   TestFormAttributes/Placeholder
+=== RUN   TestFormAttributes/Disabled
+=== RUN   TestFormAttributes/Readonly
+=== RUN   TestFormAttributes/Required
+=== RUN   TestFormAttributes/Checked
+=== RUN   TestFormAttributes/Selected
+=== RUN   TestFormAttributes/Multiple
+=== RUN   TestFormAttributes/Autofocus
+=== RUN   TestFormAttributes/Autocomplete
+=== RUN   TestFormAttributes/Pattern
+=== RUN   TestFormAttributes/MinLength
+=== RUN   TestFormAttributes/MaxLength
+=== RUN   TestFormAttributes/Min
+=== RUN   TestFormAttributes/Max
+=== RUN   TestFormAttributes/Step
+=== RUN   TestFormAttributes/Rows
+=== RUN   TestFormAttributes/Cols
+=== RUN   TestFormAttributes/For
+=== RUN   TestFormAttributes/Action
+=== RUN   TestFormAttributes/Method
+--- PASS: TestFormAttributes (0.00s)
+    --- PASS: TestFormAttributes/Name (0.00s)
+    --- PASS: TestFormAttributes/Value (0.00s)
+    --- PASS: TestFormAttributes/Type (0.00s)
+    --- PASS: TestFormAttributes/Placeholder (0.00s)
+    --- PASS: TestFormAttributes/Disabled (0.00s)
+    --- PASS: TestFormAttributes/Readonly (0.00s)
+    --- PASS: TestFormAttributes/Required (0.00s)
+    --- PASS: TestFormAttributes/Checked (0.00s)
+    --- PASS: TestFormAttributes/Selected (0.00s)
+    --- PASS: TestFormAttributes/Multiple (0.00s)
+    --- PASS: TestFormAttributes/Autofocus (0.00s)
+    --- PASS: TestFormAttributes/Autocomplete (0.00s)
+    --- PASS: TestFormAttributes/Pattern (0.00s)
+    --- PASS: TestFormAttributes/MinLength (0.00s)
+    --- PASS: TestFormAttributes/MaxLength (0.00s)
+    --- PASS: TestFormAttributes/Min (0.00s)
+    --- PASS: TestFormAttributes/Max (0.00s)
+    --- PASS: TestFormAttributes/Step (0.00s)
+    --- PASS: TestFormAttributes/Rows (0.00s)
+    --- PASS: TestFormAttributes/Cols (0.00s)
+    --- PASS: TestFormAttributes/For (0.00s)
+    --- PASS: TestFormAttributes/Action (0.00s)
+    --- PASS: TestFormAttributes/Method (0.00s)
+=== RUN   TestMediaAttributes
+=== RUN   TestMediaAttributes/Src
+=== RUN   TestMediaAttributes/Alt
+=== RUN   TestMediaAttributes/Width
+=== RUN   TestMediaAttributes/Height
+=== RUN   TestMediaAttributes/Loading
+=== RUN   TestMediaAttributes/Controls
+=== RUN   TestMediaAttributes/Autoplay
+=== RUN   TestMediaAttributes/Loop
+=== RUN   TestMediaAttributes/MutedAttr
+=== RUN   TestMediaAttributes/Poster
+--- PASS: TestMediaAttributes (0.00s)
+    --- PASS: TestMediaAttributes/Src (0.00s)
+    --- PASS: TestMediaAttributes/Alt (0.00s)
+    --- PASS: TestMediaAttributes/Width (0.00s)
+    --- PASS: TestMediaAttributes/Height (0.00s)
+    --- PASS: TestMediaAttributes/Loading (0.00s)
+    --- PASS: TestMediaAttributes/Controls (0.00s)
+    --- PASS: TestMediaAttributes/Autoplay (0.00s)
+    --- PASS: TestMediaAttributes/Loop (0.00s)
+    --- PASS: TestMediaAttributes/MutedAttr (0.00s)
+    --- PASS: TestMediaAttributes/Poster (0.00s)
+=== RUN   TestTableAttributes
+=== RUN   TestTableAttributes/Colspan
+=== RUN   TestTableAttributes/Rowspan
+=== RUN   TestTableAttributes/Scope
+--- PASS: TestTableAttributes (0.00s)
+    --- PASS: TestTableAttributes/Colspan (0.00s)
+    --- PASS: TestTableAttributes/Rowspan (0.00s)
+    --- PASS: TestTableAttributes/Scope (0.00s)
+=== RUN   TestConditionalAttributes
+=== RUN   TestConditionalAttributes/ClassIf_true
+=== RUN   TestConditionalAttributes/ClassIf_false
+=== RUN   TestConditionalAttributes/AttrIf_true
+=== RUN   TestConditionalAttributes/AttrIf_false
+=== RUN   TestConditionalAttributes/Classes_with_strings
+=== RUN   TestConditionalAttributes/Classes_with_slice
+=== RUN   TestConditionalAttributes/Classes_with_map
+=== RUN   TestConditionalAttributes/Classes_with_empty_strings_filtered
+=== RUN   TestConditionalAttributes/Classes_mixed
+--- PASS: TestConditionalAttributes (0.00s)
+    --- PASS: TestConditionalAttributes/ClassIf_true (0.00s)
+    --- PASS: TestConditionalAttributes/ClassIf_false (0.00s)
+    --- PASS: TestConditionalAttributes/AttrIf_true (0.00s)
+    --- PASS: TestConditionalAttributes/AttrIf_false (0.00s)
+    --- PASS: TestConditionalAttributes/Classes_with_strings (0.00s)
+    --- PASS: TestConditionalAttributes/Classes_with_slice (0.00s)
+    --- PASS: TestConditionalAttributes/Classes_with_map (0.00s)
+    --- PASS: TestConditionalAttributes/Classes_with_empty_strings_filtered (0.00s)
+    --- PASS: TestConditionalAttributes/Classes_mixed (0.00s)
+=== RUN   TestBooleanAttributeHelpersOptionalBool
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Hidden
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Disabled
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Readonly
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Required
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Checked
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Selected
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Multiple
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Autofocus
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Novalidate
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Controls
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Autoplay
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Loop
+=== RUN   TestBooleanAttributeHelpersOptionalBool/MutedAttr
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Playsinline
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Allowfullscreen
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Open
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Defer_
+=== RUN   TestBooleanAttributeHelpersOptionalBool/Async
+=== RUN   TestBooleanAttributeHelpersOptionalBool/DefaultsToTrueWithNoArgs
+--- PASS: TestBooleanAttributeHelpersOptionalBool (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Hidden (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Disabled (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Readonly (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Required (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Checked (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Selected (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Multiple (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Autofocus (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Novalidate (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Controls (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Autoplay (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Loop (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/MutedAttr (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Playsinline (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Allowfullscreen (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Open (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Defer_ (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/Async (0.00s)
+    --- PASS: TestBooleanAttributeHelpersOptionalBool/DefaultsToTrueWithNoArgs (0.00s)
+=== RUN   TestEmptyAttrIgnored
+--- PASS: TestEmptyAttrIgnored (0.00s)
+=== RUN   TestMoreAttributes
+=== RUN   TestMoreAttributes/AriaDescribedBy
+=== RUN   TestMoreAttributes/AriaLabelledBy
+=== RUN   TestMoreAttributes/AriaLive
+=== RUN   TestMoreAttributes/AriaControls
+=== RUN   TestMoreAttributes/AriaCurrent
+=== RUN   TestMoreAttributes/AriaDisabled
+=== RUN   TestMoreAttributes/AriaPressed
+=== RUN   TestMoreAttributes/AriaSelected
+=== RUN   TestMoreAttributes/AriaHasPopup
+=== RUN   TestMoreAttributes/AriaModal
+=== RUN   TestMoreAttributes/AriaAtomic
+=== RUN   TestMoreAttributes/AriaBusy
+=== RUN   TestMoreAttributes/AriaValueNow
+=== RUN   TestMoreAttributes/AriaValueMin
+=== RUN   TestMoreAttributes/AriaValueMax
+=== RUN   TestMoreAttributes/AccessKey
+=== RUN   TestMoreAttributes/ContentEditable
+=== RUN   TestMoreAttributes/Draggable
+=== RUN   TestMoreAttributes/Spellcheck
+=== RUN   TestMoreAttributes/Accept
+=== RUN   TestMoreAttributes/Capture
+=== RUN   TestMoreAttributes/Wrap
+=== RUN   TestMoreAttributes/Enctype
+=== RUN   TestMoreAttributes/Novalidate
+=== RUN   TestMoreAttributes/FormAttr
+=== RUN   TestMoreAttributes/Decoding
+=== RUN   TestMoreAttributes/Srcset
+=== RUN   TestMoreAttributes/SizesAttr
+=== RUN   TestMoreAttributes/Preload
+=== RUN   TestMoreAttributes/Playsinline
+=== RUN   TestMoreAttributes/Sandbox
+=== RUN   TestMoreAttributes/Allow
+=== RUN   TestMoreAttributes/Allowfullscreen
+=== RUN   TestMoreAttributes/HeadersAttr
+=== RUN   TestMoreAttributes/Charset
+=== RUN   TestMoreAttributes/Content
+=== RUN   TestMoreAttributes/HttpEquiv
+=== RUN   TestMoreAttributes/Open
+=== RUN   TestMoreAttributes/Defer_
+=== RUN   TestMoreAttributes/Async
+=== RUN   TestMoreAttributes/Crossorigin
+=== RUN   TestMoreAttributes/Integrity
+=== RUN   TestMoreAttributes/List
+=== RUN   TestMoreAttributes/Inputmode
+=== RUN   TestMoreAttributes/Enterkeyhint
+--- PASS: TestMoreAttributes (0.00s)
+    --- PASS: TestMoreAttributes/AriaDescribedBy (0.00s)
+    --- PASS: TestMoreAttributes/AriaLabelledBy (0.00s)
+    --- PASS: TestMoreAttributes/AriaLive (0.00s)
+    --- PASS: TestMoreAttributes/AriaControls (0.00s)
+    --- PASS: TestMoreAttributes/AriaCurrent (0.00s)
+    --- PASS: TestMoreAttributes/AriaDisabled (0.00s)
+    --- PASS: TestMoreAttributes/AriaPressed (0.00s)
+    --- PASS: TestMoreAttributes/AriaSelected (0.00s)
+    --- PASS: TestMoreAttributes/AriaHasPopup (0.00s)
+    --- PASS: TestMoreAttributes/AriaModal (0.00s)
+    --- PASS: TestMoreAttributes/AriaAtomic (0.00s)
+    --- PASS: TestMoreAttributes/AriaBusy (0.00s)
+    --- PASS: TestMoreAttributes/AriaValueNow (0.00s)
+    --- PASS: TestMoreAttributes/AriaValueMin (0.00s)
+    --- PASS: TestMoreAttributes/AriaValueMax (0.00s)
+    --- PASS: TestMoreAttributes/AccessKey (0.00s)
+    --- PASS: TestMoreAttributes/ContentEditable (0.00s)
+    --- PASS: TestMoreAttributes/Draggable (0.00s)
+    --- PASS: TestMoreAttributes/Spellcheck (0.00s)
+    --- PASS: TestMoreAttributes/Accept (0.00s)
+    --- PASS: TestMoreAttributes/Capture (0.00s)
+    --- PASS: TestMoreAttributes/Wrap (0.00s)
+    --- PASS: TestMoreAttributes/Enctype (0.00s)
+    --- PASS: TestMoreAttributes/Novalidate (0.00s)
+    --- PASS: TestMoreAttributes/FormAttr (0.00s)
+    --- PASS: TestMoreAttributes/Decoding (0.00s)
+    --- PASS: TestMoreAttributes/Srcset (0.00s)
+    --- PASS: TestMoreAttributes/SizesAttr (0.00s)
+    --- PASS: TestMoreAttributes/Preload (0.00s)
+    --- PASS: TestMoreAttributes/Playsinline (0.00s)
+    --- PASS: TestMoreAttributes/Sandbox (0.00s)
+    --- PASS: TestMoreAttributes/Allow (0.00s)
+    --- PASS: TestMoreAttributes/Allowfullscreen (0.00s)
+    --- PASS: TestMoreAttributes/HeadersAttr (0.00s)
+    --- PASS: TestMoreAttributes/Charset (0.00s)
+    --- PASS: TestMoreAttributes/Content (0.00s)
+    --- PASS: TestMoreAttributes/HttpEquiv (0.00s)
+    --- PASS: TestMoreAttributes/Open (0.00s)
+    --- PASS: TestMoreAttributes/Defer_ (0.00s)
+    --- PASS: TestMoreAttributes/Async (0.00s)
+    --- PASS: TestMoreAttributes/Crossorigin (0.00s)
+    --- PASS: TestMoreAttributes/Integrity (0.00s)
+    --- PASS: TestMoreAttributes/List (0.00s)
+    --- PASS: TestMoreAttributes/Inputmode (0.00s)
+    --- PASS: TestMoreAttributes/Enterkeyhint (0.00s)
+=== RUN   TestDiffBothNil
+--- PASS: TestDiffBothNil (0.00s)
+=== RUN   TestDiffNodeRemoved
+--- PASS: TestDiffNodeRemoved (0.00s)
+=== RUN   TestDiffTextChange
+--- PASS: TestDiffTextChange (0.00s)
+=== RUN   TestDiffTextUnchanged
+--- PASS: TestDiffTextUnchanged (0.00s)
+=== RUN   TestDiffKindChange
+--- PASS: TestDiffKindChange (0.00s)
+=== RUN   TestDiffTagChange
+--- PASS: TestDiffTagChange (0.00s)
+=== RUN   TestDiffAttributeAdded
+--- PASS: TestDiffAttributeAdded (0.00s)
+=== RUN   TestDiffAttributeRemoved
+--- PASS: TestDiffAttributeRemoved (0.00s)
+=== RUN   TestDiffAttributeChanged
+--- PASS: TestDiffAttributeChanged (0.00s)
+=== RUN   TestDiffMultipleAttributeChanges
+--- PASS: TestDiffMultipleAttributeChanges (0.00s)
+=== RUN   TestDiffEventHandlersIgnored
+--- PASS: TestDiffEventHandlersIgnored (0.00s)
+=== RUN   TestDiffKeyIgnored
+--- PASS: TestDiffKeyIgnored (0.00s)
+=== RUN   TestDiffChildAdded
+--- PASS: TestDiffChildAdded (0.00s)
+=== RUN   TestDiffChildRemoved
+--- PASS: TestDiffChildRemoved (0.00s)
+=== RUN   TestDiffUnkeyedReorder
+--- PASS: TestDiffUnkeyedReorder (0.00s)
+=== RUN   TestDiffKeyedReorder
+--- PASS: TestDiffKeyedReorder (0.00s)
+=== RUN   TestDiffKeyedAddition
+--- PASS: TestDiffKeyedAddition (0.00s)
+=== RUN   TestDiffKeyedRemoval
+--- PASS: TestDiffKeyedRemoval (0.00s)
+=== RUN   TestDiffFragmentChildren
+--- PASS: TestDiffFragmentChildren (0.00s)
+=== RUN   TestDiffRawHtmlChange
+--- PASS: TestDiffRawHtmlChange (0.00s)
+=== RUN   TestDiffRawHtmlUnchanged
+--- PASS: TestDiffRawHtmlUnchanged (0.00s)
+=== RUN   TestDiffDeepTree
+--- PASS: TestDiffDeepTree (0.00s)
+=== RUN   TestDiffSameTree
+--- PASS: TestDiffSameTree (0.00s)
+=== RUN   TestPropsEqual
+=== RUN   TestPropsEqual/equal_strings
+=== RUN   TestPropsEqual/different_strings
+=== RUN   TestPropsEqual/equal_ints
+=== RUN   TestPropsEqual/different_ints
+=== RUN   TestPropsEqual/equal_bools
+=== RUN   TestPropsEqual/different_bools
+=== RUN   TestPropsEqual/equal_floats
+=== RUN   TestPropsEqual/different_floats
+=== RUN   TestPropsEqual/nil_values
+=== RUN   TestPropsEqual/one_nil
+=== RUN   TestPropsEqual/different_types
+--- PASS: TestPropsEqual (0.00s)
+    --- PASS: TestPropsEqual/equal_strings (0.00s)
+    --- PASS: TestPropsEqual/different_strings (0.00s)
+    --- PASS: TestPropsEqual/equal_ints (0.00s)
+    --- PASS: TestPropsEqual/different_ints (0.00s)
+    --- PASS: TestPropsEqual/equal_bools (0.00s)
+    --- PASS: TestPropsEqual/different_bools (0.00s)
+    --- PASS: TestPropsEqual/equal_floats (0.00s)
+    --- PASS: TestPropsEqual/different_floats (0.00s)
+    --- PASS: TestPropsEqual/nil_values (0.00s)
+    --- PASS: TestPropsEqual/one_nil (0.00s)
+    --- PASS: TestPropsEqual/different_types (0.00s)
+=== RUN   TestPropToString
+=== RUN   TestPropToString/string
+=== RUN   TestPropToString/bool_true
+=== RUN   TestPropToString/bool_false
+=== RUN   TestPropToString/int
+=== RUN   TestPropToString/int64
+=== RUN   TestPropToString/float64
+=== RUN   TestPropToString/struct
+--- PASS: TestPropToString (0.00s)
+    --- PASS: TestPropToString/string (0.00s)
+    --- PASS: TestPropToString/bool_true (0.00s)
+    --- PASS: TestPropToString/bool_false (0.00s)
+    --- PASS: TestPropToString/int (0.00s)
+    --- PASS: TestPropToString/int64 (0.00s)
+    --- PASS: TestPropToString/float64 (0.00s)
+    --- PASS: TestPropToString/struct (0.00s)
+=== RUN   TestIsEventHandler
+=== RUN   TestIsEventHandler/onclick
+=== RUN   TestIsEventHandler/oninput
+=== RUN   TestIsEventHandler/onmouseover
+=== RUN   TestIsEventHandler/class
+=== RUN   TestIsEventHandler/id
+=== RUN   TestIsEventHandler/on
+=== RUN   TestIsEventHandler/#00
+=== RUN   TestIsEventHandler/ONCLICK
+=== RUN   TestIsEventHandler/OnClick
+--- PASS: TestIsEventHandler (0.00s)
+    --- PASS: TestIsEventHandler/onclick (0.00s)
+    --- PASS: TestIsEventHandler/oninput (0.00s)
+    --- PASS: TestIsEventHandler/onmouseover (0.00s)
+    --- PASS: TestIsEventHandler/class (0.00s)
+    --- PASS: TestIsEventHandler/id (0.00s)
+    --- PASS: TestIsEventHandler/on (0.00s)
+    --- PASS: TestIsEventHandler/#00 (0.00s)
+    --- PASS: TestIsEventHandler/ONCLICK (0.00s)
+    --- PASS: TestIsEventHandler/OnClick (0.00s)
+=== RUN   TestGetKey
+=== RUN   TestGetKey/from_Key_field
+=== RUN   TestGetKey/from_Props
+=== RUN   TestGetKey/nil_node
+=== RUN   TestGetKey/no_key
+--- PASS: TestGetKey (0.00s)
+    --- PASS: TestGetKey/from_Key_field (0.00s)
+    --- PASS: TestGetKey/from_Props (0.00s)
+    --- PASS: TestGetKey/nil_node (0.00s)
+    --- PASS: TestGetKey/no_key (0.00s)
+=== RUN   TestHasKeys
+=== RUN   TestHasKeys/with_keys
+=== RUN   TestHasKeys/without_keys
+=== RUN   TestHasKeys/mixed
+--- PASS: TestHasKeys (0.00s)
+    --- PASS: TestHasKeys/with_keys (0.00s)
+    --- PASS: TestHasKeys/without_keys (0.00s)
+    --- PASS: TestHasKeys/mixed (0.00s)
+=== RUN   TestHIDCopied
+--- PASS: TestHIDCopied (0.00s)
+=== RUN   TestCreateElement
+=== RUN   TestCreateElement/basic_element
+=== RUN   TestCreateElement/with_class_attribute
+=== RUN   TestCreateElement/with_multiple_attributes
+=== RUN   TestCreateElement/with_child_node
+=== RUN   TestCreateElement/with_multiple_children
+=== RUN   TestCreateElement/with_string_shorthand
+=== RUN   TestCreateElement/with_nil_ignored
+=== RUN   TestCreateElement/with_event_handler
+=== RUN   TestCreateElement/with_slice_of_children
+=== RUN   TestCreateElement/with_slice_containing_nil
+=== RUN   TestCreateElement/with_slice_of_attributes
+=== RUN   TestCreateElement/with_key_attribute
+=== RUN   TestCreateElement/with_component
+=== RUN   TestCreateElement/mixed_attributes_and_children
+--- PASS: TestCreateElement (0.00s)
+    --- PASS: TestCreateElement/basic_element (0.00s)
+    --- PASS: TestCreateElement/with_class_attribute (0.00s)
+    --- PASS: TestCreateElement/with_multiple_attributes (0.00s)
+    --- PASS: TestCreateElement/with_child_node (0.00s)
+    --- PASS: TestCreateElement/with_multiple_children (0.00s)
+    --- PASS: TestCreateElement/with_string_shorthand (0.00s)
+    --- PASS: TestCreateElement/with_nil_ignored (0.00s)
+    --- PASS: TestCreateElement/with_event_handler (0.00s)
+    --- PASS: TestCreateElement/with_slice_of_children (0.00s)
+    --- PASS: TestCreateElement/with_slice_containing_nil (0.00s)
+    --- PASS: TestCreateElement/with_slice_of_attributes (0.00s)
+    --- PASS: TestCreateElement/with_key_attribute (0.00s)
+    --- PASS: TestCreateElement/with_component (0.00s)
+    --- PASS: TestCreateElement/mixed_attributes_and_children (0.00s)
+=== RUN   TestVoidElements
+--- PASS: TestVoidElements (0.00s)
+=== RUN   TestAllElements
+=== RUN   TestAllElements/div
+=== RUN   TestAllElements/span
+=== RUN   TestAllElements/p
+=== RUN   TestAllElements/h1
+=== RUN   TestAllElements/h2
+=== RUN   TestAllElements/h3
+=== RUN   TestAllElements/button
+=== RUN   TestAllElements/input
+=== RUN   TestAllElements/form
+=== RUN   TestAllElements/a
+=== RUN   TestAllElements/ul
+=== RUN   TestAllElements/li
+=== RUN   TestAllElements/table
+=== RUN   TestAllElements/tr
+=== RUN   TestAllElements/td
+=== RUN   TestAllElements/img
+=== RUN   TestAllElements/header
+=== RUN   TestAllElements/footer
+=== RUN   TestAllElements/nav
+=== RUN   TestAllElements/section
+=== RUN   TestAllElements/article
+--- PASS: TestAllElements (0.00s)
+    --- PASS: TestAllElements/div (0.00s)
+    --- PASS: TestAllElements/span (0.00s)
+    --- PASS: TestAllElements/p (0.00s)
+    --- PASS: TestAllElements/h1 (0.00s)
+    --- PASS: TestAllElements/h2 (0.00s)
+    --- PASS: TestAllElements/h3 (0.00s)
+    --- PASS: TestAllElements/button (0.00s)
+    --- PASS: TestAllElements/input (0.00s)
+    --- PASS: TestAllElements/form (0.00s)
+    --- PASS: TestAllElements/a (0.00s)
+    --- PASS: TestAllElements/ul (0.00s)
+    --- PASS: TestAllElements/li (0.00s)
+    --- PASS: TestAllElements/table (0.00s)
+    --- PASS: TestAllElements/tr (0.00s)
+    --- PASS: TestAllElements/td (0.00s)
+    --- PASS: TestAllElements/img (0.00s)
+    --- PASS: TestAllElements/header (0.00s)
+    --- PASS: TestAllElements/footer (0.00s)
+    --- PASS: TestAllElements/nav (0.00s)
+    --- PASS: TestAllElements/section (0.00s)
+    --- PASS: TestAllElements/article (0.00s)
+=== RUN   TestCustomElement
+--- PASS: TestCustomElement (0.00s)
+=== RUN   TestAllElementsComprehensive
+=== RUN   TestAllElementsComprehensive/html
+=== RUN   TestAllElementsComprehensive/head
+=== RUN   TestAllElementsComprehensive/body
+=== RUN   TestAllElementsComprehensive/title
+=== RUN   TestAllElementsComprehensive/meta
+=== RUN   TestAllElementsComprehensive/link
+=== RUN   TestAllElementsComprehensive/base
+=== RUN   TestAllElementsComprehensive/header
+=== RUN   TestAllElementsComprehensive/footer
+=== RUN   TestAllElementsComprehensive/main
+=== RUN   TestAllElementsComprehensive/nav
+=== RUN   TestAllElementsComprehensive/section
+=== RUN   TestAllElementsComprehensive/article
+=== RUN   TestAllElementsComprehensive/aside
+=== RUN   TestAllElementsComprehensive/address
+=== RUN   TestAllElementsComprehensive/h1
+=== RUN   TestAllElementsComprehensive/h2
+=== RUN   TestAllElementsComprehensive/h3
+=== RUN   TestAllElementsComprehensive/h4
+=== RUN   TestAllElementsComprehensive/h5
+=== RUN   TestAllElementsComprehensive/h6
+=== RUN   TestAllElementsComprehensive/hgroup
+=== RUN   TestAllElementsComprehensive/div
+=== RUN   TestAllElementsComprehensive/p
+=== RUN   TestAllElementsComprehensive/span
+=== RUN   TestAllElementsComprehensive/pre
+=== RUN   TestAllElementsComprehensive/blockquote
+=== RUN   TestAllElementsComprehensive/ul
+=== RUN   TestAllElementsComprehensive/ol
+=== RUN   TestAllElementsComprehensive/li
+=== RUN   TestAllElementsComprehensive/dl
+=== RUN   TestAllElementsComprehensive/dt
+=== RUN   TestAllElementsComprehensive/dd
+=== RUN   TestAllElementsComprehensive/hr
+=== RUN   TestAllElementsComprehensive/figure
+=== RUN   TestAllElementsComprehensive/figcaption
+=== RUN   TestAllElementsComprehensive/a
+=== RUN   TestAllElementsComprehensive/strong
+=== RUN   TestAllElementsComprehensive/em
+=== RUN   TestAllElementsComprehensive/b
+=== RUN   TestAllElementsComprehensive/i
+=== RUN   TestAllElementsComprehensive/u
+=== RUN   TestAllElementsComprehensive/s
+=== RUN   TestAllElementsComprehensive/small
+=== RUN   TestAllElementsComprehensive/mark
+=== RUN   TestAllElementsComprehensive/sub
+=== RUN   TestAllElementsComprehensive/sup
+=== RUN   TestAllElementsComprehensive/code
+=== RUN   TestAllElementsComprehensive/kbd
+=== RUN   TestAllElementsComprehensive/samp
+=== RUN   TestAllElementsComprehensive/var
+=== RUN   TestAllElementsComprehensive/abbr
+=== RUN   TestAllElementsComprehensive/time
+=== RUN   TestAllElementsComprehensive/cite
+=== RUN   TestAllElementsComprehensive/q
+=== RUN   TestAllElementsComprehensive/dfn
+=== RUN   TestAllElementsComprehensive/ruby
+=== RUN   TestAllElementsComprehensive/rt
+=== RUN   TestAllElementsComprehensive/rp
+=== RUN   TestAllElementsComprehensive/bdi
+=== RUN   TestAllElementsComprehensive/bdo
+=== RUN   TestAllElementsComprehensive/data
+=== RUN   TestAllElementsComprehensive/br
+=== RUN   TestAllElementsComprehensive/wbr
+=== RUN   TestAllElementsComprehensive/form
+=== RUN   TestAllElementsComprehensive/input
+=== RUN   TestAllElementsComprehensive/textarea
+=== RUN   TestAllElementsComprehensive/select
+=== RUN   TestAllElementsComprehensive/option
+=== RUN   TestAllElementsComprehensive/optgroup
+=== RUN   TestAllElementsComprehensive/button
+=== RUN   TestAllElementsComprehensive/label
+=== RUN   TestAllElementsComprehensive/fieldset
+=== RUN   TestAllElementsComprehensive/legend
+=== RUN   TestAllElementsComprehensive/datalist
+=== RUN   TestAllElementsComprehensive/output
+=== RUN   TestAllElementsComprehensive/progress
+=== RUN   TestAllElementsComprehensive/meter
+=== RUN   TestAllElementsComprehensive/table
+=== RUN   TestAllElementsComprehensive/thead
+=== RUN   TestAllElementsComprehensive/tbody
+=== RUN   TestAllElementsComprehensive/tfoot
+=== RUN   TestAllElementsComprehensive/tr
+=== RUN   TestAllElementsComprehensive/th
+=== RUN   TestAllElementsComprehensive/td
+=== RUN   TestAllElementsComprehensive/caption
+=== RUN   TestAllElementsComprehensive/colgroup
+=== RUN   TestAllElementsComprehensive/col
+=== RUN   TestAllElementsComprehensive/img
+=== RUN   TestAllElementsComprehensive/picture
+=== RUN   TestAllElementsComprehensive/source
+=== RUN   TestAllElementsComprehensive/video
+=== RUN   TestAllElementsComprehensive/audio
+=== RUN   TestAllElementsComprehensive/track
+=== RUN   TestAllElementsComprehensive/iframe
+=== RUN   TestAllElementsComprehensive/embed
+=== RUN   TestAllElementsComprehensive/object
+=== RUN   TestAllElementsComprehensive/param
+=== RUN   TestAllElementsComprehensive/canvas
+=== RUN   TestAllElementsComprehensive/svg
+=== RUN   TestAllElementsComprehensive/math
+=== RUN   TestAllElementsComprehensive/map
+=== RUN   TestAllElementsComprehensive/area
+=== RUN   TestAllElementsComprehensive/details
+=== RUN   TestAllElementsComprehensive/summary
+=== RUN   TestAllElementsComprehensive/dialog
+=== RUN   TestAllElementsComprehensive/menu
+=== RUN   TestAllElementsComprehensive/script
+=== RUN   TestAllElementsComprehensive/noscript
+=== RUN   TestAllElementsComprehensive/template
+=== RUN   TestAllElementsComprehensive/slot
+=== RUN   TestAllElementsComprehensive/style
+--- PASS: TestAllElementsComprehensive (0.00s)
+    --- PASS: TestAllElementsComprehensive/html (0.00s)
+    --- PASS: TestAllElementsComprehensive/head (0.00s)
+    --- PASS: TestAllElementsComprehensive/body (0.00s)
+    --- PASS: TestAllElementsComprehensive/title (0.00s)
+    --- PASS: TestAllElementsComprehensive/meta (0.00s)
+    --- PASS: TestAllElementsComprehensive/link (0.00s)
+    --- PASS: TestAllElementsComprehensive/base (0.00s)
+    --- PASS: TestAllElementsComprehensive/header (0.00s)
+    --- PASS: TestAllElementsComprehensive/footer (0.00s)
+    --- PASS: TestAllElementsComprehensive/main (0.00s)
+    --- PASS: TestAllElementsComprehensive/nav (0.00s)
+    --- PASS: TestAllElementsComprehensive/section (0.00s)
+    --- PASS: TestAllElementsComprehensive/article (0.00s)
+    --- PASS: TestAllElementsComprehensive/aside (0.00s)
+    --- PASS: TestAllElementsComprehensive/address (0.00s)
+    --- PASS: TestAllElementsComprehensive/h1 (0.00s)
+    --- PASS: TestAllElementsComprehensive/h2 (0.00s)
+    --- PASS: TestAllElementsComprehensive/h3 (0.00s)
+    --- PASS: TestAllElementsComprehensive/h4 (0.00s)
+    --- PASS: TestAllElementsComprehensive/h5 (0.00s)
+    --- PASS: TestAllElementsComprehensive/h6 (0.00s)
+    --- PASS: TestAllElementsComprehensive/hgroup (0.00s)
+    --- PASS: TestAllElementsComprehensive/div (0.00s)
+    --- PASS: TestAllElementsComprehensive/p (0.00s)
+    --- PASS: TestAllElementsComprehensive/span (0.00s)
+    --- PASS: TestAllElementsComprehensive/pre (0.00s)
+    --- PASS: TestAllElementsComprehensive/blockquote (0.00s)
+    --- PASS: TestAllElementsComprehensive/ul (0.00s)
+    --- PASS: TestAllElementsComprehensive/ol (0.00s)
+    --- PASS: TestAllElementsComprehensive/li (0.00s)
+    --- PASS: TestAllElementsComprehensive/dl (0.00s)
+    --- PASS: TestAllElementsComprehensive/dt (0.00s)
+    --- PASS: TestAllElementsComprehensive/dd (0.00s)
+    --- PASS: TestAllElementsComprehensive/hr (0.00s)
+    --- PASS: TestAllElementsComprehensive/figure (0.00s)
+    --- PASS: TestAllElementsComprehensive/figcaption (0.00s)
+    --- PASS: TestAllElementsComprehensive/a (0.00s)
+    --- PASS: TestAllElementsComprehensive/strong (0.00s)
+    --- PASS: TestAllElementsComprehensive/em (0.00s)
+    --- PASS: TestAllElementsComprehensive/b (0.00s)
+    --- PASS: TestAllElementsComprehensive/i (0.00s)
+    --- PASS: TestAllElementsComprehensive/u (0.00s)
+    --- PASS: TestAllElementsComprehensive/s (0.00s)
+    --- PASS: TestAllElementsComprehensive/small (0.00s)
+    --- PASS: TestAllElementsComprehensive/mark (0.00s)
+    --- PASS: TestAllElementsComprehensive/sub (0.00s)
+    --- PASS: TestAllElementsComprehensive/sup (0.00s)
+    --- PASS: TestAllElementsComprehensive/code (0.00s)
+    --- PASS: TestAllElementsComprehensive/kbd (0.00s)
+    --- PASS: TestAllElementsComprehensive/samp (0.00s)
+    --- PASS: TestAllElementsComprehensive/var (0.00s)
+    --- PASS: TestAllElementsComprehensive/abbr (0.00s)
+    --- PASS: TestAllElementsComprehensive/time (0.00s)
+    --- PASS: TestAllElementsComprehensive/cite (0.00s)
+    --- PASS: TestAllElementsComprehensive/q (0.00s)
+    --- PASS: TestAllElementsComprehensive/dfn (0.00s)
+    --- PASS: TestAllElementsComprehensive/ruby (0.00s)
+    --- PASS: TestAllElementsComprehensive/rt (0.00s)
+    --- PASS: TestAllElementsComprehensive/rp (0.00s)
+    --- PASS: TestAllElementsComprehensive/bdi (0.00s)
+    --- PASS: TestAllElementsComprehensive/bdo (0.00s)
+    --- PASS: TestAllElementsComprehensive/data (0.00s)
+    --- PASS: TestAllElementsComprehensive/br (0.00s)
+    --- PASS: TestAllElementsComprehensive/wbr (0.00s)
+    --- PASS: TestAllElementsComprehensive/form (0.00s)
+    --- PASS: TestAllElementsComprehensive/input (0.00s)
+    --- PASS: TestAllElementsComprehensive/textarea (0.00s)
+    --- PASS: TestAllElementsComprehensive/select (0.00s)
+    --- PASS: TestAllElementsComprehensive/option (0.00s)
+    --- PASS: TestAllElementsComprehensive/optgroup (0.00s)
+    --- PASS: TestAllElementsComprehensive/button (0.00s)
+    --- PASS: TestAllElementsComprehensive/label (0.00s)
+    --- PASS: TestAllElementsComprehensive/fieldset (0.00s)
+    --- PASS: TestAllElementsComprehensive/legend (0.00s)
+    --- PASS: TestAllElementsComprehensive/datalist (0.00s)
+    --- PASS: TestAllElementsComprehensive/output (0.00s)
+    --- PASS: TestAllElementsComprehensive/progress (0.00s)
+    --- PASS: TestAllElementsComprehensive/meter (0.00s)
+    --- PASS: TestAllElementsComprehensive/table (0.00s)
+    --- PASS: TestAllElementsComprehensive/thead (0.00s)
+    --- PASS: TestAllElementsComprehensive/tbody (0.00s)
+    --- PASS: TestAllElementsComprehensive/tfoot (0.00s)
+    --- PASS: TestAllElementsComprehensive/tr (0.00s)
+    --- PASS: TestAllElementsComprehensive/th (0.00s)
+    --- PASS: TestAllElementsComprehensive/td (0.00s)
+    --- PASS: TestAllElementsComprehensive/caption (0.00s)
+    --- PASS: TestAllElementsComprehensive/colgroup (0.00s)
+    --- PASS: TestAllElementsComprehensive/col (0.00s)
+    --- PASS: TestAllElementsComprehensive/img (0.00s)
+    --- PASS: TestAllElementsComprehensive/picture (0.00s)
+    --- PASS: TestAllElementsComprehensive/source (0.00s)
+    --- PASS: TestAllElementsComprehensive/video (0.00s)
+    --- PASS: TestAllElementsComprehensive/audio (0.00s)
+    --- PASS: TestAllElementsComprehensive/track (0.00s)
+    --- PASS: TestAllElementsComprehensive/iframe (0.00s)
+    --- PASS: TestAllElementsComprehensive/embed (0.00s)
+    --- PASS: TestAllElementsComprehensive/object (0.00s)
+    --- PASS: TestAllElementsComprehensive/param (0.00s)
+    --- PASS: TestAllElementsComprehensive/canvas (0.00s)
+    --- PASS: TestAllElementsComprehensive/svg (0.00s)
+    --- PASS: TestAllElementsComprehensive/math (0.00s)
+    --- PASS: TestAllElementsComprehensive/map (0.00s)
+    --- PASS: TestAllElementsComprehensive/area (0.00s)
+    --- PASS: TestAllElementsComprehensive/details (0.00s)
+    --- PASS: TestAllElementsComprehensive/summary (0.00s)
+    --- PASS: TestAllElementsComprehensive/dialog (0.00s)
+    --- PASS: TestAllElementsComprehensive/menu (0.00s)
+    --- PASS: TestAllElementsComprehensive/script (0.00s)
+    --- PASS: TestAllElementsComprehensive/noscript (0.00s)
+    --- PASS: TestAllElementsComprehensive/template (0.00s)
+    --- PASS: TestAllElementsComprehensive/slot (0.00s)
+    --- PASS: TestAllElementsComprehensive/style (0.00s)
+=== RUN   TestEventHandlers
+=== RUN   TestEventHandlers/OnClick
+=== RUN   TestEventHandlers/OnDblClick
+=== RUN   TestEventHandlers/OnMouseDown
+=== RUN   TestEventHandlers/OnMouseUp
+=== RUN   TestEventHandlers/OnMouseMove
+=== RUN   TestEventHandlers/OnMouseEnter
+=== RUN   TestEventHandlers/OnMouseLeave
+=== RUN   TestEventHandlers/OnMouseOver
+=== RUN   TestEventHandlers/OnMouseOut
+=== RUN   TestEventHandlers/OnContextMenu
+=== RUN   TestEventHandlers/OnWheel
+=== RUN   TestEventHandlers/OnKeyDown
+=== RUN   TestEventHandlers/OnKeyUp
+=== RUN   TestEventHandlers/OnKeyPress
+=== RUN   TestEventHandlers/OnInput
+=== RUN   TestEventHandlers/OnChange
+=== RUN   TestEventHandlers/OnSubmit
+=== RUN   TestEventHandlers/OnFocus
+=== RUN   TestEventHandlers/OnBlur
+=== RUN   TestEventHandlers/OnFocusIn
+=== RUN   TestEventHandlers/OnFocusOut
+=== RUN   TestEventHandlers/OnSelect
+=== RUN   TestEventHandlers/OnInvalid
+=== RUN   TestEventHandlers/OnReset
+=== RUN   TestEventHandlers/OnDragStart
+=== RUN   TestEventHandlers/OnDrag
+=== RUN   TestEventHandlers/OnDragEnd
+=== RUN   TestEventHandlers/OnDragEnter
+=== RUN   TestEventHandlers/OnDragOver
+=== RUN   TestEventHandlers/OnDragLeave
+=== RUN   TestEventHandlers/OnDrop
+=== RUN   TestEventHandlers/OnTouchStart
+=== RUN   TestEventHandlers/OnTouchMove
+=== RUN   TestEventHandlers/OnTouchEnd
+=== RUN   TestEventHandlers/OnTouchCancel
+=== RUN   TestEventHandlers/OnPointerDown
+=== RUN   TestEventHandlers/OnPointerUp
+=== RUN   TestEventHandlers/OnPointerMove
+=== RUN   TestEventHandlers/OnPointerEnter
+=== RUN   TestEventHandlers/OnPointerLeave
+=== RUN   TestEventHandlers/OnPointerCancel
+=== RUN   TestEventHandlers/OnScroll
+=== RUN   TestEventHandlers/OnScrollEnd
+=== RUN   TestEventHandlers/OnPlay
+=== RUN   TestEventHandlers/OnPause
+=== RUN   TestEventHandlers/OnEnded
+=== RUN   TestEventHandlers/OnTimeUpdate
+=== RUN   TestEventHandlers/OnLoadStart
+=== RUN   TestEventHandlers/OnLoadedData
+=== RUN   TestEventHandlers/OnLoadedMetadata
+=== RUN   TestEventHandlers/OnCanPlay
+=== RUN   TestEventHandlers/OnCanPlayThrough
+=== RUN   TestEventHandlers/OnProgress
+=== RUN   TestEventHandlers/OnSeeking
+=== RUN   TestEventHandlers/OnSeeked
+=== RUN   TestEventHandlers/OnVolumeChange
+=== RUN   TestEventHandlers/OnRateChange
+=== RUN   TestEventHandlers/OnDurationChange
+=== RUN   TestEventHandlers/OnWaiting
+=== RUN   TestEventHandlers/OnPlaying
+=== RUN   TestEventHandlers/OnStalled
+=== RUN   TestEventHandlers/OnSuspend
+=== RUN   TestEventHandlers/OnEmptied
+=== RUN   TestEventHandlers/OnError
+=== RUN   TestEventHandlers/OnLoad
+=== RUN   TestEventHandlers/OnAbort
+=== RUN   TestEventHandlers/OnAnimationStart
+=== RUN   TestEventHandlers/OnAnimationEnd
+=== RUN   TestEventHandlers/OnAnimationIteration
+=== RUN   TestEventHandlers/OnAnimationCancel
+=== RUN   TestEventHandlers/OnTransitionStart
+=== RUN   TestEventHandlers/OnTransitionEnd
+=== RUN   TestEventHandlers/OnTransitionRun
+=== RUN   TestEventHandlers/OnTransitionCancel
+=== RUN   TestEventHandlers/OnCopy
+=== RUN   TestEventHandlers/OnCut
+=== RUN   TestEventHandlers/OnPaste
+=== RUN   TestEventHandlers/OnToggle
+--- PASS: TestEventHandlers (0.00s)
+    --- PASS: TestEventHandlers/OnClick (0.00s)
+    --- PASS: TestEventHandlers/OnDblClick (0.00s)
+    --- PASS: TestEventHandlers/OnMouseDown (0.00s)
+    --- PASS: TestEventHandlers/OnMouseUp (0.00s)
+    --- PASS: TestEventHandlers/OnMouseMove (0.00s)
+    --- PASS: TestEventHandlers/OnMouseEnter (0.00s)
+    --- PASS: TestEventHandlers/OnMouseLeave (0.00s)
+    --- PASS: TestEventHandlers/OnMouseOver (0.00s)
+    --- PASS: TestEventHandlers/OnMouseOut (0.00s)
+    --- PASS: TestEventHandlers/OnContextMenu (0.00s)
+    --- PASS: TestEventHandlers/OnWheel (0.00s)
+    --- PASS: TestEventHandlers/OnKeyDown (0.00s)
+    --- PASS: TestEventHandlers/OnKeyUp (0.00s)
+    --- PASS: TestEventHandlers/OnKeyPress (0.00s)
+    --- PASS: TestEventHandlers/OnInput (0.00s)
+    --- PASS: TestEventHandlers/OnChange (0.00s)
+    --- PASS: TestEventHandlers/OnSubmit (0.00s)
+    --- PASS: TestEventHandlers/OnFocus (0.00s)
+    --- PASS: TestEventHandlers/OnBlur (0.00s)
+    --- PASS: TestEventHandlers/OnFocusIn (0.00s)
+    --- PASS: TestEventHandlers/OnFocusOut (0.00s)
+    --- PASS: TestEventHandlers/OnSelect (0.00s)
+    --- PASS: TestEventHandlers/OnInvalid (0.00s)
+    --- PASS: TestEventHandlers/OnReset (0.00s)
+    --- PASS: TestEventHandlers/OnDragStart (0.00s)
+    --- PASS: TestEventHandlers/OnDrag (0.00s)
+    --- PASS: TestEventHandlers/OnDragEnd (0.00s)
+    --- PASS: TestEventHandlers/OnDragEnter (0.00s)
+    --- PASS: TestEventHandlers/OnDragOver (0.00s)
+    --- PASS: TestEventHandlers/OnDragLeave (0.00s)
+    --- PASS: TestEventHandlers/OnDrop (0.00s)
+    --- PASS: TestEventHandlers/OnTouchStart (0.00s)
+    --- PASS: TestEventHandlers/OnTouchMove (0.00s)
+    --- PASS: TestEventHandlers/OnTouchEnd (0.00s)
+    --- PASS: TestEventHandlers/OnTouchCancel (0.00s)
+    --- PASS: TestEventHandlers/OnPointerDown (0.00s)
+    --- PASS: TestEventHandlers/OnPointerUp (0.00s)
+    --- PASS: TestEventHandlers/OnPointerMove (0.00s)
+    --- PASS: TestEventHandlers/OnPointerEnter (0.00s)
+    --- PASS: TestEventHandlers/OnPointerLeave (0.00s)
+    --- PASS: TestEventHandlers/OnPointerCancel (0.00s)
+    --- PASS: TestEventHandlers/OnScroll (0.00s)
+    --- PASS: TestEventHandlers/OnScrollEnd (0.00s)
+    --- PASS: TestEventHandlers/OnPlay (0.00s)
+    --- PASS: TestEventHandlers/OnPause (0.00s)
+    --- PASS: TestEventHandlers/OnEnded (0.00s)
+    --- PASS: TestEventHandlers/OnTimeUpdate (0.00s)
+    --- PASS: TestEventHandlers/OnLoadStart (0.00s)
+    --- PASS: TestEventHandlers/OnLoadedData (0.00s)
+    --- PASS: TestEventHandlers/OnLoadedMetadata (0.00s)
+    --- PASS: TestEventHandlers/OnCanPlay (0.00s)
+    --- PASS: TestEventHandlers/OnCanPlayThrough (0.00s)
+    --- PASS: TestEventHandlers/OnProgress (0.00s)
+    --- PASS: TestEventHandlers/OnSeeking (0.00s)
+    --- PASS: TestEventHandlers/OnSeeked (0.00s)
+    --- PASS: TestEventHandlers/OnVolumeChange (0.00s)
+    --- PASS: TestEventHandlers/OnRateChange (0.00s)
+    --- PASS: TestEventHandlers/OnDurationChange (0.00s)
+    --- PASS: TestEventHandlers/OnWaiting (0.00s)
+    --- PASS: TestEventHandlers/OnPlaying (0.00s)
+    --- PASS: TestEventHandlers/OnStalled (0.00s)
+    --- PASS: TestEventHandlers/OnSuspend (0.00s)
+    --- PASS: TestEventHandlers/OnEmptied (0.00s)
+    --- PASS: TestEventHandlers/OnError (0.00s)
+    --- PASS: TestEventHandlers/OnLoad (0.00s)
+    --- PASS: TestEventHandlers/OnAbort (0.00s)
+    --- PASS: TestEventHandlers/OnAnimationStart (0.00s)
+    --- PASS: TestEventHandlers/OnAnimationEnd (0.00s)
+    --- PASS: TestEventHandlers/OnAnimationIteration (0.00s)
+    --- PASS: TestEventHandlers/OnAnimationCancel (0.00s)
+    --- PASS: TestEventHandlers/OnTransitionStart (0.00s)
+    --- PASS: TestEventHandlers/OnTransitionEnd (0.00s)
+    --- PASS: TestEventHandlers/OnTransitionRun (0.00s)
+    --- PASS: TestEventHandlers/OnTransitionCancel (0.00s)
+    --- PASS: TestEventHandlers/OnCopy (0.00s)
+    --- PASS: TestEventHandlers/OnCut (0.00s)
+    --- PASS: TestEventHandlers/OnPaste (0.00s)
+    --- PASS: TestEventHandlers/OnToggle (0.00s)
+=== RUN   TestEventHandlerInElement
+--- PASS: TestEventHandlerInElement (0.00s)
+=== RUN   TestMultipleEventHandlers
+--- PASS: TestMultipleEventHandlers (0.00s)
+=== RUN   TestEventHandlerWithValue
+--- PASS: TestEventHandlerWithValue (0.00s)
+=== RUN   TestText
+--- PASS: TestText (0.00s)
+=== RUN   TestTextf
+--- PASS: TestTextf (0.00s)
+=== RUN   TestDangerouslySetInnerHTML
+--- PASS: TestDangerouslySetInnerHTML (0.00s)
+=== RUN   TestRaw
+--- PASS: TestRaw (0.00s)
+=== RUN   TestFragment
+=== RUN   TestFragment/with_VNodes
+=== RUN   TestFragment/with_nil_filtered
+=== RUN   TestFragment/with_slice
+=== RUN   TestFragment/with_string
+--- PASS: TestFragment (0.00s)
+    --- PASS: TestFragment/with_VNodes (0.00s)
+    --- PASS: TestFragment/with_nil_filtered (0.00s)
+    --- PASS: TestFragment/with_slice (0.00s)
+    --- PASS: TestFragment/with_string (0.00s)
+=== RUN   TestIf
+=== RUN   TestIf/condition_true
+=== RUN   TestIf/condition_false
+--- PASS: TestIf (0.00s)
+    --- PASS: TestIf/condition_true (0.00s)
+    --- PASS: TestIf/condition_false (0.00s)
+=== RUN   TestIfElse
+=== RUN   TestIfElse/condition_true
+=== RUN   TestIfElse/condition_false
+--- PASS: TestIfElse (0.00s)
+    --- PASS: TestIfElse/condition_true (0.00s)
+    --- PASS: TestIfElse/condition_false (0.00s)
+=== RUN   TestWhen
+=== RUN   TestWhen/condition_true
+=== RUN   TestWhen/condition_false
+--- PASS: TestWhen (0.00s)
+    --- PASS: TestWhen/condition_true (0.00s)
+    --- PASS: TestWhen/condition_false (0.00s)
+=== RUN   TestUnless
+=== RUN   TestUnless/condition_true
+=== RUN   TestUnless/condition_false
+--- PASS: TestUnless (0.00s)
+    --- PASS: TestUnless/condition_true (0.00s)
+    --- PASS: TestUnless/condition_false (0.00s)
+=== RUN   TestSwitch
+=== RUN   TestSwitch/matching_case
+=== RUN   TestSwitch/default_case
+=== RUN   TestSwitch/no_match_no_default
+=== RUN   TestSwitch/with_int_values
+--- PASS: TestSwitch (0.00s)
+    --- PASS: TestSwitch/matching_case (0.00s)
+    --- PASS: TestSwitch/default_case (0.00s)
+    --- PASS: TestSwitch/no_match_no_default (0.00s)
+    --- PASS: TestSwitch/with_int_values (0.00s)
+=== RUN   TestRange
+--- PASS: TestRange (0.00s)
+=== RUN   TestRangeWithNilFiltered
+--- PASS: TestRangeWithNilFiltered (0.00s)
+=== RUN   TestRangeMap
+--- PASS: TestRangeMap (0.00s)
+=== RUN   TestRepeat
+--- PASS: TestRepeat (0.00s)
+=== RUN   TestRepeatZero
+--- PASS: TestRepeatZero (0.00s)
+=== RUN   TestRepeatNegative
+--- PASS: TestRepeatNegative (0.00s)
+=== RUN   TestKey
+=== RUN   TestKey/string_key
+=== RUN   TestKey/int_key
+=== RUN   TestKey/struct_key
+--- PASS: TestKey (0.00s)
+    --- PASS: TestKey/string_key (0.00s)
+    --- PASS: TestKey/int_key (0.00s)
+    --- PASS: TestKey/struct_key (0.00s)
+=== RUN   TestNothing
+--- PASS: TestNothing (0.00s)
+=== RUN   TestShow
+--- PASS: TestShow (0.00s)
+=== RUN   TestHide
+--- PASS: TestHide (0.00s)
+=== RUN   TestEither
+--- PASS: TestEither (0.00s)
+=== RUN   TestGroup
+--- PASS: TestGroup (0.00s)
+=== RUN   TestMaybe
+--- PASS: TestMaybe (0.00s)
+=== RUN   TestFragmentWithComponent
+--- PASS: TestFragmentWithComponent (0.00s)
+=== RUN   TestLink
+--- PASS: TestLink (0.00s)
+=== RUN   TestLinkWithClass
+--- PASS: TestLinkWithClass (0.00s)
+=== RUN   TestLinkPrefetch
+--- PASS: TestLinkPrefetch (0.00s)
+=== RUN   TestNavLink
+=== RUN   TestNavLink/active_when_path_matches
+=== RUN   TestNavLink/not_active_when_path_differs
+=== RUN   TestNavLink/not_active_when_prefix_only
+=== RUN   TestNavLink/nil_context
+--- PASS: TestNavLink (0.00s)
+    --- PASS: TestNavLink/active_when_path_matches (0.00s)
+    --- PASS: TestNavLink/not_active_when_path_differs (0.00s)
+    --- PASS: TestNavLink/not_active_when_prefix_only (0.00s)
+    --- PASS: TestNavLink/nil_context (0.00s)
+=== RUN   TestNavLinkPrefix
+=== RUN   TestNavLinkPrefix/active_when_path_matches_exactly
+=== RUN   TestNavLinkPrefix/active_when_path_is_sub-route
+=== RUN   TestNavLinkPrefix/active_when_path_is_deep_sub-route
+=== RUN   TestNavLinkPrefix/not_active_when_path_just_starts_with_same_chars
+=== RUN   TestNavLinkPrefix/not_active_when_different_path
+=== RUN   TestNavLinkPrefix/nil_context
+--- PASS: TestNavLinkPrefix (0.00s)
+    --- PASS: TestNavLinkPrefix/active_when_path_matches_exactly (0.00s)
+    --- PASS: TestNavLinkPrefix/active_when_path_is_sub-route (0.00s)
+    --- PASS: TestNavLinkPrefix/active_when_path_is_deep_sub-route (0.00s)
+    --- PASS: TestNavLinkPrefix/not_active_when_path_just_starts_with_same_chars (0.00s)
+    --- PASS: TestNavLinkPrefix/not_active_when_different_path (0.00s)
+    --- PASS: TestNavLinkPrefix/nil_context (0.00s)
+=== RUN   TestHIDGenerator
+=== RUN   TestHIDGenerator/sequential_generation
+=== RUN   TestHIDGenerator/current
+=== RUN   TestHIDGenerator/reset
+--- PASS: TestHIDGenerator (0.00s)
+    --- PASS: TestHIDGenerator/sequential_generation (0.00s)
+    --- PASS: TestHIDGenerator/current (0.00s)
+    --- PASS: TestHIDGenerator/reset (0.00s)
+=== RUN   TestAssignHIDs
+=== RUN   TestAssignHIDs/all_elements_get_HIDs
+=== RUN   TestAssignHIDs/nil_node
+=== RUN   TestAssignHIDs/nested_elements
+--- PASS: TestAssignHIDs (0.00s)
+    --- PASS: TestAssignHIDs/all_elements_get_HIDs (0.00s)
+    --- PASS: TestAssignHIDs/nil_node (0.00s)
+    --- PASS: TestAssignHIDs/nested_elements (0.00s)
+=== RUN   TestAssignAllHIDs
+--- PASS: TestAssignAllHIDs (0.00s)
+=== RUN   TestCollectHIDs
+--- PASS: TestCollectHIDs (0.00s)
+=== RUN   TestFindByHID
+=== RUN   TestFindByHID/found
+=== RUN   TestFindByHID/not_found
+=== RUN   TestFindByHID/nil_tree
+--- PASS: TestFindByHID (0.00s)
+    --- PASS: TestFindByHID/found (0.00s)
+    --- PASS: TestFindByHID/not_found (0.00s)
+    --- PASS: TestFindByHID/nil_tree (0.00s)
+=== RUN   TestCountInteractive
+--- PASS: TestCountInteractive (0.00s)
+=== RUN   TestCountInteractiveNil
+--- PASS: TestCountInteractiveNil (0.00s)
+=== RUN   TestClearHIDs
+--- PASS: TestClearHIDs (0.00s)
+=== RUN   TestClearHIDsNil
+--- PASS: TestClearHIDsNil (0.00s)
+=== RUN   TestCopyHIDs
+=== RUN   TestCopyHIDs/same_structure
+=== RUN   TestCopyHIDs/different_structure
+=== RUN   TestCopyHIDs/both_nil
+=== RUN   TestCopyHIDs/one_nil
+--- PASS: TestCopyHIDs (0.00s)
+    --- PASS: TestCopyHIDs/same_structure (0.00s)
+    --- PASS: TestCopyHIDs/different_structure (0.00s)
+    --- PASS: TestCopyHIDs/both_nil (0.00s)
+    --- PASS: TestCopyHIDs/one_nil (0.00s)
+=== RUN   TestHIDGeneratorConcurrency
+--- PASS: TestHIDGeneratorConcurrency (0.00s)
+=== RUN   TestVKindString
+=== RUN   TestVKindString/Element
+=== RUN   TestVKindString/Text
+=== RUN   TestVKindString/Fragment
+=== RUN   TestVKindString/Component
+=== RUN   TestVKindString/Raw
+=== RUN   TestVKindString/Unknown
+--- PASS: TestVKindString (0.00s)
+    --- PASS: TestVKindString/Element (0.00s)
+    --- PASS: TestVKindString/Text (0.00s)
+    --- PASS: TestVKindString/Fragment (0.00s)
+    --- PASS: TestVKindString/Component (0.00s)
+    --- PASS: TestVKindString/Raw (0.00s)
+    --- PASS: TestVKindString/Unknown (0.00s)
+=== RUN   TestVNodeIsInteractive
+=== RUN   TestVNodeIsInteractive/nil_node
+=== RUN   TestVNodeIsInteractive/text_node
+=== RUN   TestVNodeIsInteractive/element_without_handlers
+=== RUN   TestVNodeIsInteractive/element_with_onclick
+=== RUN   TestVNodeIsInteractive/element_with_oninput
+=== RUN   TestVNodeIsInteractive/element_with_multiple_handlers
+=== RUN   TestVNodeIsInteractive/element_with_nil_props
+=== RUN   TestVNodeIsInteractive/fragment_node
+--- PASS: TestVNodeIsInteractive (0.00s)
+    --- PASS: TestVNodeIsInteractive/nil_node (0.00s)
+    --- PASS: TestVNodeIsInteractive/text_node (0.00s)
+    --- PASS: TestVNodeIsInteractive/element_without_handlers (0.00s)
+    --- PASS: TestVNodeIsInteractive/element_with_onclick (0.00s)
+    --- PASS: TestVNodeIsInteractive/element_with_oninput (0.00s)
+    --- PASS: TestVNodeIsInteractive/element_with_multiple_handlers (0.00s)
+    --- PASS: TestVNodeIsInteractive/element_with_nil_props (0.00s)
+    --- PASS: TestVNodeIsInteractive/fragment_node (0.00s)
+=== RUN   TestAttrIsEmpty
+=== RUN   TestAttrIsEmpty/empty_attr
+=== RUN   TestAttrIsEmpty/attr_with_key
+=== RUN   TestAttrIsEmpty/attr_with_empty_value
+--- PASS: TestAttrIsEmpty (0.00s)
+    --- PASS: TestAttrIsEmpty/empty_attr (0.00s)
+    --- PASS: TestAttrIsEmpty/attr_with_key (0.00s)
+    --- PASS: TestAttrIsEmpty/attr_with_empty_value (0.00s)
+=== RUN   TestFuncComponent
+--- PASS: TestFuncComponent (0.00s)
+=== RUN   TestPatchOpString
+=== RUN   TestPatchOpString/SetText
+=== RUN   TestPatchOpString/SetAttr
+=== RUN   TestPatchOpString/RemoveAttr
+=== RUN   TestPatchOpString/InsertNode
+=== RUN   TestPatchOpString/RemoveNode
+=== RUN   TestPatchOpString/MoveNode
+=== RUN   TestPatchOpString/ReplaceNode
+=== RUN   TestPatchOpString/SetValue
+=== RUN   TestPatchOpString/SetChecked
+=== RUN   TestPatchOpString/Focus
+=== RUN   TestPatchOpString/Unknown
+--- PASS: TestPatchOpString (0.00s)
+    --- PASS: TestPatchOpString/SetText (0.00s)
+    --- PASS: TestPatchOpString/SetAttr (0.00s)
+    --- PASS: TestPatchOpString/RemoveAttr (0.00s)
+    --- PASS: TestPatchOpString/InsertNode (0.00s)
+    --- PASS: TestPatchOpString/RemoveNode (0.00s)
+    --- PASS: TestPatchOpString/MoveNode (0.00s)
+    --- PASS: TestPatchOpString/ReplaceNode (0.00s)
+    --- PASS: TestPatchOpString/SetValue (0.00s)
+    --- PASS: TestPatchOpString/SetChecked (0.00s)
+    --- PASS: TestPatchOpString/Focus (0.00s)
+    --- PASS: TestPatchOpString/Unknown (0.00s)
+PASS
+coverage: 76.7% of statements
+ok  	github.com/vango-go/vango/pkg/vdom	0.153s	coverage: 76.7% of statements
+FAIL	github.com/vango-go/vango/pkg/vtest [build failed]
+FAIL	github.com/vango-go/vango/test/integration [build failed]
+FAIL

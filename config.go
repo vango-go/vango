@@ -103,6 +103,10 @@ type SessionConfig struct {
 	// StormBudget configures rate limits for async primitives to prevent
 	// amplification bugs (e.g., effect triggers resource refetch triggers effect).
 	StormBudget *StormBudgetConfig
+
+	// AuthCheck configures authentication freshness checks for the session.
+	// When nil, no passive or active auth checks are performed.
+	AuthCheck *AuthCheckConfig
 }
 
 // StaticConfig configures static file serving.
@@ -209,6 +213,39 @@ const (
 // into more effects, potentially causing performance issues.
 type StormBudgetConfig = server.StormBudgetConfig
 
+// AuthCheckConfig configures periodic active revalidation.
+type AuthCheckConfig = server.AuthCheckConfig
+
+// AuthFailureMode controls what happens when active checks fail.
+type AuthFailureMode = server.AuthFailureMode
+
+// AuthExpiredConfig defines behavior when auth expires.
+type AuthExpiredConfig = server.AuthExpiredConfig
+
+// AuthExpiredAction defines the action type for auth expiry.
+type AuthExpiredAction = server.AuthExpiredAction
+
+// AuthExpiredReason provides structured context for auth expiry.
+type AuthExpiredReason = server.AuthExpiredReason
+
+const (
+	// Failure modes
+	FailOpenWithGrace = server.FailOpenWithGrace
+	FailClosed        = server.FailClosed
+
+	// Expiry actions
+	ForceReload = server.ForceReload
+	NavigateTo  = server.NavigateTo
+	AuthCustom  = server.Custom
+
+	// Expiry reasons
+	AuthExpiredUnknown                  = server.AuthExpiredUnknown
+	AuthExpiredPassiveExpiry            = server.AuthExpiredPassiveExpiry
+	AuthExpiredResumeRehydrateFailed    = server.AuthExpiredResumeRehydrateFailed
+	AuthExpiredActiveRevalidateFailed   = server.AuthExpiredActiveRevalidateFailed
+	AuthExpiredOnDemandRevalidateFailed = server.AuthExpiredOnDemandRevalidateFailed
+)
+
 // SessionStore is the interface for session persistence backends.
 type SessionStore = session.SessionStore
 
@@ -243,6 +280,7 @@ func DefaultSessionConfig() SessionConfig {
 		MaxDetachedSessions: 10000,
 		MaxSessionsPerIP:    100,
 		EvictOnIPLimit:      true,
+		AuthCheck:           nil,
 	}
 }
 
@@ -286,6 +324,11 @@ func buildServerConfig(cfg Config) *server.ServerConfig {
 	}
 	if cfg.Session.StormBudget != nil {
 		serverCfg.SessionConfig.StormBudget = cfg.Session.StormBudget
+	}
+	if cfg.Session.AuthCheck != nil {
+		authCheck := *cfg.Session.AuthCheck
+		server.NormalizeAuthCheckConfig(&authCheck)
+		serverCfg.SessionConfig.AuthCheck = &authCheck
 	}
 
 	// Security settings

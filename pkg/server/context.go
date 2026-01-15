@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/vango-go/vango/pkg/assets"
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/vango"
 )
@@ -150,6 +152,16 @@ type Ctx interface {
 
 	// SetUser sets the authenticated user.
 	SetUser(user any)
+
+	// Principal returns the authenticated principal, if any.
+	Principal() (auth.Principal, bool)
+
+	// MustPrincipal returns the principal or panics if not set.
+	MustPrincipal() auth.Principal
+
+	// RevalidateAuth forces an immediate active check if configured.
+	// Returns any error from the check.
+	RevalidateAuth() error
 
 	// Logging
 
@@ -482,6 +494,54 @@ func (c *ctx) SetUser(user any) {
 		panic("vango: ctx.SetUser() is forbidden in prefetch mode")
 	}
 	c.user = user
+}
+
+// Principal returns the authenticated principal, if any.
+func (c *ctx) Principal() (auth.Principal, bool) {
+	if c.session == nil {
+		return auth.Principal{}, false
+	}
+	p, ok := c.session.Get(auth.SessionKeyPrincipal).(auth.Principal)
+	return p, ok
+}
+
+// MustPrincipal returns the principal or panics if not set.
+func (c *ctx) MustPrincipal() auth.Principal {
+	p, ok := c.Principal()
+	if !ok {
+		panic("MustPrincipal called without authenticated principal")
+	}
+	return p
+}
+
+// RevalidateAuth forces an immediate active check if configured.
+func (c *ctx) RevalidateAuth() error {
+	if c.session == nil {
+		return nil
+	}
+	cfg := c.session.config.AuthCheck
+	if cfg == nil || cfg.Check == nil {
+		return nil
+	}
+	principal, ok := c.Principal()
+	if !ok {
+		return nil
+	}
+
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(c.StdContext(), timeout)
+	defer cancel()
+
+	if err := cfg.Check(ctx, principal); err != nil {
+		c.session.triggerAuthExpired(AuthExpiredOnDemandRevalidateFailed)
+		return err
+	}
+
+	c.session.authLastOK = time.Now()
+	return nil
 }
 
 // Logger returns the request-scoped logger.

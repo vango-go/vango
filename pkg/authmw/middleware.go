@@ -1,6 +1,7 @@
-package auth
+package authmw
 
 import (
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/router"
 	"github.com/vango-go/vango/pkg/server"
 )
@@ -13,13 +14,13 @@ import (
 //	// app/routes/dashboard/middleware.go
 //	func Middleware() []router.Middleware {
 //	    return []router.Middleware{
-//	        auth.RequireAuth,
+//	        authmw.RequireAuth,
 //	    }
 //	}
 var RequireAuth router.Middleware = router.MiddlewareFunc(
 	func(ctx server.Ctx, next func() error) error {
-		if !IsAuthenticated(ctx) {
-			return ErrUnauthorized
+		if !auth.IsAuthenticated(ctx) {
+			return auth.ErrUnauthorized
 		}
 		return next()
 	},
@@ -32,19 +33,19 @@ var RequireAuth router.Middleware = router.MiddlewareFunc(
 //
 //	func Middleware() []router.Middleware {
 //	    return []router.Middleware{
-//	        auth.RequireRole(func(u *models.User) bool {
+//	        authmw.RequireRole(func(u *models.User) bool {
 //	            return u.Role == "admin"
 //	        }),
 //	    }
 //	}
 func RequireRole[T any](check func(T) bool) router.Middleware {
 	return router.MiddlewareFunc(func(ctx server.Ctx, next func() error) error {
-		user, ok := Get[T](ctx)
+		user, ok := auth.Get[T](ctx)
 		if !ok {
-			return ErrUnauthorized
+			return auth.ErrUnauthorized
 		}
 		if !check(user) {
-			return ErrForbidden
+			return auth.ErrForbidden
 		}
 		return next()
 	})
@@ -56,7 +57,7 @@ func RequireRole[T any](check func(T) bool) router.Middleware {
 //
 // Usage:
 //
-//	auth.RequirePermission(func(u *models.User) bool {
+//	authmw.RequirePermission(func(u *models.User) bool {
 //	    return u.Can("projects.delete")
 //	})
 func RequirePermission[T any](check func(T) bool) router.Middleware {
@@ -67,15 +68,15 @@ func RequirePermission[T any](check func(T) bool) router.Middleware {
 //
 // Usage:
 //
-//	auth.RequireAny(
+//	authmw.RequireAny(
 //	    func(u *User) bool { return u.IsAdmin },
 //	    func(u *User) bool { return u.IsOwner(resourceID) },
 //	)
 func RequireAny[T any](checks ...func(T) bool) router.Middleware {
 	return router.MiddlewareFunc(func(ctx server.Ctx, next func() error) error {
-		user, ok := Get[T](ctx)
+		user, ok := auth.Get[T](ctx)
 		if !ok {
-			return ErrUnauthorized
+			return auth.ErrUnauthorized
 		}
 
 		for _, check := range checks {
@@ -84,7 +85,7 @@ func RequireAny[T any](checks ...func(T) bool) router.Middleware {
 			}
 		}
 
-		return ErrForbidden
+		return auth.ErrForbidden
 	})
 }
 
@@ -92,20 +93,20 @@ func RequireAny[T any](checks ...func(T) bool) router.Middleware {
 //
 // Usage:
 //
-//	auth.RequireAll(
+//	authmw.RequireAll(
 //	    func(u *User) bool { return u.IsActive },
 //	    func(u *User) bool { return u.EmailVerified },
 //	)
 func RequireAll[T any](checks ...func(T) bool) router.Middleware {
 	return router.MiddlewareFunc(func(ctx server.Ctx, next func() error) error {
-		user, ok := Get[T](ctx)
+		user, ok := auth.Get[T](ctx)
 		if !ok {
-			return ErrUnauthorized
+			return auth.ErrUnauthorized
 		}
 
 		for _, check := range checks {
 			if !check(user) {
-				return ErrForbidden
+				return auth.ErrForbidden
 			}
 		}
 

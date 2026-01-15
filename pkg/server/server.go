@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/routepath"
 )
@@ -102,6 +103,12 @@ func New(config *ServerConfig) *Server {
 			config.IdleTimeout = defaults.IdleTimeout
 		}
 	}
+
+	normalizeAuthCheckConfig(config.SessionConfig.AuthCheck)
+
+	// Apply debug flags before initialization to keep logging consistent.
+	DebugMode = config.DebugMode
+	auth.DebugMode = config.DebugMode
 
 	logger := slog.Default().With("component", "server")
 

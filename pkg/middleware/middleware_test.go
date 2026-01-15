@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/server"
 	"github.com/vango-go/vango/pkg/vango"
 )
@@ -56,12 +57,27 @@ func (m *mockCtx) SetCookie(cookie *http.Cookie)            {}
 func (m *mockCtx) Session() *server.Session                 { return m.session }
 func (m *mockCtx) User() any                                { return m.user }
 func (m *mockCtx) SetUser(user any)                         { m.user = user }
-func (m *mockCtx) Logger() *slog.Logger                     { return nil }
-func (m *mockCtx) Done() <-chan struct{}                    { return nil }
-func (m *mockCtx) SetValue(key, value any)                  { m.values[key] = value }
-func (m *mockCtx) Value(key any) any                        { return m.values[key] }
-func (m *mockCtx) Emit(name string, data any)               {}
-func (m *mockCtx) StdContext() context.Context              { return m.stdCtx }
+func (m *mockCtx) Principal() (auth.Principal, bool) {
+	if m.session == nil {
+		return auth.Principal{}, false
+	}
+	p, ok := m.session.Get(auth.SessionKeyPrincipal).(auth.Principal)
+	return p, ok
+}
+func (m *mockCtx) MustPrincipal() auth.Principal {
+	p, ok := m.Principal()
+	if !ok {
+		panic("MustPrincipal called without authenticated principal")
+	}
+	return p
+}
+func (m *mockCtx) RevalidateAuth() error       { return nil }
+func (m *mockCtx) Logger() *slog.Logger        { return nil }
+func (m *mockCtx) Done() <-chan struct{}       { return nil }
+func (m *mockCtx) SetValue(key, value any)     { m.values[key] = value }
+func (m *mockCtx) Value(key any) any           { return m.values[key] }
+func (m *mockCtx) Emit(name string, data any)  {}
+func (m *mockCtx) StdContext() context.Context { return m.stdCtx }
 func (m *mockCtx) WithStdContext(ctx context.Context) server.Ctx {
 	clone := *m
 	clone.stdCtx = ctx

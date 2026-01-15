@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/server"
 	"github.com/vango-go/vango/pkg/vango"
 )
@@ -86,6 +87,13 @@ func (c *ssrContext) SetCookie(cookie *http.Cookie) {
 func (c *ssrContext) Session() *server.Session { return nil }
 func (c *ssrContext) User() any                { return c.user }
 func (c *ssrContext) SetUser(user any)         { c.user = user }
+func (c *ssrContext) Principal() (auth.Principal, bool) {
+	return auth.Principal{}, false
+}
+func (c *ssrContext) MustPrincipal() auth.Principal {
+	panic("MustPrincipal called without authenticated principal")
+}
+func (c *ssrContext) RevalidateAuth() error { return nil }
 
 // Logging
 func (c *ssrContext) Logger() *slog.Logger {

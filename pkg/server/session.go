@@ -19,6 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vango-go/vango/pkg/assets"
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/features/store"
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/render"
@@ -147,6 +148,10 @@ type Session struct {
 
 	// Storm budget tracker (Phase 16)
 	stormBudget *vango.StormBudgetTracker
+
+	// Auth freshness tracking (Phase 18)
+	authLastOK        time.Time
+	authCheckInFlight atomic.Bool
 
 	// Route navigation (Phase 7: Routing)
 	// navigator handles route-based navigation for this session
@@ -1415,6 +1420,21 @@ func (s *Session) Dispatch(fn func()) {
 	}
 }
 
+func (s *Session) dispatchWithResult(fn func()) bool {
+	if s.closed.Load() {
+		return false
+	}
+	select {
+	case s.dispatchCh <- fn:
+		return true
+	case <-s.done:
+		return false
+	default:
+		s.logger.Warn("dispatch queue full, discarding callback")
+		return false
+	}
+}
+
 // UpdateLastActive updates the last activity timestamp.
 func (s *Session) UpdateLastActive() {
 	s.LastActive = time.Now()
@@ -1704,6 +1724,116 @@ func createStormBudgetTracker(cfg *StormBudgetConfig) *vango.StormBudgetTracker 
 // Returns nil if storm budgets are not configured.
 func (s *Session) StormBudget() vango.StormBudgetChecker {
 	return s.stormBudget
+}
+
+// =============================================================================
+// Auth Freshness (Phase 18)
+// =============================================================================
+
+func (s *Session) hasAuthPrincipal() bool {
+	_, ok := s.Get(auth.SessionKeyPrincipal).(auth.Principal)
+	return ok
+}
+
+func (s *Session) isAuthExpired() bool {
+	expiry, ok := authExpiryUnixMs(s.Get(auth.SessionKeyExpiryUnixMs))
+	if !ok {
+		return false
+	}
+	return time.Now().UnixMilli() > expiry
+}
+
+func authExpiryUnixMs(v any) (int64, bool) {
+	switch t := v.(type) {
+	case int64:
+		return t, true
+	case int:
+		return int64(t), true
+	case float64:
+		return int64(t), true
+	case json.Number:
+		n, err := t.Int64()
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func (s *Session) runActiveAuthCheck() {
+	cfg := s.config.AuthCheck
+	if cfg == nil || cfg.Check == nil {
+		return
+	}
+
+	if !s.authCheckInFlight.CompareAndSwap(false, true) {
+		return
+	}
+
+	principal, ok := s.Get(auth.SessionKeyPrincipal).(auth.Principal)
+	if !ok {
+		s.authCheckInFlight.Store(false)
+		return
+	}
+
+	if s.authLastOK.IsZero() {
+		s.authLastOK = time.Now()
+	}
+
+	go func(principal auth.Principal) {
+		timeout := cfg.Timeout
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		done := s.Done()
+		go func() {
+			select {
+			case <-done:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		defer cancel()
+
+		err := cfg.Check(ctx, principal)
+
+		if !s.dispatchWithResult(func() {
+			defer s.authCheckInFlight.Store(false)
+
+			if err != nil {
+				if errors.Is(err, auth.ErrSessionRevoked) || errors.Is(err, auth.ErrSessionExpired) {
+					s.triggerAuthExpired(AuthExpiredActiveRevalidateFailed)
+					return
+				}
+
+				if cfg.FailureMode == FailClosed {
+					s.triggerAuthExpired(AuthExpiredActiveRevalidateFailed)
+					return
+				}
+
+				maxStale := cfg.MaxStale
+				if maxStale <= 0 {
+					maxStale = 15 * time.Minute
+				}
+				if time.Since(s.authLastOK) > maxStale {
+					s.triggerAuthExpired(AuthExpiredActiveRevalidateFailed)
+				}
+				return
+			}
+
+			s.authLastOK = time.Now()
+		}) {
+			s.authCheckInFlight.Store(false)
+		}
+	}(principal)
+}
+
+func (s *Session) triggerAuthExpired(reason AuthExpiredReason) {
+	if s.closed.Load() {
+		return
+	}
+	s.SendClose(protocol.CloseSessionExpired, reason.String())
+	s.Close()
 }
 
 // Has returns whether a key exists in session data.

@@ -5,13 +5,41 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
-
-	"github.com/vango-go/vango/pkg/server"
 )
+
+// Session provides minimal session access needed by auth helpers.
+type Session interface {
+	Get(key string) any
+	Set(key string, value any)
+	Delete(key string)
+}
+
+// Ctx provides minimal context access needed by auth helpers.
+type Ctx interface {
+	User() any
+	SetUser(user any)
+	Session() Session
+}
+
+// DebugMode enables extra validation and logging for development.
+var DebugMode bool
+
+func isNilSession(session Session) bool {
+	if session == nil {
+		return true
+	}
+	v := reflect.ValueOf(session)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Ptr, reflect.Interface, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
 
 // SessionKey is the standard session key for the authenticated user.
 // The Context Bridge should use this key when storing user data.
-const SessionKey = server.DefaultAuthSessionKey
+const SessionKey = "vango_auth_user"
 
 // sessionPresenceKey marks that a session was authenticated.
 // This survives serialization (unlike the user object) and allows
@@ -20,13 +48,11 @@ const sessionPresenceKey = SessionKey + ":present"
 
 // ErrUnauthorized is returned when authentication is required but not present.
 // This typically triggers a 401 response or redirect to login.
-// Re-exported from server package to allow error checking without import cycles.
-var ErrUnauthorized = server.ErrUnauthorized
+var ErrUnauthorized = errors.New("unauthorized: authentication required")
 
 // ErrForbidden is returned when authentication is present but insufficient.
 // This typically triggers a 403 response.
-// Re-exported from server package to allow error checking without import cycles.
-var ErrForbidden = server.ErrForbidden
+var ErrForbidden = errors.New("forbidden: insufficient permissions")
 
 // Get retrieves the authenticated user from the context.
 // Works in both SSR and WebSocket modes by using ctx.User() as the source of truth.
@@ -42,7 +68,7 @@ var ErrForbidden = server.ErrForbidden
 //	if !ok {
 //	    // User not authenticated
 //	}
-func Get[T any](ctx server.Ctx) (T, bool) {
+func Get[T any](ctx Ctx) (T, bool) {
 	// Use ctx.User() as the canonical source - it already chains:
 	// c.user → session data → request context (for SSR)
 	val := ctx.User()
@@ -58,7 +84,7 @@ func Get[T any](ctx server.Ctx) (T, bool) {
 
 	// Slow path: Debug aid for type mismatches
 	// Only runs if value exists but assertion failed
-	if server.DebugMode {
+	if DebugMode {
 		storedType := reflect.TypeOf(val)
 		var zero T
 		requestedType := reflect.TypeOf(zero)
@@ -83,13 +109,13 @@ func Get[T any](ctx server.Ctx) (T, bool) {
 // Require returns the authenticated user or an error.
 // Use in middleware or action handlers that require authentication.
 //
-// Note: Page handlers in Vango don't return errors. Use auth.RequireAuth
+// Note: Page handlers in Vango don't return errors. Use authmw.RequireAuth
 // middleware to protect routes, then use auth.Get in the handler.
 //
 // Example (middleware):
 //
 //	func Middleware() []router.Middleware {
-//	    return []router.Middleware{auth.RequireAuth}
+//	    return []router.Middleware{authmw.RequireAuth}
 //	}
 //
 // Example (action handler):
@@ -101,7 +127,7 @@ func Get[T any](ctx server.Ctx) (T, bool) {
 //	    }
 //	    // ...
 //	}
-func Require[T any](ctx server.Ctx) (T, error) {
+func Require[T any](ctx Ctx) (T, error) {
 	user, ok := Get[T](ctx)
 	if !ok {
 		return user, ErrUnauthorized
@@ -121,9 +147,13 @@ func Require[T any](ctx server.Ctx) (T, error) {
 //	        auth.Set(session, user)
 //	    }
 //	}
-func Set[T any](session *server.Session, user T) {
+func Set[T any](session Session, user T) {
+	if isNilSession(session) {
+		return
+	}
 	session.Set(SessionKey, user)
 	session.Set(sessionPresenceKey, true)
+	session.Set(SessionKeyHadAuth, true)
 }
 
 // Login authenticates the user for both the current request and the session.
@@ -145,7 +175,7 @@ func Set[T any](session *server.Session, user T) {
 //	    ctx.Navigate("/dashboard")
 //	    return nil
 //	}
-func Login[T any](ctx server.Ctx, user T) {
+func Login[T any](ctx Ctx, user T) {
 	// Set on current request context
 	ctx.SetUser(user)
 
@@ -166,12 +196,15 @@ func Login[T any](ctx server.Ctx, user T) {
 //	    ctx.Navigate("/login")
 //	    return nil
 //	}
-func Clear(session *server.Session) {
-	if session == nil {
+func Clear(session Session) {
+	if isNilSession(session) {
 		return
 	}
 	session.Delete(SessionKey)
+	session.Delete(SessionKeyPrincipal)
+	session.Delete(SessionKeyExpiryUnixMs)
 	session.Delete(sessionPresenceKey)
+	session.Delete(SessionKeyHadAuth)
 }
 
 // Logout clears authentication from both the request context and session.
@@ -184,7 +217,7 @@ func Clear(session *server.Session) {
 //	    ctx.Navigate("/")
 //	    return nil
 //	}
-func Logout(ctx server.Ctx) {
+func Logout(ctx Ctx) {
 	ctx.SetUser(nil)
 	if session := ctx.Session(); session != nil {
 		Clear(session)
@@ -199,17 +232,23 @@ func Logout(ctx server.Ctx) {
 //	if auth.IsAuthenticated(ctx) {
 //	    // Show logged-in UI
 //	}
-func IsAuthenticated(ctx server.Ctx) bool {
+func IsAuthenticated(ctx Ctx) bool {
 	return ctx.User() != nil
 }
 
 // WasAuthenticated checks if the session had authentication before.
 // Used internally by resume logic to detect "was authenticated but auth now invalid."
 // Returns false if session is nil.
-func WasAuthenticated(session *server.Session) bool {
-	if session == nil {
+func WasAuthenticated(session Session) bool {
+	if isNilSession(session) {
 		return false
 	}
+	if val := session.Get(SessionKeyHadAuth); val != nil {
+		if present, ok := val.(bool); ok && present {
+			return true
+		}
+	}
+
 	val := session.Get(sessionPresenceKey)
 	if val == nil {
 		return false
@@ -220,7 +259,7 @@ func WasAuthenticated(session *server.Session) bool {
 
 // MustGet is like Get but panics if authentication fails.
 // Use sparingly, prefer Require for proper error handling.
-func MustGet[T any](ctx server.Ctx) T {
+func MustGet[T any](ctx Ctx) T {
 	user, ok := Get[T](ctx)
 	if !ok {
 		panic("auth.MustGet: user not authenticated")

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vango-go/vango/pkg/assets"
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/session"
 )
 
@@ -66,6 +67,10 @@ type SessionConfig struct {
 	// amplification bugs (e.g., effect triggers resource refetch triggers effect).
 	// See SPEC_ADDENDUM.md §A.4.
 	StormBudget *StormBudgetConfig
+
+	// AuthCheck configures authentication freshness checks for the session.
+	// When nil, no passive or active auth checks are performed.
+	AuthCheck *AuthCheckConfig
 }
 
 // BudgetExceededMode determines behavior when a storm budget is exceeded.
@@ -115,6 +120,119 @@ type StormBudgetConfig struct {
 	OnExceeded BudgetExceededMode
 }
 
+// ==========================================================================
+// Auth Freshness (Phase 18)
+// ==========================================================================
+
+// AuthFailureMode controls what happens when active checks fail.
+type AuthFailureMode int
+
+const (
+	// FailOpenWithGrace keeps the session alive on transient failures.
+	// Default: availability-first, bounded by MaxStale.
+	FailOpenWithGrace AuthFailureMode = iota
+
+	// FailClosed expires the session on any check failure.
+	FailClosed
+)
+
+// AuthExpiredReason provides structured context for auth expiry.
+type AuthExpiredReason int
+
+const (
+	AuthExpiredUnknown AuthExpiredReason = iota
+	AuthExpiredPassiveExpiry
+	AuthExpiredResumeRehydrateFailed
+	AuthExpiredActiveRevalidateFailed
+	AuthExpiredOnDemandRevalidateFailed
+)
+
+func (r AuthExpiredReason) String() string {
+	switch r {
+	case AuthExpiredPassiveExpiry:
+		return "PassiveExpiry"
+	case AuthExpiredResumeRehydrateFailed:
+		return "ResumeRehydrateFailed"
+	case AuthExpiredActiveRevalidateFailed:
+		return "ActiveRevalidateFailed"
+	case AuthExpiredOnDemandRevalidateFailed:
+		return "OnDemandRevalidateFailed"
+	default:
+		return "Unknown"
+	}
+}
+
+// AuthExpiredAction defines what happens when auth expires.
+type AuthExpiredAction int
+
+const (
+	// ForceReload triggers browser reload (re-enters HTTP pipeline).
+	ForceReload AuthExpiredAction = iota
+
+	// NavigateTo performs a hard navigation to a path (re-enters HTTP pipeline).
+	NavigateTo
+
+	// Custom invokes a caller-provided handler.
+	Custom
+)
+
+// AuthExpiredConfig defines behavior when auth expires.
+type AuthExpiredConfig struct {
+	Action  AuthExpiredAction
+	Path    string
+	Reason  AuthExpiredReason
+	Handler func(s *Session)
+}
+
+// AuthCheckConfig configures periodic active revalidation.
+type AuthCheckConfig struct {
+	// Interval between active checks (0 disables periodic checks).
+	Interval time.Duration
+
+	// Timeout caps how long a Check may take.
+	// Default: 5 seconds.
+	Timeout time.Duration
+
+	// FailureMode controls transient failure handling.
+	// Default: FailOpenWithGrace.
+	FailureMode AuthFailureMode
+
+	// MaxStale caps how long a session may go without a successful active check
+	// when FailureMode is fail-open.
+	// Default: 15 minutes.
+	MaxStale time.Duration
+
+	// Check is called periodically and on-demand.
+	// This runs off the session loop; do not mutate session state directly.
+	Check func(ctx context.Context, p auth.Principal) error
+
+	// OnExpired defines what happens when auth fails.
+	OnExpired AuthExpiredConfig
+}
+
+func normalizeAuthCheckConfig(cfg *AuthCheckConfig) {
+	if cfg == nil {
+		return
+	}
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 5 * time.Second
+	}
+	if cfg.MaxStale <= 0 {
+		cfg.MaxStale = 15 * time.Minute
+	}
+	switch cfg.FailureMode {
+	case FailOpenWithGrace, FailClosed:
+		// ok
+	default:
+		cfg.FailureMode = FailOpenWithGrace
+	}
+}
+
+// NormalizeAuthCheckConfig applies defaults to an auth check config in-place.
+func NormalizeAuthCheckConfig(cfg *AuthCheckConfig) {
+	normalizeAuthCheckConfig(cfg)
+}
+
 // DefaultStormBudgetConfig returns a StormBudgetConfig with sensible defaults.
 // These defaults are conservative but should handle most applications.
 func DefaultStormBudgetConfig() *StormBudgetConfig {
@@ -142,6 +260,7 @@ func DefaultSessionConfig() *SessionConfig {
 		EnableCompression: true,
 		EnableOptimistic:  true,
 		StormBudget:       DefaultStormBudgetConfig(),
+		AuthCheck:         nil,
 	}
 }
 
@@ -154,6 +273,10 @@ func (c *SessionConfig) Clone() *SessionConfig {
 	if c.StormBudget != nil {
 		budgetClone := *c.StormBudget
 		clone.StormBudget = &budgetClone
+	}
+	if c.AuthCheck != nil {
+		authClone := *c.AuthCheck
+		clone.AuthCheck = &authClone
 	}
 	return &clone
 }

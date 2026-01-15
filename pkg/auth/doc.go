@@ -56,13 +56,24 @@
 // rehydrated from cookies/headers on each handshake and resume. This ensures
 // auth state is always validated against the current request.
 //
+// Principal + expiry keys (SessionKeyPrincipal, SessionKeyExpiryUnixMs) are
+// runtime-only and must also be rehydrated on start/resume.
+//
+// To enable auth freshness checks, set a Principal with an explicit expiry:
+//
+//	auth.SetPrincipal(session, auth.Principal{
+//	    ID:              user.ID,
+//	    Email:           user.Email,
+//	    ExpiresAtUnixMs: expiresAt.UnixMilli(),
+//	})
+//
 // # Basic Usage
 //
 // Use middleware to protect routes that require authentication:
 //
 //	// In app/routes/dashboard/middleware.go
 //	func Middleware() []router.Middleware {
-//	    return []router.Middleware{auth.RequireAuth}
+//	    return []router.Middleware{authmw.RequireAuth}
 //	}
 //
 //	// In app/routes/dashboard/page.go
@@ -106,13 +117,13 @@
 //
 // # Middleware
 //
-// Use auth middleware to protect entire route segments:
+// Use authmw middleware to protect entire route segments:
 //
 //	// In app/routes/admin/middleware.go
 //	func Middleware() []router.Middleware {
 //	    return []router.Middleware{
-//	        auth.RequireAuth,
-//	        auth.RequireRole(func(u *models.User) bool {
+//	        authmw.RequireAuth,
+//	        authmw.RequireRole(func(u *models.User) bool {
 //	            return u.IsAdmin
 //	        }),
 //	    }

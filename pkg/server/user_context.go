@@ -2,27 +2,28 @@ package server
 
 import (
 	"context"
-	"errors"
+
+	"github.com/vango-go/vango/pkg/auth"
 )
 
 // DefaultAuthSessionKey is the conventional session key for an authenticated user.
 // The vango/pkg/auth helpers use this key, and server.Ctx.User() falls back to it.
-const DefaultAuthSessionKey = "vango_auth_user"
+const DefaultAuthSessionKey = auth.SessionKey
 
 // ErrUnauthorized is returned when authentication is required but not present.
-// The auth package re-exports this as auth.ErrUnauthorized.
-var ErrUnauthorized = errors.New("unauthorized: authentication required")
+// This is defined in the auth package and re-exported here for convenience.
+var ErrUnauthorized = auth.ErrUnauthorized
 
 // ErrForbidden is returned when authentication is present but insufficient.
-// The auth package re-exports this as auth.ErrForbidden.
-var ErrForbidden = errors.New("forbidden: insufficient permissions")
+// This is defined in the auth package and re-exported here for convenience.
+var ErrForbidden = auth.ErrForbidden
 
 // IsAuthError returns true if the error is an authentication or authorization error.
 func IsAuthError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrForbidden)
+	return auth.IsAuthError(err)
 }
 
 type userContextKey struct{}
@@ -40,4 +41,3 @@ func UserFromContext(ctx context.Context) any {
 	}
 	return ctx.Value(userContextKey{})
 }
-

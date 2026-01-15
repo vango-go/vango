@@ -288,12 +288,24 @@ func (s *Session) EventLoop() {
 	}
 	defer s.eventLoopRunning.Store(false)
 
+	var authTicker *time.Ticker
+	var authTickerC <-chan time.Time
+	if cfg := s.config.AuthCheck; cfg != nil && cfg.Interval > 0 {
+		authTicker = time.NewTicker(cfg.Interval)
+		authTickerC = authTicker.C
+		defer authTicker.Stop()
+	}
+
 	for {
 		select {
 		case event := <-s.events:
 			func() {
 				s.beginWork()
 				defer s.endWork()
+				if s.isAuthExpired() {
+					s.triggerAuthExpired(AuthExpiredPassiveExpiry)
+					return
+				}
 				s.handleEvent(event)
 			}()
 
@@ -303,6 +315,15 @@ func (s *Session) EventLoop() {
 				s.beginWork()
 				defer s.endWork()
 				s.executeDispatch(fn)
+			}()
+
+		case <-authTickerC:
+			func() {
+				s.beginWork()
+				defer s.endWork()
+				if s.hasAuthPrincipal() {
+					s.runActiveAuthCheck()
+				}
 			}()
 
 		case <-s.renderCh:

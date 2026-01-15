@@ -64,9 +64,9 @@ func TestGet_WrongType(t *testing.T) {
 }
 
 func TestGet_DebugMode_TypeMismatch_Interface(t *testing.T) {
-	orig := server.DebugMode
-	server.DebugMode = true
-	t.Cleanup(func() { server.DebugMode = orig })
+	orig := auth.DebugMode
+	auth.DebugMode = true
+	t.Cleanup(func() { auth.DebugMode = orig })
 
 	session := server.NewMockSession()
 	session.Set(auth.SessionKey, 123) // does not implement io.Reader
@@ -332,6 +332,38 @@ func TestWasAuthenticated_AfterClear(t *testing.T) {
 func TestWasAuthenticated_NilSession(t *testing.T) {
 	if auth.WasAuthenticated(nil) {
 		t.Error("expected WasAuthenticated false for nil session")
+	}
+}
+
+func TestSetPrincipal(t *testing.T) {
+	session := server.NewMockSession()
+	principal := auth.Principal{
+		ID:              "user-1",
+		Email:           "user@example.com",
+		ExpiresAtUnixMs: 1234567890,
+	}
+
+	auth.SetPrincipal(session, principal)
+
+	gotPrincipal, ok := session.Get(auth.SessionKeyPrincipal).(auth.Principal)
+	if !ok {
+		t.Fatal("expected principal to be stored")
+	}
+	if gotPrincipal.ID != principal.ID || gotPrincipal.Email != principal.Email {
+		t.Errorf("unexpected principal: got %+v want %+v", gotPrincipal, principal)
+	}
+
+	expiry, ok := session.Get(auth.SessionKeyExpiryUnixMs).(int64)
+	if !ok || expiry != principal.ExpiresAtUnixMs {
+		t.Errorf("expected expiry %d, got %v", principal.ExpiresAtUnixMs, session.Get(auth.SessionKeyExpiryUnixMs))
+	}
+
+	if session.Get(auth.SessionKeyHadAuth) != true {
+		t.Error("expected SessionKeyHadAuth to be true")
+	}
+
+	if session.Get(auth.SessionPresenceKey()) != true {
+		t.Error("expected presence flag to be true")
 	}
 }
 
