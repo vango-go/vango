@@ -1,6 +1,7 @@
 package server
 
 import (
+	"reflect"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -330,4 +331,71 @@ func EstimateMapMemory(length, keySize, valueSize int) int64 {
 	bucketOverhead := int64(buckets * 8)
 	entrySize := int64(keySize + valueSize + 8) // 8 bytes for pointer overhead
 	return 48 + bucketOverhead + int64(length)*entrySize
+}
+
+const estimateAnyMemoryMaxDepth = 4
+
+// EstimateAnyMemory approximates the memory usage of a value.
+// It is depth-limited to avoid runaway recursion on complex graphs.
+func EstimateAnyMemory(value any) int64 {
+	return estimateAnyMemoryValue(reflect.ValueOf(value), 0)
+}
+
+func estimateAnyMemoryValue(v reflect.Value, depth int) int64 {
+	if !v.IsValid() {
+		return 0
+	}
+	if depth >= estimateAnyMemoryMaxDepth {
+		return 16
+	}
+
+	switch v.Kind() {
+	case reflect.String:
+		return EstimateStringMemory(v.String())
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return 8
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return 8
+	case reflect.Float32, reflect.Float64:
+		return 8
+	case reflect.Interface, reflect.Pointer, reflect.Ptr:
+		if v.IsNil() {
+			return 0
+		}
+		return 8 + estimateAnyMemoryValue(v.Elem(), depth+1)
+	case reflect.Slice:
+		if v.IsNil() {
+			return 0
+		}
+		size := EstimateSliceMemory(v.Len(), 16)
+		for i := 0; i < v.Len(); i++ {
+			size += estimateAnyMemoryValue(v.Index(i), depth+1)
+		}
+		return size
+	case reflect.Array:
+		size := int64(16)
+		for i := 0; i < v.Len(); i++ {
+			size += estimateAnyMemoryValue(v.Index(i), depth+1)
+		}
+		return size
+	case reflect.Map:
+		if v.IsNil() {
+			return 0
+		}
+		size := EstimateMapMemory(v.Len(), 16, 16)
+		iter := v.MapRange()
+		for iter.Next() {
+			size += estimateAnyMemoryValue(iter.Key(), depth+1)
+			size += estimateAnyMemoryValue(iter.Value(), depth+1)
+		}
+		return size
+	case reflect.Struct:
+		size := int64(16)
+		for i := 0; i < v.NumField(); i++ {
+			size += estimateAnyMemoryValue(v.Field(i), depth+1)
+		}
+		return size
+	default:
+		return 16
+	}
 }

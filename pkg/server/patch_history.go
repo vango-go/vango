@@ -28,6 +28,7 @@ type PatchHistory struct {
 	capacity int    // Max entries
 	minSeq   uint64 // Lowest sequence in buffer (for CanRecover checks)
 	maxSeq   uint64 // Highest sequence in buffer
+	bytes    int64  // Total bytes held in frame payloads
 }
 
 // NewPatchHistory creates a new patch history ring buffer with the given capacity.
@@ -48,9 +49,14 @@ func (h *PatchHistory) Add(seq uint64, frame []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	if existing := h.entries[h.head]; existing != nil {
+		h.bytes -= int64(len(existing.Frame))
+	}
+
 	// Copy the frame to prevent issues with buffer reuse
 	frameCopy := make([]byte, len(frame))
 	copy(frameCopy, frame)
+	h.bytes += int64(len(frameCopy))
 
 	entry := &PatchHistoryEntry{
 		Seq:    seq,
@@ -77,6 +83,20 @@ func (h *PatchHistory) Add(seq uint64, frame []byte) {
 			h.minSeq = h.entries[oldestIdx].Seq
 		}
 	}
+}
+
+// MemoryUsage estimates the memory used by the patch history, including frame bytes.
+func (h *PatchHistory) MemoryUsage() int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	var size int64 = 128 // Base struct + mutex overhead
+	size += EstimateSliceMemory(len(h.entries), 8)
+	if h.count > 0 {
+		size += int64(h.count) * 64
+	}
+	size += h.bytes
+	return size
 }
 
 // GetFrames returns frames for sequences (afterSeq, toSeq].
@@ -188,4 +208,5 @@ func (h *PatchHistory) Clear() {
 	h.count = 0
 	h.minSeq = 0
 	h.maxSeq = 0
+	h.bytes = 0
 }

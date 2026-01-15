@@ -2,6 +2,7 @@ package vango
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 )
@@ -190,6 +191,131 @@ func (o *Owner) scheduleEffect(e *Effect) {
 	o.pendingEffectsMu.Lock()
 	defer o.pendingEffectsMu.Unlock()
 	o.pendingEffects = append(o.pendingEffects, e)
+}
+
+// MemoryUsage estimates the memory usage of this Owner and its children.
+func (o *Owner) MemoryUsage() int64 {
+	if o == nil {
+		return 0
+	}
+
+	var size int64 = 256 // Base struct + mutex overhead
+
+	o.effectsMu.Lock()
+	effectsCount := len(o.effects)
+	o.effectsMu.Unlock()
+	size += estimateSliceMemory(effectsCount, 8)
+
+	o.cleanupsMu.Lock()
+	cleanupsCount := len(o.cleanups)
+	o.cleanupsMu.Unlock()
+	size += estimateSliceMemory(cleanupsCount, 8)
+
+	o.pendingEffectsMu.Lock()
+	pendingCount := len(o.pendingEffects)
+	o.pendingEffectsMu.Unlock()
+	size += estimateSliceMemory(pendingCount, 8)
+
+	o.valuesMu.RLock()
+	valuesCopy := make(map[any]any, len(o.values))
+	for k, v := range o.values {
+		valuesCopy[k] = v
+	}
+	o.valuesMu.RUnlock()
+
+	size += estimateMapMemory(len(valuesCopy), 16, 16)
+	for k, v := range valuesCopy {
+		size += estimateAnyMemory(k, 0)
+		size += estimateAnyMemory(v, 0)
+	}
+
+	o.childrenMu.Lock()
+	children := append([]*Owner(nil), o.children...)
+	o.childrenMu.Unlock()
+	size += estimateSliceMemory(len(children), 8)
+	for _, child := range children {
+		size += child.MemoryUsage()
+	}
+
+	return size
+}
+
+const estimateAnyMaxDepth = 4
+
+func estimateSliceMemory(length, elementSize int) int64 {
+	return 24 + int64(length*elementSize)
+}
+
+func estimateMapMemory(length, keySize, valueSize int) int64 {
+	buckets := (length / 8) + 1
+	bucketOverhead := int64(buckets * 8)
+	entrySize := int64(keySize + valueSize + 8)
+	return 48 + bucketOverhead + int64(length)*entrySize
+}
+
+func estimateAnyMemory(value any, depth int) int64 {
+	v := reflect.ValueOf(value)
+	if !v.IsValid() {
+		return 0
+	}
+	if depth >= estimateAnyMaxDepth {
+		return 16
+	}
+
+	switch v.Kind() {
+	case reflect.String:
+		return 16 + int64(len(v.String()))
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return 8
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return 8
+	case reflect.Float32, reflect.Float64:
+		return 8
+	case reflect.Interface, reflect.Pointer, reflect.Ptr:
+		if v.IsNil() {
+			return 0
+		}
+		return 8 + estimateAnyMemory(v.Elem().Interface(), depth+1)
+	case reflect.Slice:
+		if v.IsNil() {
+			return 0
+		}
+		size := estimateSliceMemory(v.Len(), 16)
+		for i := 0; i < v.Len(); i++ {
+			size += estimateAnyMemory(v.Index(i).Interface(), depth+1)
+		}
+		return size
+	case reflect.Array:
+		size := int64(16)
+		for i := 0; i < v.Len(); i++ {
+			size += estimateAnyMemory(v.Index(i).Interface(), depth+1)
+		}
+		return size
+	case reflect.Map:
+		if v.IsNil() {
+			return 0
+		}
+		size := estimateMapMemory(v.Len(), 16, 16)
+		iter := v.MapRange()
+		for iter.Next() {
+			size += estimateAnyMemory(iter.Key().Interface(), depth+1)
+			size += estimateAnyMemory(iter.Value().Interface(), depth+1)
+		}
+		return size
+	case reflect.Struct:
+		size := int64(16)
+		for i := 0; i < v.NumField(); i++ {
+			field := v.Field(i)
+			if field.CanInterface() {
+				size += estimateAnyMemory(field.Interface(), depth+1)
+			} else {
+				size += 16
+			}
+		}
+		return size
+	default:
+		return 16
+	}
 }
 
 // RunPendingEffects executes all pending effects.

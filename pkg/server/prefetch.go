@@ -90,12 +90,14 @@ type PrefetchCache struct {
 	entries    map[string]*list.Element
 	order      *list.List // LRU order (front = most recent)
 	expireOnce sync.Once  // Lazy start expiry goroutine
+	bytes      int64
 }
 
 // prefetchItem holds an entry in the LRU list.
 type prefetchItem struct {
 	key   string
 	entry *PrefetchCacheEntry
+	size  int64
 }
 
 // NewPrefetchCache creates a new prefetch cache.
@@ -124,6 +126,7 @@ func (c *PrefetchCache) Get(path string) *PrefetchCacheEntry {
 	item := elem.Value.(*prefetchItem)
 	if item.entry.IsExpired() {
 		// Remove expired entry
+		c.bytes -= item.size
 		c.order.Remove(elem)
 		delete(c.entries, path)
 		return nil
@@ -146,10 +149,15 @@ func (c *PrefetchCache) Set(path string, tree *vdom.VNode) {
 		CreatedAt: now,
 		ExpiresAt: now.Add(c.config.TTL),
 	}
+	entrySize := estimatePrefetchEntrySize(path, entry)
 
 	// If path exists, update in place
 	if elem, ok := c.entries[path]; ok {
-		elem.Value.(*prefetchItem).entry = entry
+		item := elem.Value.(*prefetchItem)
+		c.bytes -= item.size
+		item.entry = entry
+		item.size = entrySize
+		c.bytes += entrySize
 		c.order.MoveToFront(elem)
 		return
 	}
@@ -161,14 +169,16 @@ func (c *PrefetchCache) Set(path string, tree *vdom.VNode) {
 			break
 		}
 		item := oldest.Value.(*prefetchItem)
+		c.bytes -= item.size
 		c.order.Remove(oldest)
 		delete(c.entries, item.key)
 	}
 
 	// Add new entry
-	item := &prefetchItem{key: path, entry: entry}
+	item := &prefetchItem{key: path, entry: entry, size: entrySize}
 	elem := c.order.PushFront(item)
 	c.entries[path] = elem
+	c.bytes += entrySize
 }
 
 // Delete removes a cached entry.
@@ -177,6 +187,8 @@ func (c *PrefetchCache) Delete(path string) {
 	defer c.mu.Unlock()
 
 	if elem, ok := c.entries[path]; ok {
+		item := elem.Value.(*prefetchItem)
+		c.bytes -= item.size
 		c.order.Remove(elem)
 		delete(c.entries, path)
 	}
@@ -189,6 +201,7 @@ func (c *PrefetchCache) Clear() {
 
 	c.entries = make(map[string]*list.Element)
 	c.order = list.New()
+	c.bytes = 0
 }
 
 // Len returns the number of cached entries.
@@ -196,6 +209,30 @@ func (c *PrefetchCache) Len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.entries)
+}
+
+// MemoryUsage estimates the memory used by the prefetch cache.
+func (c *PrefetchCache) MemoryUsage() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var size int64 = 128 // Base struct + mutex overhead
+	size += EstimateMapMemory(len(c.entries), 16, 16)
+	size += EstimateSliceMemory(c.order.Len(), 32)
+	size += c.bytes
+	return size
+}
+
+func estimatePrefetchEntrySize(path string, entry *PrefetchCacheEntry) int64 {
+	if entry == nil {
+		return 0
+	}
+	var size int64 = 96 // Entry + list element overhead
+	size += EstimateStringMemory(path)
+	if entry.Tree != nil {
+		size += estimateVNodeSize(entry.Tree)
+	}
+	return size
 }
 
 // =============================================================================

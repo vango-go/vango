@@ -71,3 +71,23 @@ func TestSessionManager_EvictLRUAndCheckMemoryPressure(t *testing.T) {
 		t.Fatalf("Count()=%d, want 1 after CheckMemoryPressure eviction", sm.Count())
 	}
 }
+
+func TestSessionManager_EvictOversizedSessions(t *testing.T) {
+	cfg := DefaultSessionConfig()
+	limits := DefaultSessionLimits()
+	limits.MaxMemoryPerSession = 1
+
+	sm := NewSessionManager(cfg, limits, slog.Default())
+	t.Cleanup(func() { sm.Shutdown() })
+
+	session := newSession(nil, "", cfg, slog.Default())
+	sm.mu.Lock()
+	sm.sessions[session.ID] = session
+	sm.mu.Unlock()
+
+	sm.CheckMemoryPressure()
+
+	if sm.Count() != 0 {
+		t.Fatalf("Count()=%d, want 0 after oversized eviction", sm.Count())
+	}
+}

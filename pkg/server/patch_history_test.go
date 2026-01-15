@@ -189,6 +189,24 @@ func TestPatchHistory_Clear(t *testing.T) {
 	}
 }
 
+func TestPatchHistory_MemoryUsageTracksFrames(t *testing.T) {
+	h := NewPatchHistory(2)
+
+	before := h.MemoryUsage()
+	h.Add(1, []byte("frame-1"))
+	h.Add(2, []byte("frame-2-longer"))
+	afterAdd := h.MemoryUsage()
+	if afterAdd <= before {
+		t.Errorf("MemoryUsage should increase after adding frames (before=%d after=%d)", before, afterAdd)
+	}
+
+	h.Clear()
+	afterClear := h.MemoryUsage()
+	if afterClear >= afterAdd {
+		t.Errorf("MemoryUsage should decrease after clear (before=%d after=%d)", afterAdd, afterClear)
+	}
+}
+
 func TestPatchHistory_Concurrent(t *testing.T) {
 	h := NewPatchHistory(100)
 	var wg sync.WaitGroup

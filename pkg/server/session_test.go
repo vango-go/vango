@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -547,6 +548,22 @@ func TestSessionMemoryUsage(t *testing.T) {
 	usage := session.MemoryUsage()
 	if usage <= 0 {
 		t.Error("MemoryUsage should be positive")
+	}
+}
+
+func TestSessionMemoryUsageIncludesCaches(t *testing.T) {
+	config := DefaultSessionConfig()
+	session := newSession(nil, "", config, slog.Default())
+
+	before := session.MemoryUsage()
+
+	session.Set("payload", strings.Repeat("a", 128))
+	session.patchHistory.Add(1, []byte("patch-frame"))
+	session.PrefetchCache().Set("/prefetch", &vdom.VNode{Tag: "div", Text: "cached"})
+
+	after := session.MemoryUsage()
+	if after <= before {
+		t.Errorf("MemoryUsage should increase after caches/data (before=%d after=%d)", before, after)
 	}
 }
 

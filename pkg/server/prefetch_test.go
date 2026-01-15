@@ -150,6 +150,24 @@ func TestPrefetchCacheOverwrite(t *testing.T) {
 	}
 }
 
+func TestPrefetchCacheMemoryUsage(t *testing.T) {
+	config := DefaultPrefetchConfig()
+	cache := NewPrefetchCache(config)
+
+	before := cache.MemoryUsage()
+	cache.Set("/test", &vdom.VNode{Tag: "div", Text: "cached"})
+	afterSet := cache.MemoryUsage()
+	if afterSet <= before {
+		t.Errorf("MemoryUsage should increase after Set (before=%d after=%d)", before, afterSet)
+	}
+
+	cache.Delete("/test")
+	afterDelete := cache.MemoryUsage()
+	if afterDelete >= afterSet {
+		t.Errorf("MemoryUsage should decrease after Delete (before=%d after=%d)", afterSet, afterDelete)
+	}
+}
+
 // =============================================================================
 // PrefetchRateLimiter Tests
 // =============================================================================

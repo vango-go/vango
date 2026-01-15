@@ -1488,9 +1488,11 @@ func (s *Session) MemoryUsage() int64 {
 	var size int64 = 512 // Base struct size
 
 	// Handlers map
-	size += int64(len(s.handlers)) * 64
+	size += EstimateMapMemory(len(s.handlers), 32, 32)
 
 	// Components map
+	size += EstimateMapMemory(len(s.components), 16, 8)
+	size += EstimateMapMemory(len(s.allComponents), 8, 8)
 	for _, comp := range s.components {
 		size += comp.MemoryUsage()
 	}
@@ -1501,7 +1503,40 @@ func (s *Session) MemoryUsage() int64 {
 	}
 
 	// Events channel buffer (estimate)
-	size += int64(cap(s.events)) * 64
+	size += EstimateSliceMemory(cap(s.events), 64)
+	size += EstimateSliceMemory(cap(s.dispatchCh), 64)
+	size += EstimateSliceMemory(cap(s.renderCh), 8)
+
+	if s.patchHistory != nil {
+		size += s.patchHistory.MemoryUsage()
+	}
+
+	if s.prefetchCache != nil {
+		size += s.prefetchCache.MemoryUsage()
+	}
+
+	if s.owner != nil {
+		size += s.owner.MemoryUsage()
+	}
+
+	s.dataMu.RLock()
+	if len(s.data) > 0 {
+		size += EstimateMapMemory(len(s.data), 32, 32)
+		for k, v := range s.data {
+			size += EstimateStringMemory(k)
+			size += EstimateAnyMemory(v)
+		}
+	}
+	s.dataMu.RUnlock()
+
+	s.urlPatchMu.Lock()
+	if len(s.pendingURLPatches) > 0 {
+		size += EstimateSliceMemory(len(s.pendingURLPatches), 64)
+		for i := range s.pendingURLPatches {
+			size += EstimateAnyMemory(s.pendingURLPatches[i])
+		}
+	}
+	s.urlPatchMu.Unlock()
 
 	return size
 }

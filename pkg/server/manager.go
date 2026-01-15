@@ -395,6 +395,7 @@ func (sm *SessionManager) cleanupLoop() {
 		select {
 		case <-ticker.C:
 			sm.cleanupExpired()
+			sm.CheckMemoryPressure()
 		case <-sm.done:
 			return
 		}
@@ -618,6 +619,10 @@ func (sm *SessionManager) TotalMemoryUsage() int64 {
 
 // CheckMemoryPressure checks if memory usage exceeds limits and evicts if needed.
 func (sm *SessionManager) CheckMemoryPressure() {
+	if sm.limits.MaxMemoryPerSession > 0 {
+		sm.evictOversizedSessions()
+	}
+
 	total := sm.TotalMemoryUsage()
 
 	if sm.limits.MaxTotalMemory > 0 && total > sm.limits.MaxTotalMemory {
@@ -635,6 +640,51 @@ func (sm *SessionManager) CheckMemoryPressure() {
 			"evict_count", evictCount)
 
 		sm.EvictLRU(evictCount)
+	}
+}
+
+func (sm *SessionManager) evictOversizedSessions() {
+	type sessionEntry struct {
+		id      string
+		session *Session
+		usage   int64
+	}
+
+	sm.mu.RLock()
+	oversized := make([]sessionEntry, 0)
+	for id, sess := range sm.sessions {
+		usage := sess.MemoryUsage()
+		if usage > sm.limits.MaxMemoryPerSession {
+			oversized = append(oversized, sessionEntry{id: id, session: sess, usage: usage})
+		}
+	}
+	sm.mu.RUnlock()
+
+	if len(oversized) == 0 {
+		return
+	}
+
+	sort.Slice(oversized, func(i, j int) bool {
+		return oversized[i].session.LastActive.Before(oversized[j].session.LastActive)
+	})
+
+	sm.mu.Lock()
+	var toClose []*Session
+	for _, entry := range oversized {
+		if session := sm.removeSessionLocked(entry.id); session != nil {
+			toClose = append(toClose, session)
+		}
+	}
+	remaining := len(sm.sessions)
+	sm.mu.Unlock()
+
+	sm.closeEvictedSessions(toClose)
+
+	if len(toClose) > 0 {
+		sm.logger.Warn("session memory limit exceeded, evicting sessions",
+			"count", len(toClose),
+			"limit", sm.limits.MaxMemoryPerSession,
+			"remaining", remaining)
 	}
 }
 
