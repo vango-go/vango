@@ -18,7 +18,10 @@ type Session interface {
 type Ctx interface {
 	User() any
 	SetUser(user any)
-	Session() Session
+}
+
+type sessionCtx interface {
+	AuthSession() Session
 }
 
 // DebugMode enables extra validation and logging for development.
@@ -180,7 +183,7 @@ func Login[T any](ctx Ctx, user T) {
 	ctx.SetUser(user)
 
 	// Persist to session if available (WS mode)
-	if session := ctx.Session(); session != nil {
+	if session := sessionFromCtx(ctx); session != nil {
 		Set(session, user)
 	}
 }
@@ -219,7 +222,7 @@ func Clear(session Session) {
 //	}
 func Logout(ctx Ctx) {
 	ctx.SetUser(nil)
-	if session := ctx.Session(); session != nil {
+	if session := sessionFromCtx(ctx); session != nil {
 		Clear(session)
 	}
 }
@@ -301,4 +304,14 @@ func IsAuthError(err error) bool {
 // Exported for session serialization to skip the user object but keep the flag.
 func SessionPresenceKey() string {
 	return sessionPresenceKey
+}
+
+func sessionFromCtx(ctx Ctx) Session {
+	if ctx == nil {
+		return nil
+	}
+	if sc, ok := ctx.(sessionCtx); ok {
+		return sc.AuthSession()
+	}
+	return nil
 }

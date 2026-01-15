@@ -85,6 +85,9 @@ func (c *ssrContext) SetCookie(cookie *http.Cookie) {
 
 // Session (nil for SSR - no WebSocket session)
 func (c *ssrContext) Session() *server.Session { return nil }
+func (c *ssrContext) AuthSession() auth.Session {
+	return nil
+}
 func (c *ssrContext) User() any                { return c.user }
 func (c *ssrContext) SetUser(user any)         { c.user = user }
 func (c *ssrContext) Principal() (auth.Principal, bool) {

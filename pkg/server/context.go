@@ -147,6 +147,10 @@ type Ctx interface {
 	// Session returns the WebSocket session (nil for SSR-only requests).
 	Session() *Session
 
+	// AuthSession returns the WebSocket session as an auth.Session interface.
+	// This allows auth helpers to persist to the session without importing server.
+	AuthSession() auth.Session
+
 	// User returns the authenticated user (set by auth middleware).
 	User() any
 
@@ -462,6 +466,14 @@ func (c *ctx) SetCookie(cookie *http.Cookie) {
 
 // Session returns the WebSocket session.
 func (c *ctx) Session() *Session {
+	return c.session
+}
+
+// AuthSession returns the session as an auth.Session interface.
+func (c *ctx) AuthSession() auth.Session {
+	if c.session == nil {
+		return nil
+	}
 	return c.session
 }
 
