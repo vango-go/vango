@@ -13,6 +13,7 @@ const (
 	HandshakeInvalidFormat   HandshakeStatus = 0x06 // Malformed handshake message
 	HandshakeNotAuthorized   HandshakeStatus = 0x07 // Authentication failed
 	HandshakeInternalError   HandshakeStatus = 0x08 // Server error
+	HandshakeLimitExceeded   HandshakeStatus = 0x09 // Per-IP session limit exceeded
 )
 
 // String returns the string representation of the handshake status.
@@ -36,6 +37,8 @@ func (hs HandshakeStatus) String() string {
 		return "NotAuthorized"
 	case HandshakeInternalError:
 		return "InternalError"
+	case HandshakeLimitExceeded:
+		return "LimitExceeded"
 	default:
 		return "Unknown"
 	}

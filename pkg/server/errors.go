@@ -25,6 +25,9 @@ var (
 	// ErrMaxSessionsReached is returned when the maximum number of sessions is reached.
 	ErrMaxSessionsReached = errors.New("server: max sessions reached")
 
+	// ErrTooManySessionsFromIP is returned when the per-IP session limit is exceeded.
+	ErrTooManySessionsFromIP = errors.New("server: too many sessions from this IP address")
+
 	// ErrInvalidCSRF is returned when CSRF token validation fails.
 	ErrInvalidCSRF = errors.New("server: invalid CSRF token")
 

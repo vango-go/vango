@@ -21,6 +21,7 @@ export class WebSocketManager {
         this.sessionId = null;
         this.lastSeq = 0;
         this.reconnectAttempts = 0;
+        this.reconnectDisabled = false;
         this.heartbeatTimer = null;
         this.messageQueue = [];
 
@@ -139,9 +140,15 @@ export class WebSocketManager {
                     0x06: 'Invalid format',
                     0x07: 'Not authorized',
                     0x08: 'Internal error',
+                    0x09: 'Too many active sessions from this IP',
                 };
                 const msg = errorMessages[hello.status] || `Handshake failed: ${hello.status}`;
                 this.client._onError(new Error(msg));
+
+                if (hello.status === 0x09 /* Limit exceeded */) {
+                    this.reconnectDisabled = true;
+                    this.client.connection.setDisconnected('ip_limit');
+                }
 
                 // If the stored resume info is no longer valid, clear it so the next
                 // connect attempt can establish a fresh session instead of looping.
@@ -205,7 +212,7 @@ export class WebSocketManager {
         }
 
         // Reconnect if enabled and not a clean close
-        if (this.options.reconnect && !event.wasClean) {
+        if (this.options.reconnect && !this.reconnectDisabled && !event.wasClean) {
             this._scheduleReconnect();
         }
     }
@@ -323,6 +330,14 @@ export class WebSocketManager {
             this.ws.close(1000, 'Client closing');
             this.ws = null;
         }
+    }
+
+    /**
+     * Reset reconnection suppression (used for manual retries).
+     */
+    resetReconnect() {
+        this.reconnectDisabled = false;
+        this.reconnectAttempts = 0;
     }
 
     /**

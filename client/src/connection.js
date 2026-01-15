@@ -50,6 +50,7 @@ export class ConnectionManager {
         this.state = ConnectionState.CONNECTING;
         this.retryCount = 0;
         this.previousState = null;
+        this.disconnectReason = null;
 
         // Apply initial connecting state
         this._updateClasses();
@@ -63,6 +64,9 @@ export class ConnectionManager {
 
         this.previousState = this.state;
         this.state = newState;
+        if (newState !== ConnectionState.DISCONNECTED) {
+            this.disconnectReason = null;
+        }
 
         // Update body classes
         this._updateClasses();
@@ -98,6 +102,12 @@ export class ConnectionManager {
         if (currentClass) {
             root.classList.add(currentClass);
         }
+
+        if (this.state === ConnectionState.DISCONNECTED && this.disconnectReason) {
+            root.setAttribute('data-vango-disconnect-reason', this.disconnectReason);
+        } else {
+            root.removeAttribute('data-vango-disconnect-reason');
+        }
     }
 
     /**
@@ -126,6 +136,14 @@ export class ConnectionManager {
         if (this.state === ConnectionState.CONNECTED) {
             this.setState(ConnectionState.RECONNECTING);
         }
+    }
+
+    /**
+     * Mark the connection as disconnected with an optional reason.
+     */
+    setDisconnected(reason) {
+        this.disconnectReason = reason || null;
+        this.setState(ConnectionState.DISCONNECTED);
     }
 
     /**

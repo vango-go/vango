@@ -88,6 +88,18 @@ func New(config *ServerConfig) *Server {
 		if config.ShutdownTimeout == 0 {
 			config.ShutdownTimeout = defaults.ShutdownTimeout
 		}
+		if config.ReadHeaderTimeout == 0 {
+			config.ReadHeaderTimeout = defaults.ReadHeaderTimeout
+		}
+		if config.ReadTimeout == 0 {
+			config.ReadTimeout = defaults.ReadTimeout
+		}
+		if config.WriteTimeout == 0 {
+			config.WriteTimeout = defaults.WriteTimeout
+		}
+		if config.IdleTimeout == 0 {
+			config.IdleTimeout = defaults.IdleTimeout
+		}
 	}
 
 	logger := slog.Default().With("component", "server")
@@ -115,6 +127,7 @@ func New(config *ServerConfig) *Server {
 			ResumeWindow:        config.ResumeWindow,
 			MaxDetachedSessions: config.MaxDetachedSessions,
 			MaxSessionsPerIP:    config.MaxSessionsPerIP,
+			EvictOnIPLimit:      config.EvictOnIPLimit,
 			PersistInterval:     config.PersistInterval,
 		}
 	}
@@ -334,6 +347,8 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clientIP := s.clientIP(r)
+
 	// ═══════════════════════════════════════════════════════════════════════════
 	// SESSION RESUME (Phase 5)
 	// Check if client has an existing session to resume. Uses soft remount
@@ -371,6 +386,16 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isResume && session != nil {
+		if err := s.sessions.UpdateSessionIP(session, clientIP); err != nil {
+			if err == ErrTooManySessionsFromIP {
+				s.sendHandshakeError(conn, protocol.HandshakeLimitExceeded)
+			} else {
+				s.sendHandshakeError(conn, protocol.HandshakeInternalError)
+			}
+			conn.Close()
+			return
+		}
+
 		// Resume existing session with soft remount
 		session.Resume(conn, uint64(hello.LastSeq))
 
@@ -427,10 +452,12 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create new session
-	session, err = s.sessions.Create(conn, userID)
+	session, err = s.sessions.Create(conn, userID, clientIP)
 	if err != nil {
 		if err == ErrMaxSessionsReached {
 			s.sendHandshakeError(conn, protocol.HandshakeServerBusy)
+		} else if err == ErrTooManySessionsFromIP {
+			s.sendHandshakeError(conn, protocol.HandshakeLimitExceeded)
 		} else {
 			s.sendHandshakeError(conn, protocol.HandshakeInternalError)
 		}
@@ -614,8 +641,12 @@ func (s *Server) SetCSRFCookie(w http.ResponseWriter, r *http.Request, token str
 // Run starts the server and blocks until shutdown.
 func (s *Server) Run() error {
 	s.httpServer = &http.Server{
-		Addr:    s.config.Address,
-		Handler: s,
+		Addr:              s.config.Address,
+		Handler:           s,
+		ReadHeaderTimeout: s.config.ReadHeaderTimeout,
+		ReadTimeout:       s.config.ReadTimeout,
+		WriteTimeout:      s.config.WriteTimeout,
+		IdleTimeout:       s.config.IdleTimeout,
 	}
 
 	// Set up graceful shutdown

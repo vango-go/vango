@@ -50,6 +50,18 @@ func TestDefaultServerConfig(t *testing.T) {
 	if config.ShutdownTimeout <= 0 {
 		t.Error("ShutdownTimeout should be positive")
 	}
+	if config.ReadHeaderTimeout <= 0 {
+		t.Error("ReadHeaderTimeout should be positive")
+	}
+	if config.ReadTimeout <= 0 {
+		t.Error("ReadTimeout should be positive")
+	}
+	if config.WriteTimeout <= 0 {
+		t.Error("WriteTimeout should be positive")
+	}
+	if config.IdleTimeout <= 0 {
+		t.Error("IdleTimeout should be positive")
+	}
 	if config.CheckOrigin == nil {
 		t.Error("CheckOrigin should not be nil")
 	}

@@ -25,7 +25,7 @@ func TestSessionManager_CreateAndCleanupExpired(t *testing.T) {
 	sm.SetOnSessionCreate(func(s *Session) { created <- s })
 	sm.SetOnSessionClose(func(s *Session) { closed <- s })
 
-	sess, err := sm.Create(serverConn, "u1")
+	sess, err := sm.Create(serverConn, "u1", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -138,4 +138,3 @@ func TestSessionManager_PersistenceReconnectFromStore_RestoresSessionSkeleton(t 
 		t.Fatal("expected urlparam.NavigatorKey to be initialized on restored session")
 	}
 }
-

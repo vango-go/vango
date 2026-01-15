@@ -385,6 +385,7 @@ func (s *Session) Resume(conn *websocket.Conn, lastSeq uint64) {
 
 	// Update activity
 	s.LastActive = time.Now()
+	s.DetachedAt = time.Time{}
 	s.detached.Store(false)
 
 	// Reset closed flag if it was set
@@ -430,9 +431,9 @@ func (s *Session) NeedsRestart() bool {
 // This MUST NOT dispose the owner/component tree, otherwise resume cannot restore state.
 func (s *Session) detach(source string, err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.closed.Load() {
+		s.mu.Unlock()
 		return
 	}
 
@@ -443,13 +444,22 @@ func (s *Session) detach(source string, err error) {
 	}
 
 	// Mark detached and update last active so ResumeWindow starts now.
+	wasDetached := s.detached.Load()
+	now := time.Now()
 	s.detached.Store(true)
-	s.LastActive = time.Now()
+	s.DetachedAt = now
+	s.LastActive = now
+	onDetach := s.onDetach
+	s.mu.Unlock()
 
 	if err != nil {
 		s.logger.Info("session detached", "source", source, "error", err)
 	} else {
 		s.logger.Info("session detached", "source", source)
+	}
+
+	if !wasDetached && onDetach != nil {
+		onDetach(s)
 	}
 }
 

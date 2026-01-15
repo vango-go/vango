@@ -71,7 +71,8 @@ type Session struct {
 	// Connection lifecycle (ResumeWindow)
 	// A session becomes detached when the WebSocket drops. While detached, we keep
 	// signal/component state in memory so the client can resume within ResumeWindow.
-	detached atomic.Bool
+	detached   atomic.Bool
+	DetachedAt time.Time // Time when the session detached (per-IP eviction ordering)
 
 	// Loop lifecycle guards (prevent duplicate goroutines and allow resume to restart IO).
 	readLoopRunning  atomic.Bool
@@ -111,6 +112,9 @@ type Session struct {
 
 	// Logger
 	logger *slog.Logger
+
+	// Hooks
+	onDetach func(*Session)
 
 	// Metrics
 	eventCount atomic.Uint64
@@ -162,6 +166,10 @@ type Session struct {
 // connection but is still kept in memory for ResumeWindow.
 func (s *Session) IsDetached() bool {
 	return s != nil && s.detached.Load()
+}
+
+func (s *Session) setOnDetach(fn func(*Session)) {
+	s.onDetach = fn
 }
 
 // generateSessionID generates a cryptographically random session ID.

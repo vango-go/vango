@@ -19,7 +19,7 @@ func TestServer_Metrics_ReflectsSessionManagerStats(t *testing.T) {
 	}
 
 	_, serverConn := newWebSocketPair(t)
-	sess, err := s.Sessions().Create(serverConn, "u1")
+	sess, err := s.Sessions().Create(serverConn, "u1", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Create session error: %v", err)
 	}
@@ -36,4 +36,3 @@ func TestServer_Metrics_ReflectsSessionManagerStats(t *testing.T) {
 		t.Fatal("CollectedAt seems too old")
 	}
 }
-

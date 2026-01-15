@@ -76,6 +76,11 @@ type SessionConfig struct {
 	// Default: 100.
 	MaxSessionsPerIP int
 
+	// EvictOnIPLimit controls whether hitting MaxSessionsPerIP evicts the oldest
+	// detached session for that IP instead of rejecting the new session.
+	// Default: true when MaxSessionsPerIP > 0.
+	EvictOnIPLimit bool
+
 	// StormBudget configures rate limits for async primitives to prevent
 	// amplification bugs (e.g., effect triggers resource refetch triggers effect).
 	StormBudget *StormBudgetConfig
@@ -218,6 +223,7 @@ func DefaultSessionConfig() SessionConfig {
 		ResumeWindow:        5 * time.Minute,
 		MaxDetachedSessions: 10000,
 		MaxSessionsPerIP:    100,
+		EvictOnIPLimit:      true,
 	}
 }
 
@@ -257,6 +263,7 @@ func buildServerConfig(cfg Config) *server.ServerConfig {
 	}
 	if cfg.Session.MaxSessionsPerIP > 0 {
 		serverCfg.MaxSessionsPerIP = cfg.Session.MaxSessionsPerIP
+		serverCfg.EvictOnIPLimit = cfg.Session.EvictOnIPLimit
 	}
 	if cfg.Session.StormBudget != nil {
 		serverCfg.SessionConfig.StormBudget = cfg.Session.StormBudget

@@ -144,6 +144,7 @@ func TestHandshakeStatusString(t *testing.T) {
 		{HandshakeSessionExpired, "SessionExpired"},
 		{HandshakeServerBusy, "ServerBusy"},
 		{HandshakeUpgradeRequired, "UpgradeRequired"},
+		{HandshakeLimitExceeded, "LimitExceeded"},
 		{HandshakeStatus(0xFF), "Unknown"},
 	}
 

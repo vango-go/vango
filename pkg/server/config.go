@@ -190,6 +190,25 @@ type ServerConfig struct {
 	// Default: 30 seconds.
 	ShutdownTimeout time.Duration
 
+	// HTTP server timeouts (applies to HTTP requests before WebSocket upgrade).
+
+	// ReadHeaderTimeout is the maximum time to read request headers.
+	// Default: 5 seconds.
+	ReadHeaderTimeout time.Duration
+
+	// ReadTimeout is the maximum time to read the entire request.
+	// Default: 30 seconds.
+	ReadTimeout time.Duration
+
+	// WriteTimeout is the maximum time to write the response.
+	// Default: 30 seconds.
+	WriteTimeout time.Duration
+
+	// IdleTimeout is the maximum time to wait for the next request
+	// when keep-alives are enabled.
+	// Default: 60 seconds.
+	IdleTimeout time.Duration
+
 	// Limits
 
 	// MaxSessions is the maximum number of concurrent sessions.
@@ -295,6 +314,11 @@ type ServerConfig struct {
 	// Default: 100.
 	MaxSessionsPerIP int
 
+	// EvictOnIPLimit controls whether hitting MaxSessionsPerIP evicts the oldest
+	// detached session for that IP instead of rejecting the new session.
+	// Default: true when MaxSessionsPerIP > 0.
+	EvictOnIPLimit bool
+
 	// PersistInterval is how often to persist dirty sessions to the store.
 	// Set to 0 to only persist on disconnect.
 	// Default: 30 seconds.
@@ -377,6 +401,10 @@ func DefaultServerConfig() *ServerConfig {
 		CheckOrigin:         SameOriginCheck, // SECURE DEFAULT: reject cross-origin
 		SessionConfig:       DefaultSessionConfig(),
 		ShutdownTimeout:     30 * time.Second,
+		ReadHeaderTimeout:   5 * time.Second,
+		ReadTimeout:         30 * time.Second,
+		WriteTimeout:        30 * time.Second,
+		IdleTimeout:         60 * time.Second,
 		MaxSessions:         0,          // No limit
 		MaxMemoryPerSession: 200 * 1024, // 200KB
 		CSRFSecret:          nil,        // Warning logged on startup if nil
@@ -391,6 +419,7 @@ func DefaultServerConfig() *ServerConfig {
 		ResumeWindow:        5 * time.Minute,
 		MaxDetachedSessions: 10000,
 		MaxSessionsPerIP:    100,
+		EvictOnIPLimit:      true,
 		PersistInterval:     30 * time.Second,
 		ReconnectConfig:     DefaultReconnectConfig(),
 	}
@@ -486,6 +515,12 @@ func (c *ServerConfig) WithMaxDetachedSessions(max int) *ServerConfig {
 // WithMaxSessionsPerIP sets the per-IP session limit and returns the config for chaining.
 func (c *ServerConfig) WithMaxSessionsPerIP(max int) *ServerConfig {
 	c.MaxSessionsPerIP = max
+	return c
+}
+
+// WithEvictOnIPLimit sets whether to evict the oldest detached session on IP limit.
+func (c *ServerConfig) WithEvictOnIPLimit(evict bool) *ServerConfig {
+	c.EvictOnIPLimit = evict
 	return c
 }
 

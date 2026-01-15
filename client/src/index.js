@@ -14,7 +14,7 @@ import { PatchApplier } from './patches.js';
 import { OptimisticUpdates } from './optimistic.js';
 import { HookManager } from './hooks/manager.js';
 import { ensurePortalRoot } from './hooks/portal.js';
-import { ConnectionManager, injectDefaultStyles } from './connection.js';
+import { ConnectionManager, ConnectionState, injectDefaultStyles } from './connection.js';
 import { URLManager } from './url.js';
 import { PrefManager, MergeStrategy } from './prefs.js';
 
@@ -152,6 +152,15 @@ export class VangoClient {
      */
     _onError(err) {
         this.onError(err);
+    }
+
+    /**
+     * Manually retry a connection after a terminal handshake error.
+     */
+    retryConnect() {
+        this.wsManager.resetReconnect();
+        this.connection.setState(ConnectionState.CONNECTING);
+        this.wsManager.connect(this.options.wsUrl);
     }
 
     /**

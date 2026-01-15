@@ -24,6 +24,9 @@ type SessionManager struct {
 	sessions map[string]*Session
 	mu       sync.RWMutex
 
+	// Session count per IP address (protected by mu)
+	sessionsByIP map[string]int
+
 	// Configuration
 	config *SessionConfig
 
@@ -36,6 +39,10 @@ type SessionManager struct {
 
 	// Limits
 	limits *SessionLimits
+
+	// Per-IP limits
+	maxSessionsPerIP int
+	evictOnIPLimit   bool
 
 	// Metrics
 	totalCreated atomic.Uint64
@@ -70,6 +77,10 @@ type SessionManagerOptions struct {
 	// MaxSessionsPerIP is the maximum sessions per IP address.
 	MaxSessionsPerIP int
 
+	// EvictOnIPLimit controls whether to evict the oldest detached session
+	// for a full IP bucket instead of rejecting new sessions.
+	EvictOnIPLimit bool
+
 	// PersistInterval is how often to persist dirty sessions.
 	PersistInterval time.Duration
 }
@@ -93,6 +104,7 @@ func NewSessionManagerWithOptions(config *SessionConfig, limits *SessionLimits, 
 
 	sm := &SessionManager{
 		sessions:        make(map[string]*Session),
+		sessionsByIP:    make(map[string]int),
 		config:          config,
 		cleanupInterval: 30 * time.Second,
 		done:            make(chan struct{}),
@@ -100,6 +112,7 @@ func NewSessionManagerWithOptions(config *SessionConfig, limits *SessionLimits, 
 		limits:          limits,
 		logger:          logger.With("component", "session_manager"),
 		resumeWindow:    5 * time.Minute, // Default
+		evictOnIPLimit:  true,
 	}
 
 	// Phase 12: Configure persistence if options provided
@@ -108,6 +121,12 @@ func NewSessionManagerWithOptions(config *SessionConfig, limits *SessionLimits, 
 		if opts.ResumeWindow > 0 {
 			sm.resumeWindow = opts.ResumeWindow
 		}
+		if opts.MaxSessionsPerIP > 0 {
+			sm.maxSessionsPerIP = opts.MaxSessionsPerIP
+		}
+		if opts.EvictOnIPLimit || opts.MaxSessionsPerIP > 0 {
+			sm.evictOnIPLimit = opts.EvictOnIPLimit
+		}
 
 		// Create persistence manager if store is provided
 		if opts.SessionStore != nil {
@@ -115,9 +134,7 @@ func NewSessionManagerWithOptions(config *SessionConfig, limits *SessionLimits, 
 			if opts.MaxDetachedSessions > 0 {
 				managerConfig.MaxDetachedSessions = opts.MaxDetachedSessions
 			}
-			if opts.MaxSessionsPerIP > 0 {
-				managerConfig.MaxSessionsPerIP = opts.MaxSessionsPerIP
-			}
+			managerConfig.MaxSessionsPerIP = 0
 			if opts.ResumeWindow > 0 {
 				managerConfig.ResumeWindow = opts.ResumeWindow
 			}
@@ -136,38 +153,153 @@ func NewSessionManagerWithOptions(config *SessionConfig, limits *SessionLimits, 
 }
 
 // Create creates a new session for the given WebSocket connection.
-func (sm *SessionManager) Create(conn *websocket.Conn, userID string) (*Session, error) {
+func (sm *SessionManager) Create(conn *websocket.Conn, userID, ip string) (*Session, error) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	// Check session limit
 	if sm.limits.MaxSessions > 0 && len(sm.sessions) >= sm.limits.MaxSessions {
+		sm.mu.Unlock()
 		return nil, ErrMaxSessionsReached
+	}
+
+	evicted, err := sm.ensureIPCapacityLocked(ip, "")
+	if err != nil {
+		sm.mu.Unlock()
+		sm.closeEvictedSessions(evicted)
+		return nil, err
 	}
 
 	// Create session
 	session := newSession(conn, userID, sm.config, sm.logger)
+	session.IP = ip
+	session.setOnDetach(sm.OnSessionDisconnect)
 
 	// Register session
 	sm.sessions[session.ID] = session
-	sm.totalCreated.Add(1)
+	sm.trackSessionLocked(session, true)
 
-	// Track peak
-	if len(sm.sessions) > sm.peakSessions {
-		sm.peakSessions = len(sm.sessions)
-	}
+	sm.mu.Unlock()
 
-	// Callback
-	if sm.onSessionCreate != nil {
-		sm.onSessionCreate(session)
-	}
+	sm.closeEvictedSessions(evicted)
 
 	sm.logger.Info("session created",
 		"session_id", session.ID,
 		"user_id", userID,
-		"active_sessions", len(sm.sessions))
+		"active_sessions", sm.Count())
 
 	return session, nil
+}
+
+func (sm *SessionManager) trackSessionLocked(session *Session, countCreated bool) {
+	if session == nil {
+		return
+	}
+	if session.IP != "" {
+		sm.sessionsByIP[session.IP]++
+	}
+	if countCreated {
+		sm.totalCreated.Add(1)
+	}
+	if len(sm.sessions) > sm.peakSessions {
+		sm.peakSessions = len(sm.sessions)
+	}
+	if countCreated && sm.onSessionCreate != nil {
+		sm.onSessionCreate(session)
+	}
+}
+
+func (sm *SessionManager) removeSessionLocked(id string) *Session {
+	session, exists := sm.sessions[id]
+	if !exists {
+		return nil
+	}
+	delete(sm.sessions, id)
+	if session.IP != "" {
+		sm.sessionsByIP[session.IP]--
+		if sm.sessionsByIP[session.IP] <= 0 {
+			delete(sm.sessionsByIP, session.IP)
+		}
+	}
+	return session
+}
+
+func (sm *SessionManager) ensureIPCapacityLocked(ip, excludeID string) ([]*Session, error) {
+	if sm.maxSessionsPerIP <= 0 || ip == "" {
+		return nil, nil
+	}
+
+	count := sm.sessionsByIP[ip]
+	if excludeID != "" {
+		if sess, ok := sm.sessions[excludeID]; ok && sess.IP == ip {
+			count--
+		}
+	}
+
+	if count < sm.maxSessionsPerIP {
+		return nil, nil
+	}
+	if !sm.evictOnIPLimit {
+		return nil, ErrTooManySessionsFromIP
+	}
+
+	evicted := sm.evictOldestDetachedByIPLocked(ip, excludeID)
+	if evicted == nil {
+		return nil, ErrTooManySessionsFromIP
+	}
+
+	count = sm.sessionsByIP[ip]
+	if excludeID != "" {
+		if sess, ok := sm.sessions[excludeID]; ok && sess.IP == ip {
+			count--
+		}
+	}
+
+	if count >= sm.maxSessionsPerIP {
+		return []*Session{evicted}, ErrTooManySessionsFromIP
+	}
+
+	return []*Session{evicted}, nil
+}
+
+func (sm *SessionManager) evictOldestDetachedByIPLocked(ip, excludeID string) *Session {
+	var oldest *Session
+	var oldestAt time.Time
+
+	for id, sess := range sm.sessions {
+		if sess == nil || sess.IP != ip || !sess.IsDetached() || id == excludeID {
+			continue
+		}
+		detachedAt := sess.DetachedAt
+		if detachedAt.IsZero() {
+			detachedAt = sess.LastActive
+		}
+		if oldest == nil || detachedAt.Before(oldestAt) {
+			oldest = sess
+			oldestAt = detachedAt
+		}
+	}
+
+	if oldest == nil {
+		return nil
+	}
+
+	sm.removeSessionLocked(oldest.ID)
+	return oldest
+}
+
+func (sm *SessionManager) closeEvictedSessions(sessions []*Session) {
+	for _, sess := range sessions {
+		if sess == nil {
+			continue
+		}
+		go func(s *Session) {
+			s.Close()
+			sm.totalClosed.Add(1)
+			if sm.onSessionClose != nil {
+				sm.onSessionClose(s)
+			}
+		}(sess)
+	}
 }
 
 // Get retrieves a session by ID.
@@ -177,23 +309,55 @@ func (sm *SessionManager) Get(id string) *Session {
 	return sm.sessions[id]
 }
 
-// Close closes a session by ID and removes it from the manager.
-func (sm *SessionManager) Close(id string) {
+// UpdateSessionIP updates the session's IP address and enforces per-IP limits.
+// Returns ErrTooManySessionsFromIP if the new IP bucket is full.
+func (sm *SessionManager) UpdateSessionIP(session *Session, newIP string) error {
+	if session == nil {
+		return nil
+	}
+	if newIP == "" {
+		newIP = session.IP
+	}
+
 	sm.mu.Lock()
-	session, exists := sm.sessions[id]
-	if exists {
-		delete(sm.sessions, id)
+	evicted, err := sm.ensureIPCapacityLocked(newIP, session.ID)
+	if err != nil {
+		sm.mu.Unlock()
+		sm.closeEvictedSessions(evicted)
+		return err
+	}
+
+	oldIP := session.IP
+	if newIP != oldIP {
+		if oldIP != "" {
+			sm.sessionsByIP[oldIP]--
+			if sm.sessionsByIP[oldIP] <= 0 {
+				delete(sm.sessionsByIP, oldIP)
+			}
+		}
+		if newIP != "" {
+			sm.sessionsByIP[newIP]++
+		}
+		session.IP = newIP
 	}
 	sm.mu.Unlock()
 
-	if exists {
+	sm.closeEvictedSessions(evicted)
+	return nil
+}
+
+// Close closes a session by ID and removes it from the manager.
+func (sm *SessionManager) Close(id string) {
+	sm.mu.Lock()
+	session := sm.removeSessionLocked(id)
+	sm.mu.Unlock()
+
+	if session != nil {
 		session.Close()
 		sm.totalClosed.Add(1)
-
 		if sm.onSessionClose != nil {
 			sm.onSessionClose(session)
 		}
-
 		sm.logger.Info("session closed",
 			"session_id", id,
 			"active_sessions", sm.Count())
@@ -240,7 +404,6 @@ func (sm *SessionManager) cleanupLoop() {
 // cleanupExpired removes sessions that have exceeded their idle timeout.
 func (sm *SessionManager) cleanupExpired() {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	now := time.Now()
 	var expired []string
@@ -256,23 +419,21 @@ func (sm *SessionManager) cleanupExpired() {
 		}
 	}
 
+	var toClose []*Session
 	for _, id := range expired {
-		session := sm.sessions[id]
-		delete(sm.sessions, id)
-
-		go func(s *Session) {
-			s.Close()
-			sm.totalClosed.Add(1)
-			if sm.onSessionClose != nil {
-				sm.onSessionClose(s)
-			}
-		}(session)
+		if session := sm.removeSessionLocked(id); session != nil {
+			toClose = append(toClose, session)
+		}
 	}
+	remaining := len(sm.sessions)
+	sm.mu.Unlock()
+
+	sm.closeEvictedSessions(toClose)
 
 	if len(expired) > 0 {
 		sm.logger.Info("cleaned up expired sessions",
 			"count", len(expired),
-			"remaining", len(sm.sessions))
+			"remaining", remaining)
 	}
 }
 
@@ -280,9 +441,9 @@ func (sm *SessionManager) cleanupExpired() {
 // This is called when memory pressure is high.
 func (sm *SessionManager) EvictLRU(count int) int {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	if count <= 0 || len(sm.sessions) == 0 {
+		sm.mu.Unlock()
 		return 0
 	}
 
@@ -302,25 +463,24 @@ func (sm *SessionManager) EvictLRU(count int) int {
 
 	// Evict oldest
 	evicted := 0
+	var toClose []*Session
 	for i := 0; i < count && i < len(sessions); i++ {
 		entry := sessions[i]
-		delete(sm.sessions, entry.id)
-
-		go func(s *Session) {
-			s.Close()
-			sm.totalClosed.Add(1)
-			if sm.onSessionClose != nil {
-				sm.onSessionClose(s)
-			}
-		}(entry.session)
+		if session := sm.removeSessionLocked(entry.id); session != nil {
+			toClose = append(toClose, session)
+		}
 
 		evicted++
 	}
+	remaining := len(sm.sessions)
+	sm.mu.Unlock()
+
+	sm.closeEvictedSessions(toClose)
 
 	if evicted > 0 {
 		sm.logger.Info("evicted LRU sessions",
 			"count", evicted,
-			"remaining", len(sm.sessions))
+			"remaining", remaining)
 	}
 
 	return evicted
@@ -344,6 +504,7 @@ func (sm *SessionManager) ShutdownWithContext(ctx context.Context) error {
 		sessions = append(sessions, s)
 	}
 	sm.sessions = make(map[string]*Session)
+	sm.sessionsByIP = make(map[string]int)
 	sm.mu.Unlock()
 
 	// Phase 12: Persist all sessions before closing
@@ -485,10 +646,17 @@ func (sm *SessionManager) CheckMemoryPressure() {
 // Returns ErrTooManySessionsFromIP if the limit is exceeded.
 // This should be called before creating a new session.
 func (sm *SessionManager) CheckIPLimit(ip string) error {
-	if sm.persistenceManager == nil {
-		return nil // No limit checking without persistence manager
+	if sm.maxSessionsPerIP <= 0 || ip == "" {
+		return nil
 	}
-	return sm.persistenceManager.CheckIPLimit(ip)
+
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	if sm.sessionsByIP[ip] >= sm.maxSessionsPerIP {
+		return ErrTooManySessionsFromIP
+	}
+	return nil
 }
 
 // OnSessionDisconnect is called when a WebSocket connection closes.
@@ -535,10 +703,12 @@ func (sm *SessionManager) OnSessionReconnect(sessionID string) (*Session, bool) 
 	if sess == nil {
 		return nil, false
 	}
+	sess.setOnDetach(sm.OnSessionDisconnect)
 
 	// Re-register the session
 	sm.mu.Lock()
 	sm.sessions[sess.ID] = sess
+	sm.trackSessionLocked(sess, false)
 	sm.mu.Unlock()
 
 	sm.logger.Debug("session reconnected from persistence",
