@@ -195,6 +195,25 @@ func TestRequireAnyAndAllMiddleware(t *testing.T) {
 		}
 	})
 
+	t.Run("RequireAny returns ErrUnauthorized when user not found", func(t *testing.T) {
+		// No user set in session
+		session := server.NewMockSession()
+		ctx := server.NewTestContext(session)
+
+		nextCalled := false
+		err := auth.RequireAny[*flagsUser](isAdmin).Handle(ctx, func() error {
+			nextCalled = true
+			return nil
+		})
+
+		if !errors.Is(err, auth.ErrUnauthorized) {
+			t.Fatalf("expected ErrUnauthorized, got %v", err)
+		}
+		if nextCalled {
+			t.Fatal("expected next not to be called")
+		}
+	})
+
 	t.Run("RequireAll returns ErrForbidden when any check fails", func(t *testing.T) {
 		session := server.NewMockSession()
 		auth.Set(session, adminInactive)
@@ -249,6 +268,25 @@ func TestRequireAnyAndAllMiddleware(t *testing.T) {
 		}
 		if !nextCalled {
 			t.Fatal("expected next to be called")
+		}
+	})
+
+	t.Run("RequireAll returns ErrUnauthorized when user not found", func(t *testing.T) {
+		// No user set in session
+		session := server.NewMockSession()
+		ctx := server.NewTestContext(session)
+
+		nextCalled := false
+		err := auth.RequireAll[*flagsUser](isAdmin, isActive).Handle(ctx, func() error {
+			nextCalled = true
+			return nil
+		})
+
+		if !errors.Is(err, auth.ErrUnauthorized) {
+			t.Fatalf("expected ErrUnauthorized, got %v", err)
+		}
+		if nextCalled {
+			t.Fatal("expected next not to be called")
 		}
 	})
 }

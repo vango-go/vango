@@ -143,6 +143,11 @@ func TestClear(t *testing.T) {
 	}
 }
 
+func TestClear_NilSession(t *testing.T) {
+	// Should not panic when called with nil session
+	auth.Clear(nil)
+}
+
 func TestMustGet_Panics(t *testing.T) {
 	session := server.NewMockSession()
 	ctx := server.NewTestContext(session)
@@ -327,6 +332,22 @@ func TestWasAuthenticated_AfterClear(t *testing.T) {
 func TestWasAuthenticated_NilSession(t *testing.T) {
 	if auth.WasAuthenticated(nil) {
 		t.Error("expected WasAuthenticated false for nil session")
+	}
+}
+
+// =============================================================================
+// SessionPresenceKey Tests
+// =============================================================================
+
+func TestSessionPresenceKey(t *testing.T) {
+	// SessionPresenceKey should return the internal key used for presence tracking
+	key := auth.SessionPresenceKey()
+	if key == "" {
+		t.Error("expected non-empty presence key")
+	}
+	// Key should be based on SessionKey
+	if key != auth.SessionKey+":present" {
+		t.Errorf("expected presence key to be %q, got %q", auth.SessionKey+":present", key)
 	}
 }
 

@@ -468,6 +468,19 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				"error", resumeErr)
 		}
 
+		// Final guard: if session was authenticated but user wasn't rehydrated, reject.
+		// This prevents "ghost authenticated" state where presence flag is true but user is nil.
+		if wasAuthenticated && session.Get(DefaultAuthSessionKey) == nil {
+			s.logger.Warn("session resume rejected: auth not rehydrated",
+				"session_id", hello.SessionID,
+				"hint", "OnSessionResume or authFunc must call auth.Set to rehydrate user")
+			s.sendHandshakeError(conn, protocol.HandshakeNotAuthorized)
+			conn.Close()
+			session.Close()
+			s.sessions.Close(session.ID)
+			return
+		}
+
 		// Resume existing session with soft remount
 		session.Resume(conn, uint64(hello.LastSeq))
 
