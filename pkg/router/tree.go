@@ -1,6 +1,10 @@
 package router
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/vango-go/vango/pkg/routepath"
+)
 
 // RouteNode is a node in the radix tree.
 type RouteNode struct {
@@ -180,18 +184,22 @@ func (n *RouteNode) match(segments []string, params map[string]string, ctx *matc
 	segment := segments[0]
 	remaining := segments[1:]
 
+	decodedSegment, decodeErr := routepath.DecodeSegment(segment, false)
+
 	// Try exact match first
-	if child := n.findChild(segment); child != nil {
-		childCtx := cloneMatchContext(ctx)
-		if node, mctx, ok := child.match(remaining, params, childCtx); ok {
-			return node, mctx, true
+	if decodeErr == nil {
+		if child := n.findChild(decodedSegment); child != nil {
+			childCtx := cloneMatchContext(ctx)
+			if node, mctx, ok := child.match(remaining, params, childCtx); ok {
+				return node, mctx, true
+			}
 		}
 	}
 
 	// Try parameter match
-	if n.paramChild != nil {
-		if err := ValidateParam(segment, n.paramChild.paramType); err == nil {
-			params[n.paramChild.paramName] = segment
+	if n.paramChild != nil && decodeErr == nil {
+		if err := ValidateParam(decodedSegment, n.paramChild.paramType); err == nil {
+			params[n.paramChild.paramName] = decodedSegment
 			childCtx := cloneMatchContext(ctx)
 			if node, mctx, ok := n.paramChild.match(remaining, params, childCtx); ok {
 				return node, mctx, true
@@ -204,9 +212,15 @@ func (n *RouteNode) match(segments []string, params map[string]string, ctx *matc
 	// Try catch-all match
 	if n.catchAllChild != nil {
 		childCtx := cloneMatchContext(ctx)
-		// Collect all remaining segments
-		allSegments := append([]string{segment}, remaining...)
-		params[n.catchAllChild.paramName] = strings.Join(allSegments, "/")
+		decodedSegments := make([]string, 0, len(segments))
+		for _, seg := range segments {
+			decoded, err := routepath.DecodeSegment(seg, true)
+			if err != nil {
+				return nil, nil, false
+			}
+			decodedSegments = append(decodedSegments, decoded)
+		}
+		params[n.catchAllChild.paramName] = strings.Join(decodedSegments, "/")
 		if n.catchAllChild.layoutHandler != nil {
 			childCtx.layouts = append(childCtx.layouts, n.catchAllChild.layoutHandler)
 		}

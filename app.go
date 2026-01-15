@@ -7,9 +7,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/vango-go/vango/pkg/render"
+	"github.com/vango-go/vango/pkg/routepath"
 	"github.com/vango-go/vango/pkg/router"
 	"github.com/vango-go/vango/pkg/server"
 	"github.com/vango-go/vango/pkg/vdom"
@@ -110,6 +112,41 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.server.ServeHTTP(w, r)
 		return
 	}
+
+	// Per Section 9.1.2 (Path Canonicalization):
+	// HTTP requests with non-canonical paths should redirect with 308 Permanent Redirect.
+	rawPath := r.URL.EscapedPath()
+	input := rawPath
+	if r.URL.RawQuery != "" {
+		input = rawPath + "?" + r.URL.RawQuery
+	}
+	result, err := routepath.CanonicalizePath(input)
+	if err != nil {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	if result.Changed {
+		canonURL := result.Path
+		if result.Query != "" {
+			canonURL = result.Path + "?" + result.Query
+		} else if r.URL.RawQuery != "" {
+			canonURL = result.Path + "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, canonURL, http.StatusPermanentRedirect)
+		return
+	}
+
+	decodedPath, err := url.PathUnescape(result.Path)
+	if err != nil {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	canonReq := r.Clone(r.Context())
+	canonReq.URL.Path = decodedPath
+	canonReq.URL.RawPath = result.Path
+	canonReq.URL.RawQuery = result.Query
+	r = canonReq
+	path = result.Path
 
 	// Try to match a route
 	match, found := a.router.Match(r.Method, path)

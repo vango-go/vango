@@ -41,21 +41,24 @@ func TestStaticServing_BlocksDirectoryTraversal(t *testing.T) {
 		t.Fatalf("GET /ok.txt body = %q, want %q", got, "ok")
 	}
 
-	cases := []string{
-		"/../secret.txt",
-		"/%2e%2e/secret.txt",
-		"/..//secret.txt",
+	cases := []struct {
+		path string
+		want int
+	}{
+		{path: "/../secret.txt", want: http.StatusBadRequest},
+		{path: "/%2e%2e/secret.txt", want: http.StatusNotFound},
+		{path: "/..//secret.txt", want: http.StatusBadRequest},
 	}
-	for _, p := range cases {
+	for _, tc := range cases {
 		rr = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodGet, "http://example.com"+p, nil)
+		req = httptest.NewRequest(http.MethodGet, "http://example.com"+tc.path, nil)
 		app.ServeHTTP(rr, req)
 
 		if rr.Code == http.StatusOK && strings.Contains(rr.Body.String(), "secret") {
-			t.Fatalf("GET %s unexpectedly served secret content", p)
+			t.Fatalf("GET %s unexpectedly served secret content", tc.path)
 		}
-		if rr.Code != http.StatusNotFound {
-			t.Fatalf("GET %s status = %d, want %d", p, rr.Code, http.StatusNotFound)
+		if rr.Code != tc.want {
+			t.Fatalf("GET %s status = %d, want %d", tc.path, rr.Code, tc.want)
 		}
 	}
 }
@@ -93,8 +96,7 @@ func TestStaticServing_BlocksAbsolutePathEscape(t *testing.T) {
 	if rr.Code == http.StatusOK && strings.Contains(rr.Body.String(), "abs-secret") {
 		t.Fatalf("unexpectedly served absolute-path content from %q", absSecretPath)
 	}
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("GET /static/<abs> status = %d, want %d", rr.Code, http.StatusNotFound)
+	if rr.Code != http.StatusPermanentRedirect {
+		t.Fatalf("GET /static/<abs> status = %d, want %d", rr.Code, http.StatusPermanentRedirect)
 	}
 }
-

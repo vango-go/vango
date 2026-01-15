@@ -221,6 +221,11 @@ func TestCanonicalizeAndValidateNavPath(t *testing.T) {
 			input: "/projects/123/",
 			want:  "/projects/123",
 		},
+		{
+			name:    "missing leading slash",
+			input:   "about",
+			wantErr: true,
+		},
 
 		// Invalid absolute URLs
 		{

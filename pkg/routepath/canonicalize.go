@@ -203,6 +203,9 @@ func CanonicalizeAndValidateNavPath(path string) (string, error) {
 		strings.HasPrefix(path, "//") {
 		return "", ErrInvalidPath
 	}
+	if !strings.HasPrefix(path, "/") {
+		return "", ErrInvalidPath
+	}
 
 	// Canonicalize the path.
 	result, err := CanonicalizePath(path)
