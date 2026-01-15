@@ -10,6 +10,7 @@ const (
 	ControlResyncPatches ControlType = 0x11 // Server sends missed patches
 	ControlResyncFull    ControlType = 0x12 // Server sends full HTML reload
 	ControlHookRevert    ControlType = 0x30 // Server requests hook revert by HID
+	ControlAuthCommand   ControlType = 0x31 // Server auth command (reload, navigate, broadcast)
 	ControlClose         ControlType = 0x20 // Session close
 )
 
@@ -28,6 +29,8 @@ func (ct ControlType) String() string {
 		return "ResyncFull"
 	case ControlHookRevert:
 		return "HookRevert"
+	case ControlAuthCommand:
+		return "AuthCommand"
 	case ControlClose:
 		return "Close"
 	default:
@@ -93,6 +96,24 @@ type CloseMessage struct {
 	Message string
 }
 
+// AuthAction defines the type of auth command to execute on the client.
+type AuthAction uint8
+
+const (
+	AuthActionForceReload  AuthAction = 0x01
+	AuthActionHardNavigate AuthAction = 0x02
+	AuthActionBroadcast    AuthAction = 0x03
+)
+
+// AuthCommand is sent by the server when auth expires.
+type AuthCommand struct {
+	Action  AuthAction
+	Reason  uint8
+	Path    string
+	Channel string
+	Type    string
+}
+
 // EncodeControl encodes a control message to bytes.
 func EncodeControl(ct ControlType, payload any) []byte {
 	e := NewEncoder()
@@ -142,6 +163,21 @@ func EncodeControlTo(e *Encoder, ct ControlType, payload any) {
 		if hr, ok := payload.(*HookRevert); ok {
 			e.WriteString(hr.HID)
 		} else {
+			e.WriteString("")
+		}
+
+	case ControlAuthCommand:
+		if ac, ok := payload.(*AuthCommand); ok {
+			e.WriteByte(byte(ac.Action))
+			e.WriteByte(byte(ac.Reason))
+			e.WriteString(ac.Path)
+			e.WriteString(ac.Channel)
+			e.WriteString(ac.Type)
+		} else {
+			e.WriteByte(0)
+			e.WriteByte(0)
+			e.WriteString("")
+			e.WriteString("")
 			e.WriteString("")
 		}
 
@@ -225,6 +261,41 @@ func DecodeControlFrom(d *Decoder) (ControlType, any, error) {
 		}
 		return ct, &HookRevert{HID: hid}, nil
 
+	case ControlAuthCommand:
+		action, err := d.ReadByte()
+		if err != nil {
+			return ct, nil, err
+		}
+		reason, err := d.ReadByte()
+		if err != nil {
+			return ct, nil, err
+		}
+		readOptionalString := func() (string, error) {
+			if d.Remaining() == 0 {
+				return "", nil
+			}
+			return d.ReadString()
+		}
+		path, err := readOptionalString()
+		if err != nil {
+			return ct, nil, err
+		}
+		channel, err := readOptionalString()
+		if err != nil {
+			return ct, nil, err
+		}
+		msgType, err := readOptionalString()
+		if err != nil {
+			return ct, nil, err
+		}
+		return ct, &AuthCommand{
+			Action:  AuthAction(action),
+			Reason:  reason,
+			Path:    path,
+			Channel: channel,
+			Type:    msgType,
+		}, nil
+
 	case ControlClose:
 		reason, err := d.ReadByte()
 		if err != nil {
@@ -279,6 +350,11 @@ func NewResyncFull(html string) (ControlType, *ResyncResponse) {
 // NewHookRevert creates a new HookRevert message.
 func NewHookRevert(hid string) (ControlType, *HookRevert) {
 	return ControlHookRevert, &HookRevert{HID: hid}
+}
+
+// NewAuthCommand creates a new AuthCommand message.
+func NewAuthCommand(cmd *AuthCommand) (ControlType, *AuthCommand) {
+	return ControlAuthCommand, cmd
 }
 
 // NewClose creates a new Close message.

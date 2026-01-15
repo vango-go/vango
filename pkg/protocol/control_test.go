@@ -61,6 +61,17 @@ func TestControlEncodeDecode(t *testing.T) {
 				Message: "Server is restarting",
 			},
 		},
+		{
+			name: "auth_command",
+			ct:   ControlAuthCommand,
+			payload: &AuthCommand{
+				Action:  AuthActionHardNavigate,
+				Reason:  0x02,
+				Path:    "/login",
+				Channel: "vango:auth",
+				Type:    "expired",
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -135,6 +146,28 @@ func verifyControlPayload(t *testing.T, _ string, got, want any) {
 		if g.Message != w.Message {
 			t.Errorf("Message = %q, want %q", g.Message, w.Message)
 		}
+
+	case *AuthCommand:
+		g, ok := got.(*AuthCommand)
+		if !ok {
+			t.Errorf("Payload type = %T, want *AuthCommand", got)
+			return
+		}
+		if g.Action != w.Action {
+			t.Errorf("Action = %v, want %v", g.Action, w.Action)
+		}
+		if g.Reason != w.Reason {
+			t.Errorf("Reason = %v, want %v", g.Reason, w.Reason)
+		}
+		if g.Path != w.Path {
+			t.Errorf("Path = %q, want %q", g.Path, w.Path)
+		}
+		if g.Channel != w.Channel {
+			t.Errorf("Channel = %q, want %q", g.Channel, w.Channel)
+		}
+		if g.Type != w.Type {
+			t.Errorf("Type = %q, want %q", g.Type, w.Type)
+		}
 	}
 }
 
@@ -148,6 +181,7 @@ func TestControlTypeString(t *testing.T) {
 		{ControlResyncRequest, "ResyncRequest"},
 		{ControlResyncPatches, "ResyncPatches"},
 		{ControlResyncFull, "ResyncFull"},
+		{ControlAuthCommand, "AuthCommand"},
 		{ControlClose, "Close"},
 		{ControlType(0xFF), "Unknown"},
 	}
@@ -224,6 +258,20 @@ func TestNewControlHelpers(t *testing.T) {
 	}
 	if resp.HTML != "<html>...</html>" {
 		t.Errorf("NewResyncFull HTML = %q, want %q", resp.HTML, "<html>...</html>")
+	}
+
+	// Test NewAuthCommand
+	ct, ac := NewAuthCommand(&AuthCommand{
+		Action:  AuthActionForceReload,
+		Reason:  0x01,
+		Channel: "vango:auth",
+		Type:    "expired",
+	})
+	if ct != ControlAuthCommand {
+		t.Errorf("NewAuthCommand type = %v, want AuthCommand", ct)
+	}
+	if ac.Action != AuthActionForceReload {
+		t.Errorf("NewAuthCommand action = %v, want ForceReload", ac.Action)
 	}
 
 	// Test NewClose

@@ -53,7 +53,18 @@ func Get(name string) (*Template, error) {
 // GetWithOptions returns a template by name, with additional configuration applied.
 // Currently this is the same as Get, but allows for future expansion.
 func GetWithOptions(name string, cfg Config) (*Template, error) {
-	return Get(name)
+	t, err := Get(name)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.HasAuth {
+		return t, nil
+	}
+
+	clone := *t
+	clone.files = append([]templateFile{}, t.files...)
+	applyAuthScaffold(&clone)
+	return &clone, nil
 }
 
 // Create generates a new project from the template.
@@ -96,6 +107,16 @@ func replaceTemplateVars(content string, cfg Config) string {
 		content = strings.ReplaceAll(content, placeholder, value)
 	}
 	return content
+}
+
+func replaceTemplateFile(t *Template, path, content string) {
+	for i := range t.files {
+		if t.files[i].Path == path {
+			t.files[i].Content = content
+			return
+		}
+	}
+	t.files = append(t.files, templateFile{Path: path, Content: content})
 }
 
 // List returns all available template names.

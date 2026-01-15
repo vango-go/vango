@@ -1274,6 +1274,29 @@ func (s *Session) SendHookRevert(hid string) {
 	}
 }
 
+// sendAuthCommand sends an auth command control message to the client.
+// Must be called on the session loop.
+func (s *Session) sendAuthCommand(cmd *protocol.AuthCommand) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed.Load() {
+		return
+	}
+	if s.conn == nil {
+		return
+	}
+
+	ct, ac := protocol.NewAuthCommand(cmd)
+	payload := protocol.EncodeControl(ct, ac)
+	frame := protocol.NewFrame(protocol.FrameControl, payload)
+
+	s.conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+	if err := s.conn.WriteMessage(websocket.BinaryMessage, frame.Encode()); err != nil {
+		s.logger.Error("auth command send error", "error", err)
+	}
+}
+
 // Close gracefully closes the session.
 func (s *Session) Close() {
 	if s.closed.Swap(true) {
@@ -1832,7 +1855,53 @@ func (s *Session) triggerAuthExpired(reason AuthExpiredReason) {
 	if s.closed.Load() {
 		return
 	}
-	s.SendClose(protocol.CloseSessionExpired, reason.String())
+	expiredCfg := AuthExpiredConfig{Action: ForceReload}
+	if cfg := s.config.AuthCheck; cfg != nil {
+		expiredCfg = cfg.OnExpired
+	}
+	if expiredCfg.Reason == AuthExpiredUnknown {
+		expiredCfg.Reason = reason
+	}
+
+	switch expiredCfg.Action {
+	case ForceReload:
+		s.sendAuthCommand(&protocol.AuthCommand{
+			Action: protocol.AuthActionForceReload,
+			Reason: uint8(expiredCfg.Reason),
+		})
+	case NavigateTo:
+		path := expiredCfg.Path
+		if path == "" {
+			s.sendAuthCommand(&protocol.AuthCommand{
+				Action: protocol.AuthActionForceReload,
+				Reason: uint8(expiredCfg.Reason),
+			})
+			break
+		}
+		s.sendAuthCommand(&protocol.AuthCommand{
+			Action: protocol.AuthActionHardNavigate,
+			Reason: uint8(expiredCfg.Reason),
+			Path:   path,
+		})
+	case Custom:
+		if expiredCfg.Handler != nil {
+			expiredCfg.Handler(s)
+		} else {
+			s.sendAuthCommand(&protocol.AuthCommand{
+				Action: protocol.AuthActionForceReload,
+				Reason: uint8(expiredCfg.Reason),
+			})
+		}
+	}
+
+	s.sendAuthCommand(&protocol.AuthCommand{
+		Action:  protocol.AuthActionBroadcast,
+		Reason:  uint8(expiredCfg.Reason),
+		Channel: "vango:auth",
+		Type:    "expired",
+	})
+
+	s.SendClose(protocol.CloseSessionExpired, expiredCfg.Reason.String())
 	s.Close()
 }
 
@@ -1901,6 +1970,10 @@ func (s *Session) Serialize() ([]byte, error) {
 	// Convert session data to JSON-friendly format
 	var values map[string]json.RawMessage
 	if data := s.GetAllData(); data != nil {
+		runtimeOnly := make(map[string]struct{}, len(auth.RuntimeOnlySessionKeys))
+		for _, key := range auth.RuntimeOnlySessionKeys {
+			runtimeOnly[key] = struct{}{}
+		}
 		values = make(map[string]json.RawMessage, len(data))
 		for k, v := range data {
 			// Skip the user object - it's not JSON-stable and must be rehydrated
@@ -1908,6 +1981,9 @@ func (s *Session) Serialize() ([]byte, error) {
 			// Keep the presence flag (DefaultAuthSessionKey + ":present") to detect
 			// whether the session was authenticated before.
 			if k == DefaultAuthSessionKey {
+				continue
+			}
+			if _, ok := runtimeOnly[k]; ok {
 				continue
 			}
 			b, err := json.Marshal(v)

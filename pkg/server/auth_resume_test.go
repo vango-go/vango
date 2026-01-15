@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/vdom"
 )
@@ -419,19 +420,66 @@ func TestOnSessionResumeCanRehydrateUser(t *testing.T) {
 	}
 }
 
+func TestResumeSucceedsWhenPrincipalRehydrated(t *testing.T) {
+	cfg := DefaultServerConfig().WithDevMode().WithResumeWindow(5 * time.Second)
+	cfg.OnSessionStart = func(httpCtx context.Context, session *Session) {
+		auth.SetPrincipal(session, auth.Principal{
+			ID:              "user-123",
+			ExpiresAtUnixMs: time.Now().Add(time.Hour).UnixMilli(),
+		})
+	}
+	cfg.OnSessionResume = func(httpCtx context.Context, session *Session) error {
+		auth.SetPrincipal(session, auth.Principal{
+			ID:              "user-123",
+			ExpiresAtUnixMs: time.Now().Add(time.Hour).UnixMilli(),
+		})
+		return nil
+	}
+	s := setupServerWithRouter(cfg)
+
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { s.Sessions().Shutdown() })
+
+	c1 := dialWS(t, wsURL(t, ts.URL, "/_vango/live?path=/"), nil)
+	writeHandshake(t, c1, protocol.NewClientHello(""))
+	h1 := readServerHello(t, c1)
+	if h1.Status != protocol.HandshakeOK {
+		t.Fatalf("initial handshake status=%v, want %v", h1.Status, protocol.HandshakeOK)
+	}
+
+	sess := getSessionEventually(t, s.Sessions(), h1.SessionID)
+	waitForEventLoopStarted(t, sess)
+	_ = c1.Close()
+	waitForDetached(t, sess)
+
+	c2 := dialWS(t, wsURL(t, ts.URL, "/_vango/live?path=/"), nil)
+	resumeHello := protocol.NewClientHello("")
+	resumeHello.SessionID = h1.SessionID
+	writeHandshake(t, c2, resumeHello)
+	h2 := readServerHello(t, c2)
+
+	if h2.Status != protocol.HandshakeOK {
+		t.Fatalf("resume handshake status=%v, want %v", h2.Status, protocol.HandshakeOK)
+	}
+}
+
 // =============================================================================
 // Session Serialization Tests
 // =============================================================================
 
-// TestSessionSerializeSkipsAuthKey tests that session serialization does not
-// include the DefaultAuthSessionKey (user object), only the presence flag.
-func TestSessionSerializeSkipsAuthKey(t *testing.T) {
+// TestSessionSerializeSkipsRuntimeAuthKeys tests that session serialization does not
+// include runtime-only auth keys or the user object, but preserves markers.
+func TestSessionSerializeSkipsRuntimeAuthKeys(t *testing.T) {
 	s := NewMockSession()
 	s.ID = "test-session"
 
 	// Set user and presence flag
 	s.Set(DefaultAuthSessionKey, map[string]any{"id": "123", "name": "Test User"})
 	s.Set(DefaultAuthSessionKey+":present", true)
+	s.Set(auth.SessionKeyHadAuth, true)
+	s.Set(auth.SessionKeyPrincipal, auth.Principal{ID: "123"})
+	s.Set(auth.SessionKeyExpiryUnixMs, int64(123))
 	s.Set("other-data", "should-be-serialized")
 
 	// Serialize
@@ -454,6 +502,17 @@ func TestSessionSerializeSkipsAuthKey(t *testing.T) {
 	// Presence flag SHOULD be present (not skipped)
 	if s2.Get(DefaultAuthSessionKey+":present") != true {
 		t.Fatal("presence flag should be serialized")
+	}
+	if s2.Get(auth.SessionKeyHadAuth) != true {
+		t.Fatal("had_auth should be serialized")
+	}
+
+	// Runtime-only keys should NOT be present
+	if s2.Get(auth.SessionKeyPrincipal) != nil {
+		t.Fatal("SessionKeyPrincipal should not be serialized")
+	}
+	if s2.Get(auth.SessionKeyExpiryUnixMs) != nil {
+		t.Fatal("SessionKeyExpiryUnixMs should not be serialized")
 	}
 
 	// Other data should be present

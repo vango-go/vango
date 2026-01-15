@@ -44,7 +44,14 @@ const ControlType = {
     RESYNC_PATCHES: 0x11,  // Server -> Client: replay missed patches (not used with frame replay)
     RESYNC_FULL: 0x12,     // Server -> Client: full HTML replacement
     HOOK_REVERT: 0x30,     // Server -> Client: revert hook optimistic change (by HID)
+    AUTH_COMMAND: 0x31,    // Server -> Client: auth expired command
     CLOSE: 0x20,
+};
+
+const AuthAction = {
+    FORCE_RELOAD: 0x01,
+    HARD_NAVIGATE: 0x02,
+    BROADCAST: 0x03,
 };
 
 /**
@@ -315,6 +322,9 @@ export class VangoClient {
                 this.hooks.revert(hid);
                 break;
             }
+            case ControlType.AUTH_COMMAND:
+                this._handleAuthCommand(buffer.slice(1));
+                break;
             case ControlType.CLOSE:
                 // Server requesting close
                 this.wsManager.close();
@@ -323,6 +333,71 @@ export class VangoClient {
                 if (this.options.debug) {
                     console.log('[Vango] Unknown control type:', controlType);
                 }
+        }
+    }
+
+    _handleAuthCommand(buffer) {
+        if (buffer.length < 2) {
+            return;
+        }
+
+        const action = buffer[0];
+        const reason = buffer[1];
+        let offset = 2;
+
+        const readOptionalString = () => {
+            if (offset >= buffer.length) {
+                return '';
+            }
+            const { value, bytesRead } = this.codec.decodeString(buffer, offset);
+            offset += bytesRead;
+            return value;
+        };
+
+        const path = readOptionalString();
+        const channel = readOptionalString() || 'vango:auth';
+        const type = readOptionalString() || 'expired';
+
+        switch (action) {
+            case AuthAction.FORCE_RELOAD:
+                this._broadcastAuth(channel, type, reason);
+                setTimeout(() => location.reload(), 0);
+                break;
+            case AuthAction.HARD_NAVIGATE: {
+                this._broadcastAuth(channel, type, reason);
+                const target = path || location.pathname;
+                setTimeout(() => location.assign(target), 0);
+                break;
+            }
+            case AuthAction.BROADCAST:
+                this._broadcastAuth(channel, type, reason);
+                break;
+            default:
+                if (this.options.debug) {
+                    console.log('[Vango] Unknown auth action:', action);
+                }
+        }
+    }
+
+    _broadcastAuth(channel, type, reason) {
+        const payload = { type, reason };
+        if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel(channel);
+            bc.postMessage(payload);
+            bc.close();
+            return;
+        }
+
+        try {
+            if (typeof localStorage === 'undefined') {
+                return;
+            }
+            const key = `__vango_auth_${channel}`;
+            const msg = JSON.stringify({ payload, ts: Date.now() });
+            localStorage.setItem(key, msg);
+            localStorage.removeItem(key);
+        } catch {
+            // Ignore storage errors.
         }
     }
 

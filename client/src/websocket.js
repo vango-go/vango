@@ -154,6 +154,9 @@ export class WebSocketManager {
                     this._clearResumeInfo();
                     this.sessionId = null;
                     this.lastSeq = 0;
+                    this.reconnectDisabled = true;
+                    this.options.reconnect = false;
+                    setTimeout(() => location.reload(), 0);
                 }
 
                 this.ws.close();

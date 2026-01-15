@@ -57,7 +57,8 @@
 // auth state is always validated against the current request.
 //
 // Principal + expiry keys (SessionKeyPrincipal, SessionKeyExpiryUnixMs) are
-// runtime-only and must also be rehydrated on start/resume.
+// runtime-only and must also be rehydrated on start/resume. Session persistence
+// MUST skip these keys; use auth.RuntimeOnlySessionKeys as the allowlist.
 //
 // To enable auth freshness checks, set a Principal with an explicit expiry:
 //
@@ -66,6 +67,36 @@
 //	    Email:           user.Email,
 //	    ExpiresAtUnixMs: expiresAt.UnixMilli(),
 //	})
+//
+// # Auth Freshness (Passive + Active)
+//
+// Passive expiry is enforced on every WebSocket event when
+// SessionKeyExpiryUnixMs is present.
+//
+// Active revalidation is configured via SessionConfig.AuthCheck:
+//
+//	app := vango.New(vango.Config{
+//	    Session: vango.SessionConfig{
+//	        AuthCheck: &vango.AuthCheckConfig{
+//	            Interval: 2 * time.Minute,
+//	            Check:    myProvider.Verify,
+//	            OnExpired: vango.AuthExpiredConfig{
+//	                Action: vango.ForceReload,
+//	            },
+//	        },
+//	    },
+//	})
+//
+// For high-value operations, use ctx.RevalidateAuth() to force an immediate
+// active check (fail-closed).
+//
+// # Session-First Adapter
+//
+// The sessionauth package provides a reference adapter for session stores:
+//
+//	provider := sessionauth.New(store)
+//	r.Use(provider.Middleware())
+//	principal, ok := provider.Principal(r.Context())
 //
 // # Basic Usage
 //

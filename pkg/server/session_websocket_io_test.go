@@ -274,6 +274,54 @@ func TestSession_sendPatches_sendPing_SendClose(t *testing.T) {
 	}
 }
 
+func TestSession_sendAuthCommand(t *testing.T) {
+	clientConn, serverConn := newWebSocketPair(t)
+
+	sess := newSession(serverConn, "", DefaultSessionConfig(), slog.Default())
+	sess.sendAuthCommand(&protocol.AuthCommand{
+		Action:  protocol.AuthActionForceReload,
+		Reason:  uint8(AuthExpiredPassiveExpiry),
+		Channel: "vango:auth",
+		Type:    "expired",
+	})
+
+	_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, err := clientConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage auth command failed: %v", err)
+	}
+	frame, err := protocol.DecodeFrame(msg)
+	if err != nil {
+		t.Fatalf("DecodeFrame auth command failed: %v", err)
+	}
+	if frame.Type != protocol.FrameControl {
+		t.Fatalf("frame type=%v, want %v", frame.Type, protocol.FrameControl)
+	}
+	ct, payload, err := protocol.DecodeControl(frame.Payload)
+	if err != nil {
+		t.Fatalf("DecodeControl auth command failed: %v", err)
+	}
+	if ct != protocol.ControlAuthCommand {
+		t.Fatalf("control type=%v, want %v", ct, protocol.ControlAuthCommand)
+	}
+	cmd, ok := payload.(*protocol.AuthCommand)
+	if !ok || cmd == nil {
+		t.Fatalf("payload=%T, want *protocol.AuthCommand", payload)
+	}
+	if cmd.Action != protocol.AuthActionForceReload {
+		t.Fatalf("auth action=%v, want %v", cmd.Action, protocol.AuthActionForceReload)
+	}
+	if cmd.Reason != uint8(AuthExpiredPassiveExpiry) {
+		t.Fatalf("auth reason=%v, want %v", cmd.Reason, uint8(AuthExpiredPassiveExpiry))
+	}
+	if cmd.Channel != "vango:auth" {
+		t.Fatalf("channel=%q, want %q", cmd.Channel, "vango:auth")
+	}
+	if cmd.Type != "expired" {
+		t.Fatalf("type=%q, want %q", cmd.Type, "expired")
+	}
+}
+
 func TestSession_SendResyncFull_ErrorsWithoutTreeOrConn(t *testing.T) {
 	s := NewMockSession()
 	if err := s.SendResyncFull(); err == nil {

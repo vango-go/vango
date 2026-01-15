@@ -417,7 +417,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Check if auth is still valid. If the session was previously authenticated
 		// but auth is now invalid, reject the resume.
 		// ═══════════════════════════════════════════════════════════════════════════
-		wasAuthenticated := session.Has(DefaultAuthSessionKey+":present") || session.UserID != ""
+		wasAuthenticated := auth.WasAuthenticated(session) || session.UserID != ""
 
 		// First, run authFunc if set (validates auth cookie/token)
 		var authValid bool
@@ -427,10 +427,9 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				authValid = true
 				// Auto-hydrate: set user into session if not already present
 				// This handles the case where session was restored from persistence
-				// (user object not serialized) and apps rely on authFunc without OnSessionResume
+				// (user object not serialized) and apps rely on authFunc without OnSessionResume.
 				if session.Get(DefaultAuthSessionKey) == nil {
-					session.Set(DefaultAuthSessionKey, user)
-					session.Set(DefaultAuthSessionKey+":present", true)
+					auth.Set(session, user)
 				}
 			}
 		} else {
@@ -477,15 +476,20 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		// Final guard: if session was authenticated but user wasn't rehydrated, reject.
 		// This prevents "ghost authenticated" state where presence flag is true but user is nil.
-		if wasAuthenticated && session.Get(DefaultAuthSessionKey) == nil {
+		authRehydrated := session.Get(DefaultAuthSessionKey) != nil || session.Get(auth.SessionKeyPrincipal) != nil
+		if wasAuthenticated && !authRehydrated {
 			s.logger.Warn("session resume rejected: auth not rehydrated",
 				"session_id", hello.SessionID,
-				"hint", "OnSessionResume or authFunc must call auth.Set to rehydrate user")
+				"hint", "OnSessionResume or authFunc must call auth.Set or auth.SetPrincipal to rehydrate auth")
 			s.sendHandshakeError(conn, protocol.HandshakeNotAuthorized)
 			conn.Close()
 			session.Close()
 			s.sessions.Close(session.ID)
 			return
+		}
+
+		if session.Get(auth.SessionKeyPrincipal) != nil {
+			session.authLastOK = time.Now()
 		}
 
 		// Resume existing session with soft remount
@@ -577,6 +581,10 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// ═══════════════════════════════════════════════════════════════════════════
 	if s.config.OnSessionStart != nil {
 		s.config.OnSessionStart(r.Context(), session)
+	}
+
+	if session.Get(auth.SessionKeyPrincipal) != nil {
+		session.authLastOK = time.Now()
 	}
 
 	// Send server hello
