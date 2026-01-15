@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/vango-go/vango/pkg/features/hooks"
 	"github.com/vango-go/vango/pkg/protocol"
 	"github.com/vango-go/vango/pkg/vango"
 )
@@ -251,39 +250,11 @@ func wrapHandler(value any) Handler {
 			}
 		}
 
-	// Hook event handler (public hooks package type)
-	case func(hooks.HookEvent):
-		return func(e *Event) {
-			if data, ok := e.Payload.(*protocol.HookEventData); ok {
-				hookEvent := hooks.HookEvent{Name: data.Name, Data: data.Data}
-
-				// Inject context for Revert() to work
-				hookEvent.SetContext(e.HID, func(name string, payload any) {
-					// Create dispatch patch to send custom event to client
-					var detail string
-					if payload != nil {
-						if s, ok := payload.(string); ok {
-							detail = s
-						} else {
-							// JSON-encode the payload
-							if encoded, err := encodeJSON(payload); err == nil {
-								detail = encoded
-							}
-						}
-					}
-					patch := protocol.NewDispatchPatch("", name, detail)
-					e.Session.SendPatches([]protocol.Patch{patch})
-				})
-
-				h(hookEvent)
-			}
-		}
-
-	// Scroll event handler
-	case func(ScrollEvent):
-		return func(e *Event) {
-			if data, ok := e.Payload.(*protocol.ScrollEventData); ok {
-				h(ScrollEvent{
+		// Scroll event handler
+		case func(ScrollEvent):
+			return func(e *Event) {
+				if data, ok := e.Payload.(*protocol.ScrollEventData); ok {
+					h(ScrollEvent{
 					ScrollTop:  data.ScrollTop,
 					ScrollLeft: data.ScrollLeft,
 				})
@@ -384,19 +355,24 @@ func wrapHandler(value any) Handler {
 			}
 		}
 
-	// Hook event handler (vango.HookEvent)
-	case func(vango.HookEvent):
-		return func(e *Event) {
-			if data, ok := e.Payload.(*protocol.HookEventData); ok {
-				hookEvent := vango.HookEvent{Name: data.Name, Data: data.Data}
+		// Hook event handler (vango.HookEvent)
+		case func(vango.HookEvent):
+			return func(e *Event) {
+				if data, ok := e.Payload.(*protocol.HookEventData); ok {
+					hookEvent := vango.HookEvent{Name: data.Name, Data: data.Data}
 
-				// Inject context for Revert() to work
-				hookEvent.SetContext(e.HID, func(name string, payload any) {
-					// Create dispatch patch to send custom event to client
-					var detail string
-					if payload != nil {
-						if s, ok := payload.(string); ok {
-							detail = s
+					// Inject context for Revert() to work
+					hookEvent.SetContext(e.HID, func(name string, payload any) {
+						if name == "revert" {
+							e.Session.SendHookRevert(e.HID)
+							return
+						}
+
+						// Create dispatch patch to send custom event to client
+						var detail string
+						if payload != nil {
+							if s, ok := payload.(string); ok {
+								detail = s
 						} else {
 							// JSON-encode the payload
 							if encoded, err := encodeJSON(payload); err == nil {

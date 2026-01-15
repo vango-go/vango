@@ -9,6 +9,7 @@ const (
 	ControlResyncRequest ControlType = 0x10 // Client requests missed patches
 	ControlResyncPatches ControlType = 0x11 // Server sends missed patches
 	ControlResyncFull    ControlType = 0x12 // Server sends full HTML reload
+	ControlHookRevert    ControlType = 0x30 // Server requests hook revert by HID
 	ControlClose         ControlType = 0x20 // Session close
 )
 
@@ -25,6 +26,8 @@ func (ct ControlType) String() string {
 		return "ResyncPatches"
 	case ControlResyncFull:
 		return "ResyncFull"
+	case ControlHookRevert:
+		return "HookRevert"
 	case ControlClose:
 		return "Close"
 	default:
@@ -79,6 +82,11 @@ type ResyncResponse struct {
 	HTML    string      // Full HTML (for ResyncFull)
 }
 
+// HookRevert instructs the client to run the registered revert callback for the hook instance.
+type HookRevert struct {
+	HID string
+}
+
 // CloseMessage is sent when closing a session.
 type CloseMessage struct {
 	Reason  CloseReason
@@ -126,6 +134,13 @@ func EncodeControlTo(e *Encoder, ct ControlType, payload any) {
 	case ControlResyncFull:
 		if rr, ok := payload.(*ResyncResponse); ok {
 			e.WriteString(rr.HTML)
+		} else {
+			e.WriteString("")
+		}
+
+	case ControlHookRevert:
+		if hr, ok := payload.(*HookRevert); ok {
+			e.WriteString(hr.HID)
 		} else {
 			e.WriteString("")
 		}
@@ -203,6 +218,13 @@ func DecodeControlFrom(d *Decoder) (ControlType, any, error) {
 			HTML: html,
 		}, nil
 
+	case ControlHookRevert:
+		hid, err := d.ReadString()
+		if err != nil {
+			return ct, nil, err
+		}
+		return ct, &HookRevert{HID: hid}, nil
+
 	case ControlClose:
 		reason, err := d.ReadByte()
 		if err != nil {
@@ -252,6 +274,11 @@ func NewResyncFull(html string) (ControlType, *ResyncResponse) {
 		Type: ControlResyncFull,
 		HTML: html,
 	}
+}
+
+// NewHookRevert creates a new HookRevert message.
+func NewHookRevert(hid string) (ControlType, *HookRevert) {
+	return ControlHookRevert, &HookRevert{HID: hid}
 }
 
 // NewClose creates a new Close message.

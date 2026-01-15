@@ -140,20 +140,30 @@ type SecurityConfig struct {
 	// Default: true.
 	AllowSameOrigin bool
 
-	// CookieSecure sets the Secure flag on session cookies.
+	// TrustedProxies lists reverse proxy IPs trusted for X-Forwarded-* headers.
+	// When set, forwarded proto headers are honored for secure cookie decisions.
+	// Default: nil (do not trust forwarded headers).
+	TrustedProxies []string
+
+	// CookieSecure sets the Secure flag on cookies set by the server.
 	// Should be true when using HTTPS.
 	// Default: true.
 	CookieSecure bool
 
-	// CookieHttpOnly sets the HttpOnly flag on session cookies.
-	// Prevents JavaScript access to session cookies.
+	// CookieHttpOnly sets the HttpOnly flag on cookies set by the server.
+	// Prevents JavaScript access to cookies that should not be read by JS.
 	// Default: true (except for CSRF cookies which need JS access).
 	CookieHttpOnly bool
 
-	// CookieSameSite sets the SameSite attribute for cookies.
+	// CookieSameSite sets the SameSite attribute for cookies set by the server.
 	// Lax is safe for most use cases and allows OAuth redirect flows.
 	// Default: http.SameSiteLaxMode.
 	CookieSameSite http.SameSite
+
+	// CookieDomain sets the Domain attribute for cookies.
+	// Empty string uses the current domain (most secure).
+	// Default: "".
+	CookieDomain string
 }
 
 // CacheControlStrategy determines caching behavior for static files.
@@ -196,6 +206,7 @@ func DefaultConfig() Config {
 			CookieSecure:    true,
 			CookieHttpOnly:  true,
 			CookieSameSite:  http.SameSiteLaxMode,
+			CookieDomain:    "",
 		},
 		DevMode: false,
 	}
@@ -270,9 +281,15 @@ func buildServerConfig(cfg Config) *server.ServerConfig {
 	} else if cfg.Security.AllowSameOrigin {
 		serverCfg.CheckOrigin = server.SameOriginCheck
 	}
+	if len(cfg.Security.TrustedProxies) > 0 {
+		serverCfg.TrustedProxies = append([]string(nil), cfg.Security.TrustedProxies...)
+	}
 	serverCfg.SecureCookies = cfg.Security.CookieSecure
 	if cfg.Security.CookieSameSite != 0 {
 		serverCfg.SameSiteMode = cfg.Security.CookieSameSite
+	}
+	if cfg.Security.CookieDomain != "" {
+		serverCfg.CookieDomain = cfg.Security.CookieDomain
 	}
 
 	// DevMode

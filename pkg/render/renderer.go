@@ -324,19 +324,23 @@ func (r *Renderer) renderAttributes(w io.Writer, node *vdom.VNode) error {
 
 	// Add data-ve attribute with comma-separated events (spec Section 5.2)
 	// Format: data-ve="click,input,change" instead of separate data-on-* attributes
-	var events []string
-	var modifierAttrs []string // Collect modifier data attributes
-	for _, key := range keys {
-		if strings.HasPrefix(key, "on") && isEventHandler(node.Props[key]) {
-			eventName := strings.ToLower(key[2:]) // onClick -> click
-			events = append(events, eventName)
+		var events []string
+		var modifierAttrs []string // Collect modifier data attributes
+		for _, key := range keys {
+			if strings.HasPrefix(key, "on") && isEventHandler(node.Props[key]) {
+				// Hook events are not DOM events; they are sent via the HOOK event frame.
+				if strings.EqualFold(key, "onhook") {
+					continue
+				}
+				eventName := strings.ToLower(key[2:]) // onClick -> click
+				events = append(events, eventName)
 
-			// Check for ModifiedHandler and emit modifier data attributes
-			if mh, ok := node.Props[key].(vango.ModifiedHandler); ok {
-				modifierAttrs = append(modifierAttrs, getModifierAttrs(eventName, mh)...)
+				// Check for ModifiedHandler and emit modifier data attributes
+				if mh, ok := node.Props[key].(vango.ModifiedHandler); ok {
+					modifierAttrs = append(modifierAttrs, getModifierAttrs(eventName, mh)...)
+				}
 			}
 		}
-	}
 	if len(events) > 0 {
 		// Sort events for deterministic output
 		sort.Strings(events)

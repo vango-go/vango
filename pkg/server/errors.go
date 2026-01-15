@@ -28,6 +28,9 @@ var (
 	// ErrInvalidCSRF is returned when CSRF token validation fails.
 	ErrInvalidCSRF = errors.New("server: invalid CSRF token")
 
+	// ErrSecureCookiesRequired is returned when secure cookies are required but the request is not secure.
+	ErrSecureCookiesRequired = errors.New("server: secure cookies require HTTPS or trusted proxy headers")
+
 	// ErrSessionExpired is returned when a session has expired due to inactivity.
 	ErrSessionExpired = errors.New("server: session expired")
 

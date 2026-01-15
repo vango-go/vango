@@ -1,5 +1,10 @@
 package vango
 
+import (
+	"fmt"
+	"strconv"
+)
+
 // =============================================================================
 // Event Types - Public API
 // =============================================================================
@@ -315,10 +320,22 @@ func (h HookEvent) Get(key string) any {
 	return h.Data[key]
 }
 
+// Raw returns a raw value from the hook data (spec-aligned).
+func (h HookEvent) Raw(key string) any { return h.Get(key) }
+
 // GetString returns a string value from the hook data.
 func (h HookEvent) GetString(key string) string {
 	if v, ok := h.Data[key].(string); ok {
 		return v
+	}
+	return ""
+}
+
+// String returns a best-effort string value from the hook data (spec-aligned).
+// Unlike GetString, this will format non-string values.
+func (h HookEvent) String(key string) string {
+	if v, ok := h.Data[key]; ok {
+		return fmt.Sprintf("%v", v)
 	}
 	return ""
 }
@@ -332,10 +349,16 @@ func (h HookEvent) GetInt(key string) int {
 		return int(v)
 	case float64:
 		return int(v)
+	case string:
+		i, _ := strconv.Atoi(v)
+		return i
 	default:
 		return 0
 	}
 }
+
+// Int returns an int value from the hook data (spec-aligned).
+func (h HookEvent) Int(key string) int { return h.GetInt(key) }
 
 // GetFloat returns a float64 value from the hook data.
 func (h HookEvent) GetFloat(key string) float64 {
@@ -346,18 +369,31 @@ func (h HookEvent) GetFloat(key string) float64 {
 		return float64(v)
 	case int64:
 		return float64(v)
+	case string:
+		f, _ := strconv.ParseFloat(v, 64)
+		return f
 	default:
 		return 0
 	}
 }
+
+// Float returns a float64 value from the hook data (spec-aligned).
+func (h HookEvent) Float(key string) float64 { return h.GetFloat(key) }
 
 // GetBool returns a bool value from the hook data.
 func (h HookEvent) GetBool(key string) bool {
 	if v, ok := h.Data[key].(bool); ok {
 		return v
 	}
+	if v, ok := h.Data[key].(string); ok {
+		b, _ := strconv.ParseBool(v)
+		return b
+	}
 	return false
 }
+
+// Bool returns a bool value from the hook data (spec-aligned).
+func (h HookEvent) Bool(key string) bool { return h.GetBool(key) }
 
 // GetStrings returns a []string value from the hook data.
 func (h HookEvent) GetStrings(key string) []string {
@@ -370,6 +406,24 @@ func (h HookEvent) GetStrings(key string) []string {
 		}
 		return result
 	}
+	if v, ok := h.Data[key].([]string); ok {
+		return v
+	}
+	return nil
+}
+
+// Strings returns a []string value from the hook data (spec-aligned).
+func (h HookEvent) Strings(key string) []string {
+	if v, ok := h.Data[key].([]any); ok {
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			result = append(result, fmt.Sprintf("%v", item))
+		}
+		return result
+	}
+	if v, ok := h.Data[key].([]string); ok {
+		return v
+	}
 	return nil
 }
 
@@ -377,6 +431,7 @@ func (h HookEvent) GetStrings(key string) []string {
 // Used for optimistic update rollback.
 func (h HookEvent) Revert() {
 	if h.dispatch != nil {
+		// Server/runtime interprets this as a HOOK_REVERT control message.
 		h.dispatch("revert", nil)
 	}
 }

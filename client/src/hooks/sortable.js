@@ -212,8 +212,26 @@ export class SortableHook {
 
     _endDrag() {
         const endIndex = Array.from(this.activeContainer.children).indexOf(this.dragging);
-        const id = this.dragging.dataset.id || this.dragging.dataset.hid;
-        const targetContainerHid = this.activeContainer.dataset.hid;
+        const itemId =
+            this.dragging.dataset.id ||
+            this.dragging.dataset.itemId ||
+            this.dragging.dataset.hid;
+
+        const fromContainerId =
+            this.initialContainer.dataset.id ||
+            this.initialContainer.dataset.listId ||
+            this.initialContainer.dataset.containerId ||
+            this.initialContainer.dataset.hid;
+
+        const toContainerId =
+            this.activeContainer.dataset.id ||
+            this.activeContainer.dataset.listId ||
+            this.activeContainer.dataset.containerId ||
+            this.activeContainer.dataset.hid;
+
+        const initialContainer = this.initialContainer;
+        const initialIndex = this.startIndex;
+        const draggedEl = this.dragging;
 
         // Cleanup
         this.dragging.classList.remove(this.dragClass);
@@ -224,13 +242,21 @@ export class SortableHook {
 
         // Send event if position changed OR container changed
         if (this.activeContainer !== this.initialContainer || endIndex !== this.startIndex) {
+            const revertFn = () => {
+                if (!initialContainer || !draggedEl) return;
+                const children = Array.from(initialContainer.children);
+                const ref = children[initialIndex] || null;
+                initialContainer.insertBefore(draggedEl, ref);
+            };
+
             this.pushEvent('reorder', {
-                id: id,
-                fromContainer: this.initialContainer.dataset.id || this.initialContainer.dataset.hid,
-                toContainer: this.activeContainer.dataset.id || this.activeContainer.dataset.hid,
+                id: itemId,
+                itemId: itemId,
+                fromContainerId,
+                toContainerId,
                 fromIndex: this.startIndex,
                 toIndex: endIndex,
-            });
+            }, revertFn);
         }
 
         this.dragging = null;

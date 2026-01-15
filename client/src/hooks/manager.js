@@ -47,13 +47,7 @@ export class HookManager {
         // Listen for revert events from server
         document.addEventListener('vango:hook-revert', (e) => {
             const hid = e.detail?.hid;
-            if (hid && this.pendingReverts.has(hid)) {
-                const revertFn = this.pendingReverts.get(hid);
-                if (typeof revertFn === 'function') {
-                    revertFn();
-                }
-                this.pendingReverts.delete(hid);
-            }
+            if (hid) this.revert(hid);
         });
     }
 
@@ -77,12 +71,37 @@ export class HookManager {
      * Update hooks after DOM changes
      */
     updateFromDOM() {
-        // Initialize any new hooks
         document.querySelectorAll('[data-hook]').forEach(el => {
+            const hookName = el.dataset.hook;
+            const hookConfigRaw = el.dataset.hookConfig || '';
+
             const hid = el.dataset.hid;
             if (hid) {
-                if (!this.instances.has(hid)) {
+                const entry = this.instances.get(hid);
+                if (!entry) {
                     this.initializeForNode(el);
+                    return;
+                }
+
+                // If hook identity changed, re-mount.
+                if (entry.hookName !== hookName) {
+                    this.destroyForNode(el);
+                    this.initializeForNode(el);
+                    return;
+                }
+
+                // If config changed, call updated().
+                if (entry.hookConfigRaw !== hookConfigRaw) {
+                    let config = {};
+                    try {
+                        if (hookConfigRaw) config = JSON.parse(hookConfigRaw);
+                    } catch (e) {
+                        if (this.client.options.debug) {
+                            console.warn('[Vango] Invalid hook config:', e);
+                        }
+                    }
+                    this.updateConfig(hid, config);
+                    entry.hookConfigRaw = hookConfigRaw;
                 }
                 return;
             }
@@ -90,8 +109,38 @@ export class HookManager {
             // Some client-only hooks don't require a server HID. Support these
             // by generating an internal ID stored on the element.
             const hookID = el.dataset.vangoHookId;
-            if (!hookID || !this.instancesByHookID.has(hookID)) {
+            const key = hookID || '';
+            const entry = key ? this.instancesByHookID.get(key) : null;
+            if (!entry) {
                 this.initializeForNode(el);
+                return;
+            }
+
+            if (entry.hookName !== hookName) {
+                this.destroyForNode(el);
+                this.initializeForNode(el);
+                return;
+            }
+
+            if (entry.hookConfigRaw !== hookConfigRaw) {
+                let config = {};
+                try {
+                    if (hookConfigRaw) config = JSON.parse(hookConfigRaw);
+                } catch (e) {
+                    if (this.client.options.debug) {
+                        console.warn('[Vango] Invalid hook config:', e);
+                    }
+                }
+                if (entry.instance.updated) {
+                    const pushEvent = (eventName, data = {}, revertFn = null) => {
+                        if (typeof revertFn === 'function') {
+                            this.pendingReverts.set(key, revertFn);
+                        }
+                        // Client-only hooks cannot send server events.
+                    };
+                    entry.instance.updated(entry.el, config, pushEvent);
+                }
+                entry.hookConfigRaw = hookConfigRaw;
             }
         });
     }
@@ -136,9 +185,10 @@ export class HookManager {
 
         // Parse config from data-hook-config
         let config = {};
+        const hookConfigRaw = el.dataset.hookConfig || '';
         try {
-            if (el.dataset.hookConfig) {
-                config = JSON.parse(el.dataset.hookConfig);
+            if (hookConfigRaw) {
+                config = JSON.parse(hookConfigRaw);
             }
         } catch (e) {
             if (this.client.options.debug) {
@@ -166,9 +216,9 @@ export class HookManager {
         instance.mounted(el, config, pushEvent);
 
         if (keyKind === 'hid') {
-            this.instances.set(key, { hook: HookClass, instance, el });
+            this.instances.set(key, { hook: HookClass, hookName, hookConfigRaw, instance, el });
         } else {
-            this.instancesByHookID.set(key, { hook: HookClass, instance, el });
+            this.instancesByHookID.set(key, { hook: HookClass, hookName, hookConfigRaw, instance, el });
         }
     }
 
@@ -231,5 +281,17 @@ export class HookManager {
             };
             entry.instance.updated(entry.el, config, pushEvent);
         }
+    }
+
+    /**
+     * Revert an optimistic hook change for a given HID.
+     */
+    revert(hid) {
+        if (!hid || !this.pendingReverts.has(hid)) return;
+        const revertFn = this.pendingReverts.get(hid);
+        if (typeof revertFn === 'function') {
+            revertFn();
+        }
+        this.pendingReverts.delete(hid);
     }
 }

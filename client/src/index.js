@@ -41,6 +41,7 @@ const ControlType = {
     RESYNC_REQUEST: 0x10,  // Client -> Server: request missed patches
     RESYNC_PATCHES: 0x11,  // Server -> Client: replay missed patches (not used with frame replay)
     RESYNC_FULL: 0x12,     // Server -> Client: full HTML replacement
+    HOOK_REVERT: 0x30,     // Server -> Client: revert hook optimistic change (by HID)
     CLOSE: 0x20,
 };
 
@@ -257,6 +258,11 @@ export class VangoClient {
                 // Server sends full HTML to replace body
                 this._handleResyncFull(buffer.slice(1));
                 break;
+            case ControlType.HOOK_REVERT: {
+                const { value: hid } = this.codec.decodeString(buffer, 1);
+                this.hooks.revert(hid);
+                break;
+            }
             case ControlType.CLOSE:
                 // Server requesting close
                 this.wsManager.close();

@@ -38,6 +38,9 @@ type Server struct {
 	// Configuration
 	config *ServerConfig
 
+	// Trusted proxy matcher for forwarded headers
+	trustedProxies *proxyMatcher
+
 	// WebSocket upgrader
 	upgrader websocket.Upgrader
 
@@ -117,8 +120,9 @@ func New(config *ServerConfig) *Server {
 	}
 
 	s := &Server{
-		sessions: NewSessionManagerWithOptions(config.SessionConfig, limits, logger, persistOpts),
-		config:   config,
+		sessions:       NewSessionManagerWithOptions(config.SessionConfig, limits, logger, persistOpts),
+		config:         config,
+		trustedProxies: newProxyMatcher(config.TrustedProxies, logger),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  config.ReadBufferSize,
 			WriteBufferSize: config.WriteBufferSize,
@@ -566,7 +570,7 @@ func (s *Server) validateCSRF(r *http.Request, token string) bool {
 // GenerateCSRFToken generates a new cryptographically secure CSRF token.
 // If CSRFSecret is set, the token is HMAC-signed for additional security.
 // This should be:
-// 1. Set as a cookie with path=/, SameSite=Strict, Secure (in prod)
+// 1. Set as a cookie with path=/, SameSite from config, Secure when required
 // 2. Embedded in the initial HTML page for the client to send in handshake
 func (s *Server) GenerateCSRFToken() string {
 	// Generate random nonce
@@ -596,23 +600,15 @@ func (s *Server) GenerateCSRFToken() string {
 
 // SetCSRFCookie sets the CSRF cookie on the response.
 // Call this when rendering the initial page.
-func (s *Server) SetCSRFCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     CSRFCookieName,
-		Value:    token,
-		Path:     "/",
-		HttpOnly: false, // Must be readable by JS for Double Submit
-		SameSite: http.SameSiteStrictMode,
-		Secure:   s.isSecure(),
-	})
-}
-
-// isSecure returns true if the server should use secure cookies.
-func (s *Server) isSecure() bool {
-	// Check if address starts with https or if TLS is configured
-	// For now, check if not localhost for simple heuristic
-	addr := s.config.Address
-	return addr != ":8080" && addr != "localhost:8080" && addr != "127.0.0.1:8080"
+// Uses request TLS or trusted proxy headers to decide the Secure flag.
+// Returns ErrSecureCookiesRequired if secure cookies are enabled and the request is not secure.
+func (s *Server) SetCSRFCookie(w http.ResponseWriter, r *http.Request, token string) error {
+	cookie, err := s.csrfCookie(r, token)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, cookie)
+	return nil
 }
 
 // Run starts the server and blocks until shutdown.

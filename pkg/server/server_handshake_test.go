@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/tls"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -158,13 +160,19 @@ func TestServer_GenerateCSRFToken_AndValidateCSRF_Signed(t *testing.T) {
 	}
 }
 
-func TestServer_SetCSRFCookie_SecureHeuristic(t *testing.T) {
-	cfg := DefaultServerConfig().WithDevMode().WithAddress("example.com:443").WithCSRFSecret([]byte("0123456789abcdef0123456789abcdef"))
+func TestServer_SetCSRFCookie_UsesConfigAndTLS(t *testing.T) {
+	cfg := DefaultServerConfig().WithSameSiteMode(http.SameSiteStrictMode).WithCookieDomain(".example.com")
+	cfg.CSRFSecret = []byte("0123456789abcdef0123456789abcdef")
 	s := New(cfg)
 
 	token := s.GenerateCSRFToken()
 	rr := httptest.NewRecorder()
-	s.SetCSRFCookie(rr, token)
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
+	req.TLS = &tls.ConnectionState{}
+
+	if err := s.SetCSRFCookie(rr, req, token); err != nil {
+		t.Fatalf("SetCSRFCookie error: %v", err)
+	}
 
 	res := rr.Result()
 	cookies := res.Cookies()
@@ -173,6 +181,82 @@ func TestServer_SetCSRFCookie_SecureHeuristic(t *testing.T) {
 	}
 	if cookies[0].Name != CSRFCookieName {
 		t.Fatalf("cookie name = %q, want %q", cookies[0].Name, CSRFCookieName)
+	}
+	if cookies[0].SameSite != http.SameSiteStrictMode {
+		t.Fatalf("cookie SameSite = %v, want %v", cookies[0].SameSite, http.SameSiteStrictMode)
+	}
+	if cookies[0].Domain != "example.com" {
+		t.Fatalf("cookie Domain = %q, want %q", cookies[0].Domain, "example.com")
+	}
+	if !cookies[0].Secure {
+		t.Fatalf("cookie Secure = false, want true")
+	}
+}
+
+func TestServer_SetCSRFCookie_RejectsInsecureRequest(t *testing.T) {
+	cfg := DefaultServerConfig()
+	cfg.CSRFSecret = []byte("0123456789abcdef0123456789abcdef")
+	s := New(cfg)
+
+	token := s.GenerateCSRFToken()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.RemoteAddr = "198.51.100.3:1234"
+
+	err := s.SetCSRFCookie(rr, req, token)
+	if !errors.Is(err, ErrSecureCookiesRequired) {
+		t.Fatalf("SetCSRFCookie error = %v, want %v", err, ErrSecureCookiesRequired)
+	}
+	if len(rr.Result().Cookies()) != 0 {
+		t.Fatalf("cookies = %d, want 0", len(rr.Result().Cookies()))
+	}
+}
+
+func TestServer_SetCSRFCookie_TrustsForwardedProto(t *testing.T) {
+	cfg := DefaultServerConfig()
+	cfg.CSRFSecret = []byte("0123456789abcdef0123456789abcdef")
+	cfg.TrustedProxies = []string{"203.0.113.10"}
+	s := New(cfg)
+
+	token := s.GenerateCSRFToken()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	if err := s.SetCSRFCookie(rr, req, token); err != nil {
+		t.Fatalf("SetCSRFCookie error: %v", err)
+	}
+
+	cookies := rr.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
+	}
+	if !cookies[0].Secure {
+		t.Fatalf("cookie Secure = false, want true")
+	}
+}
+
+func TestServer_SetCSRFCookie_TrustsForwardedHeader(t *testing.T) {
+	cfg := DefaultServerConfig()
+	cfg.CSRFSecret = []byte("0123456789abcdef0123456789abcdef")
+	cfg.TrustedProxies = []string{"203.0.113.20"}
+	s := New(cfg)
+
+	token := s.GenerateCSRFToken()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "203.0.113.20:1234"
+	req.Header.Set("Forwarded", "for=198.51.100.2;proto=https")
+
+	if err := s.SetCSRFCookie(rr, req, token); err != nil {
+		t.Fatalf("SetCSRFCookie error: %v", err)
+	}
+
+	cookies := rr.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
 	}
 	if !cookies[0].Secure {
 		t.Fatalf("cookie Secure = false, want true")

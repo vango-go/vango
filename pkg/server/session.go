@@ -1237,6 +1237,29 @@ func (s *Session) sendPing() error {
 	return nil
 }
 
+// SendHookRevert requests the client to revert a hook's optimistic UI change.
+// The client will invoke the revert callback registered for the given HID.
+func (s *Session) SendHookRevert(hid string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed.Load() {
+		return
+	}
+	if s.conn == nil {
+		return
+	}
+
+	ct, hr := protocol.NewHookRevert(hid)
+	payload := protocol.EncodeControl(ct, hr)
+	frame := protocol.NewFrame(protocol.FrameControl, payload)
+
+	s.conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+	if err := s.conn.WriteMessage(websocket.BinaryMessage, frame.Encode()); err != nil {
+		s.logger.Error("hook revert send error", "error", err)
+	}
+}
+
 // Close gracefully closes the session.
 func (s *Session) Close() {
 	if s.closed.Swap(true) {

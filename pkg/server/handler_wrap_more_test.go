@@ -117,15 +117,19 @@ func TestWrapHandler_EventPayloadConversions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("DecodeFrame failed: %v", err)
 		}
-		pf, err := protocol.DecodePatches(frame.Payload)
+		if frame.Type != protocol.FrameControl {
+			t.Fatalf("frame.Type=%v, want %v", frame.Type, protocol.FrameControl)
+		}
+		ct, payload, err := protocol.DecodeControl(frame.Payload)
 		if err != nil {
-			t.Fatalf("DecodePatches failed: %v", err)
+			t.Fatalf("DecodeControl failed: %v", err)
 		}
-		if len(pf.Patches) != 1 {
-			t.Fatalf("patches=%d, want 1", len(pf.Patches))
+		if ct != protocol.ControlHookRevert {
+			t.Fatalf("controlType=%v, want %v", ct, protocol.ControlHookRevert)
 		}
-		if pf.Patches[0].Op != protocol.PatchDispatch || pf.Patches[0].Key != "vango:hook-revert" {
-			t.Fatalf("patch=%+v, want Dispatch(vango:hook-revert)", pf.Patches[0])
+		hr, ok := payload.(*protocol.HookRevert)
+		if !ok || hr.HID != "h1" {
+			t.Fatalf("payload=%T %+v, want HookRevert{HID:h1}", payload, payload)
 		}
 	})
 
@@ -151,12 +155,19 @@ func TestWrapHandler_EventPayloadConversions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("DecodeFrame failed: %v", err)
 		}
-		pf, err := protocol.DecodePatches(frame.Payload)
-		if err != nil {
-			t.Fatalf("DecodePatches failed: %v", err)
+		if frame.Type != protocol.FrameControl {
+			t.Fatalf("frame.Type=%v, want %v", frame.Type, protocol.FrameControl)
 		}
-		if len(pf.Patches) != 1 || pf.Patches[0].Op != protocol.PatchDispatch || pf.Patches[0].Key != "revert" {
-			t.Fatalf("patch=%+v, want Dispatch(revert)", pf.Patches)
+		ct, payload, err := protocol.DecodeControl(frame.Payload)
+		if err != nil {
+			t.Fatalf("DecodeControl failed: %v", err)
+		}
+		if ct != protocol.ControlHookRevert {
+			t.Fatalf("controlType=%v, want %v", ct, protocol.ControlHookRevert)
+		}
+		hr, ok := payload.(*protocol.HookRevert)
+		if !ok || hr.HID != "h1" {
+			t.Fatalf("payload=%T %+v, want HookRevert{HID:h1}", payload, payload)
 		}
 	})
 

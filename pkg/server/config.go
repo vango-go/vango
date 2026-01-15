@@ -230,7 +230,8 @@ type ServerConfig struct {
 	OnSessionStart func(httpCtx context.Context, session *Session)
 
 	// TrustedProxies lists trusted reverse proxy IPs for X-Forwarded-* headers.
-	// If set, the server will trust X-Forwarded-For, X-Real-IP, etc. from these IPs.
+	// If set, the server will trust forwarded headers (including X-Forwarded-Proto)
+	// from these IPs when determining request security.
 	// Default: nil (don't trust proxy headers).
 	TrustedProxies []string
 
@@ -253,7 +254,7 @@ type ServerConfig struct {
 	// Default: false (secure by default)
 	DevMode bool
 
-	// SecureCookies enforces Secure flag on session cookies.
+	// SecureCookies enforces Secure flag on cookies set by the server.
 	// Should be true when using HTTPS.
 	// Default: true
 	SecureCookies bool
@@ -263,7 +264,7 @@ type ServerConfig struct {
 	// Default: http.SameSiteLaxMode
 	SameSiteMode http.SameSite
 
-	// CookieDomain sets the Domain attribute for session cookies.
+	// CookieDomain sets the Domain attribute for cookies set by the server.
 	// Empty string uses the current domain (most secure).
 	// Default: "" (current domain)
 	CookieDomain string
@@ -381,10 +382,10 @@ func DefaultServerConfig() *ServerConfig {
 		CSRFSecret:          nil,        // Warning logged on startup if nil
 		CleanupInterval:     30 * time.Second,
 		// Phase 13: Secure defaults
-		DevMode:       false,               // SECURE DEFAULT: security enabled
-		SecureCookies: true,                // SECURE DEFAULT: HTTPS cookies
+		DevMode:       false,                // SECURE DEFAULT: security enabled
+		SecureCookies: true,                 // SECURE DEFAULT: HTTPS cookies
 		SameSiteMode:  http.SameSiteLaxMode, // SECURE DEFAULT: Lax mode
-		CookieDomain:  "",                  // SECURE DEFAULT: current domain only
+		CookieDomain:  "",                   // SECURE DEFAULT: current domain only
 		// Phase 12 defaults
 		SessionStore:        nil, // In-memory only by default
 		ResumeWindow:        5 * time.Minute,
@@ -592,7 +593,7 @@ func (c *ServerConfig) ValidateConfig() error {
 
 	// Check cookie security
 	if !c.SecureCookies && !c.DevMode {
-		warnings = append(warnings, "SecureCookies disabled. Session cookies will not have Secure flag. Enable for HTTPS.")
+		warnings = append(warnings, "SecureCookies disabled. Cookies will not have Secure flag. Enable for HTTPS.")
 	}
 
 	// Check session limits

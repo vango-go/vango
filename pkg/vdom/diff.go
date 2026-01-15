@@ -158,50 +158,38 @@ func diffRaw(prev, next *VNode, parentHID string, patches *[]Patch) {
 
 // diffProps compares and patches attributes.
 func diffProps(prev, next *VNode, patches *[]Patch) {
-	// Check for removed/changed props
-	for key, prevVal := range prev.Props {
-		if isEventHandler(key) {
-			continue // Events handled separately by runtime
-		}
-		if key == "key" {
-			continue // Key is not a real attribute
-		}
+	prevAttrs := EffectiveAttrs(prev)
+	nextAttrs := EffectiveAttrs(next)
 
-		nextVal, exists := next.Props[key]
+	// Removals and changes
+	for key, prevVal := range prevAttrs {
+		nextVal, exists := nextAttrs[key]
 		if !exists {
-			// Attribute removed
 			*patches = append(*patches, Patch{
 				Op:  PatchRemoveAttr,
 				HID: prev.HID,
 				Key: key,
 			})
-		} else if !propsEqual(prevVal, nextVal) {
-			// Attribute changed
+			continue
+		}
+		if prevVal != nextVal {
 			*patches = append(*patches, Patch{
 				Op:    PatchSetAttr,
 				HID:   prev.HID,
 				Key:   key,
-				Value: propToString(nextVal),
+				Value: nextVal,
 			})
 		}
 	}
 
-	// Check for added props
-	for key, nextVal := range next.Props {
-		if isEventHandler(key) {
-			continue
-		}
-		if key == "key" {
-			continue
-		}
-
-		if _, exists := prev.Props[key]; !exists {
-			// Attribute added
+	// Additions
+	for key, nextVal := range nextAttrs {
+		if _, exists := prevAttrs[key]; !exists {
 			*patches = append(*patches, Patch{
 				Op:    PatchSetAttr,
 				HID:   prev.HID,
 				Key:   key,
-				Value: propToString(nextVal),
+				Value: nextVal,
 			})
 		}
 	}

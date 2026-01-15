@@ -1,8 +1,6 @@
 package protocol
 
 import (
-	"strings"
-
 	"github.com/vango-go/vango/pkg/vdom"
 )
 
@@ -34,42 +32,8 @@ func VNodeToWire(node *vdom.VNode) *VNodeWire {
 
 	// Convert props to string attrs (skip event handlers, but add markers)
 	if node.Props != nil {
-		w.Attrs = make(map[string]string)
-		for k, v := range node.Props {
-			// SECURITY: Event handlers (case-insensitive on*) add marker attribute instead
-			if len(k) > 2 && strings.EqualFold(k[:2], "on") && v != nil {
-				// Extract event name (onclick -> click, ONCLICK -> click)
-				eventName := strings.ToLower(k[2:])
-				// Add marker attribute like SSR does
-				w.Attrs["data-on-"+eventName] = "true"
-				continue
-			}
-			// Handle hooks: v-hook="HookName:{config}" -> data-hook + data-hook-config
-			if k == "v-hook" {
-				if s, ok := v.(string); ok {
-					// Parse format: "HookName:{config}"
-					if idx := strings.Index(s, ":"); idx > 0 {
-						hookName := s[:idx]
-						hookConfig := s[idx+1:]
-						w.Attrs["data-hook"] = hookName
-						if hookConfig != "" && hookConfig != "{}" {
-							w.Attrs["data-hook-config"] = hookConfig
-						}
-					} else {
-						// No config, just hook name
-						w.Attrs["data-hook"] = s
-					}
-				}
-				continue
-			}
-			// Convert value to string
-			if s, ok := v.(string); ok {
-				w.Attrs[k] = s
-			} else if b, ok := v.(bool); ok {
-				if b {
-					w.Attrs[k] = "true"
-				}
-			}
+		if attrs := vdom.EffectiveAttrs(node); len(attrs) > 0 {
+			w.Attrs = attrs
 		}
 	}
 
