@@ -60,6 +60,29 @@ func TestSession_handlePrefetch_Branches(t *testing.T) {
 		}
 	})
 
+	t.Run("invalid nav path rejected", func(t *testing.T) {
+		s := NewMockSession()
+		called := false
+		s.SetRouter(&testRouter{
+			routes: map[string]RouteMatch{
+				"/a": &testRouteMatch{
+					page: func(c Ctx, params any) Component {
+						called = true
+						return staticComponent{node: &vdom.VNode{Kind: vdom.KindElement, Tag: "div"}}
+					},
+				},
+			},
+		})
+
+		s.executePrefetch("about")
+		if called {
+			t.Fatal("page handler should not run for invalid prefetch path")
+		}
+		if s.PrefetchCache().Len() != 0 {
+			t.Fatal("expected no cache entries for invalid prefetch path")
+		}
+	})
+
 	t.Run("panic in handler does not cache", func(t *testing.T) {
 		s := NewMockSession()
 		s.prefetchConfig.Timeout = 100 * time.Millisecond
@@ -99,4 +122,3 @@ func TestSession_handlePrefetch_Branches(t *testing.T) {
 		}
 	})
 }
-

@@ -1,7 +1,10 @@
 package server
 
 import (
+	"errors"
 	"testing"
+
+	"github.com/vango-go/vango/pkg/routepath"
 )
 
 // TestServerSetRouter verifies that SetRouter stores the router in the server.
@@ -103,6 +106,19 @@ func TestNavigateWithRouter(t *testing.T) {
 	// Page handler should have been called
 	if !handlerCalled {
 		t.Error("expected page handler to be called during navigation")
+	}
+}
+
+func TestNavigateInvalidPathRejected(t *testing.T) {
+	session := NewMockSession()
+	session.SetRouter(&mockRouter{})
+
+	err := session.HandleNavigate("about", false)
+	if err == nil {
+		t.Fatal("expected error for invalid navigation path")
+	}
+	if !errors.Is(err, routepath.ErrInvalidPath) {
+		t.Fatalf("error=%v, want %v", err, routepath.ErrInvalidPath)
 	}
 }
 

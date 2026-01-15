@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/vango-go/vango/pkg/protocol"
+	"github.com/vango-go/vango/pkg/routepath"
 	"github.com/vango-go/vango/pkg/vdom"
 )
 
@@ -37,6 +38,29 @@ func TestRouteNavigator_Navigate_CanonicalizationForcesReplace(t *testing.T) {
 	}
 	if res.NavPatch.Op != protocol.PatchNavReplace {
 		t.Fatalf("NavPatch.Op=%v, want %v", res.NavPatch.Op, protocol.PatchNavReplace)
+	}
+}
+
+func TestRouteNavigator_Navigate_InvalidPathRejected(t *testing.T) {
+	sess := NewMockSession()
+	r := &testRouter{
+		routes: map[string]RouteMatch{
+			"/ok": &testRouteMatch{
+				params: map[string]string{},
+				page: func(c Ctx, params any) Component {
+					return staticComponent{node: &vdom.VNode{Kind: vdom.KindElement, Tag: "div"}}
+				},
+			},
+		},
+	}
+
+	nav := NewRouteNavigator(sess, r)
+	res := nav.Navigate("about", false)
+	if res.Error == nil {
+		t.Fatal("expected error for invalid navigation path")
+	}
+	if res.Error != routepath.ErrInvalidPath {
+		t.Fatalf("error=%v, want %v", res.Error, routepath.ErrInvalidPath)
 	}
 }
 
@@ -124,4 +148,3 @@ func TestRouteNavigator_collectHandlersFromTree_AndExpandComponents(t *testing.T
 		t.Fatalf("expandComponents result=%+v, want div with single text child", expanded)
 	}
 }
-
