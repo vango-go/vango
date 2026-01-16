@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vango-go/vango/pkg/router"
+	"github.com/vango-go/vango/pkg/server"
 	corevango "github.com/vango-go/vango/pkg/vango"
 )
 
@@ -114,6 +116,36 @@ func TestAppAPI_ExplicitNonJSONContentType_Returns415(t *testing.T) {
 	}
 }
 
+func TestAppAPI_RequireJSONContentType_MissingHeaderReturns415(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.API.RequireJSONContentType = true
+
+	type Input struct {
+		Name string `json:"name"`
+	}
+
+	app := New(cfg)
+	app.API(http.MethodPost, "/api/echo", func(ctx Ctx, input Input) (any, error) {
+		return input, nil
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/echo", strings.NewReader(`{"name":"alice"}`))
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnsupportedMediaType)
+	}
+
+	var got map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got["error"] != "unsupported content type" {
+		t.Fatalf("error = %q, want %q", got["error"], "unsupported content type")
+	}
+}
+
 func TestAppAPI_EmptyBodyForNonPointer_Returns400(t *testing.T) {
 	type Input struct {
 		Name string `json:"name"`
@@ -182,6 +214,32 @@ func TestAppAPI_MaxBodyBytes_Returns413(t *testing.T) {
 	}
 }
 
+func TestAppAPI_ErrorStatusCodeInterface(t *testing.T) {
+	app := New(DefaultConfig())
+	app.API(http.MethodGet, "/api/teapot", func(ctx Ctx) (any, error) {
+		return nil, &HTTPError{Code: http.StatusTeapot, Message: "teapot"}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/teapot", nil)
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTeapot {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusTeapot)
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+
+	var got map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got["error"] != "teapot" {
+		t.Fatalf("error = %q, want %q", got["error"], "teapot")
+	}
+}
+
 func TestAppAPI_ResponseWritePassthrough(t *testing.T) {
 	type Input struct {
 		Name string `json:"name"`
@@ -207,5 +265,48 @@ func TestAppAPI_ResponseWritePassthrough(t *testing.T) {
 	}
 	if _, ok := got["data"]; !ok {
 		t.Fatalf("expected response to include \"data\" key, got %#v", got)
+	}
+}
+
+func TestAppAPI_MiddlewareShortCircuit_DefaultsToNoContent(t *testing.T) {
+	app := New(DefaultConfig())
+	app.Use(router.MiddlewareFunc(func(ctx server.Ctx, next func() error) error {
+		return nil
+	}))
+	app.API(http.MethodGet, "/api/ping", func(ctx Ctx) (any, error) {
+		return map[string]string{"ok": "1"}, nil
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNoContent)
+	}
+	if rr.Body.Len() != 0 {
+		t.Fatalf("expected empty body, got %q", rr.Body.String())
+	}
+}
+
+func TestAppAPI_MiddlewareShortCircuit_RespectsStatus(t *testing.T) {
+	app := New(DefaultConfig())
+	app.Use(router.MiddlewareFunc(func(ctx server.Ctx, next func() error) error {
+		ctx.Status(http.StatusAccepted)
+		return nil
+	}))
+	app.API(http.MethodGet, "/api/ping", func(ctx Ctx) (any, error) {
+		return map[string]string{"ok": "1"}, nil
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusAccepted)
+	}
+	if rr.Body.Len() != 0 {
+		t.Fatalf("expected empty body, got %q", rr.Body.String())
 	}
 }
