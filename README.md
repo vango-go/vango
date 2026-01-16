@@ -24,7 +24,7 @@
 </p>
 
 ---
-#WIP / NOT LAUNCHED
+# WIP / NOT LAUNCHED
 
 ## Why Vango?
 
