@@ -218,6 +218,9 @@ func (c *ComponentInstance) GetProp(key string) any {
 
 // MemoryUsage returns an estimate of memory used by this instance.
 func (c *ComponentInstance) MemoryUsage() int64 {
+	if c == nil {
+		return 0
+	}
 	var size int64 = 128 // Base struct size
 
 	// Props

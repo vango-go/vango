@@ -547,18 +547,24 @@ func (sm *SessionManager) ShutdownWithContext(ctx context.Context) error {
 // Stats returns aggregated session statistics.
 func (sm *SessionManager) Stats() ManagerStats {
 	sm.mu.RLock()
-	defer sm.mu.RUnlock()
+	sessions := make([]*Session, 0, len(sm.sessions))
+	for _, s := range sm.sessions {
+		sessions = append(sessions, s)
+	}
+	active := len(sm.sessions)
+	peak := sm.peakSessions
+	sm.mu.RUnlock()
 
 	var totalMemory int64
-	for _, s := range sm.sessions {
+	for _, s := range sessions {
 		totalMemory += s.MemoryUsage()
 	}
 
 	return ManagerStats{
-		Active:       len(sm.sessions),
+		Active:       active,
 		TotalCreated: sm.totalCreated.Load(),
 		TotalClosed:  sm.totalClosed.Load(),
-		Peak:         sm.peakSessions,
+		Peak:         peak,
 		TotalMemory:  totalMemory,
 	}
 }
@@ -608,10 +614,14 @@ func (sm *SessionManager) SetCleanupInterval(d time.Duration) {
 // TotalMemoryUsage returns the total memory usage of all sessions.
 func (sm *SessionManager) TotalMemoryUsage() int64 {
 	sm.mu.RLock()
-	defer sm.mu.RUnlock()
+	sessions := make([]*Session, 0, len(sm.sessions))
+	for _, s := range sm.sessions {
+		sessions = append(sessions, s)
+	}
+	sm.mu.RUnlock()
 
 	var total int64
-	for _, s := range sm.sessions {
+	for _, s := range sessions {
 		total += s.MemoryUsage()
 	}
 	return total
@@ -651,14 +661,20 @@ func (sm *SessionManager) evictOversizedSessions() {
 	}
 
 	sm.mu.RLock()
-	oversized := make([]sessionEntry, 0)
+	sessions := make([]sessionEntry, 0, len(sm.sessions))
 	for id, sess := range sm.sessions {
-		usage := sess.MemoryUsage()
-		if usage > sm.limits.MaxMemoryPerSession {
-			oversized = append(oversized, sessionEntry{id: id, session: sess, usage: usage})
-		}
+		sessions = append(sessions, sessionEntry{id: id, session: sess})
 	}
 	sm.mu.RUnlock()
+
+	oversized := make([]sessionEntry, 0)
+	for _, entry := range sessions {
+		usage := entry.session.MemoryUsage()
+		if usage > sm.limits.MaxMemoryPerSession {
+			entry.usage = usage
+			oversized = append(oversized, entry)
+		}
+	}
 
 	if len(oversized) == 0 {
 		return

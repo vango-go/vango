@@ -69,6 +69,8 @@ type Session struct {
 	conn   *websocket.Conn
 	mu     sync.Mutex // Protects conn writes
 	closed atomic.Bool
+	// stateMu guards component/handler maps and the component tree.
+	stateMu sync.RWMutex
 
 	// Connection lifecycle (ResumeWindow)
 	// A session becomes detached when the WebSocket drops. While detached, we keep
@@ -243,12 +245,14 @@ func (s *Session) MountRoot(component Component) {
 	s.beginWork()
 	defer s.endWork()
 
+	s.stateMu.Lock()
+
 	// Create root component instance
 	s.root = newComponentInstance(component, nil, s)
 	s.root.InstanceID = "root"
 
 	// Register root component for dirty tracking
-	s.registerComponent(s.root)
+	s.registerComponentLocked(s.root)
 
 	// Render the component tree, expanding any nested vdom.KindComponent nodes into
 	// their rendered output before assigning HIDs.
@@ -264,17 +268,23 @@ func (s *Session) MountRoot(component Component) {
 	// Collect handlers from all mounted component instances.
 	s.handlers = make(map[string]Handler)
 	s.components = make(map[string]*ComponentInstance)
-	s.collectHandlersFromInstances(s.root)
+	s.collectHandlersFromInstancesLocked(s.root)
 
 	// Store the tree
 	s.currentTree = tree
 	s.root.HID = tree.HID
 	s.root.SetLastTree(tree)
 
+	handlersCount := len(s.handlers)
+	componentsCount := len(s.components)
+	hidCounter := s.hidGen.Current()
+
+	s.stateMu.Unlock()
+
 	s.logger.Info("mounted root component",
-		"handlers", len(s.handlers),
-		"components", len(s.components),
-		"hid_counter", s.hidGen.Current())
+		"handlers", handlersCount,
+		"components", componentsCount,
+		"hid_counter", hidCounter)
 
 	// Run mount effects after initial commit
 	ctx := s.createRenderContext()
@@ -290,22 +300,37 @@ func (s *Session) MountRoot(component Component) {
 // so handler ownership can remain correct even when nested components are expanded
 // into the parent VNode tree during mount/rebuild.
 func (s *Session) collectHandlersFromInstances(instance *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.collectHandlersFromInstancesLocked(instance)
+}
+
+// collectHandlersFromInstancesLocked requires stateMu to be held.
+func (s *Session) collectHandlersFromInstancesLocked(instance *ComponentInstance) {
 	if instance == nil {
 		return
 	}
 
 	// Collect from this instance's rendered tree first.
-	s.collectHandlersNoMount(instance.LastTree(), instance)
+	s.collectHandlersNoMountLocked(instance.LastTree(), instance)
 
 	// Then recurse into children so deeper instances override ownership mapping.
 	for _, child := range instance.Children {
-		s.collectHandlersFromInstances(child)
+		s.collectHandlersFromInstancesLocked(child)
 	}
 }
 
 // collectHandlersNoMount walks a VNode tree and collects handlers without mounting
 // or rendering nested component nodes.
 func (s *Session) collectHandlersNoMount(node *vdom.VNode, instance *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.collectHandlersNoMountLocked(node, instance)
+}
+
+// collectHandlersNoMountLocked walks a VNode tree and collects handlers without mounting
+// or rendering nested component nodes. Caller must hold stateMu.
+func (s *Session) collectHandlersNoMountLocked(node *vdom.VNode, instance *ComponentInstance) {
 	if node == nil {
 		return
 	}
@@ -360,12 +385,19 @@ func (s *Session) collectHandlersNoMount(node *vdom.VNode, instance *ComponentIn
 	}
 
 	for _, child := range node.Children {
-		s.collectHandlersNoMount(child, instance)
+		s.collectHandlersNoMountLocked(child, instance)
 	}
 }
 
 // collectHandlers walks the VNode tree and collects event handlers.
 func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.collectHandlersLocked(node, instance)
+}
+
+// collectHandlersLocked requires stateMu to be held.
+func (s *Session) collectHandlersLocked(node *vdom.VNode, instance *ComponentInstance) {
 	if node == nil {
 		return
 	}
@@ -444,14 +476,14 @@ func (s *Session) collectHandlers(node *vdom.VNode, instance *ComponentInstance)
 			instance.AddChild(childInstance)
 
 			// Register for dirty tracking
-			s.registerComponent(childInstance)
+			s.registerComponentLocked(childInstance)
 
 			// Render child and collect its handlers
 			childTree := childInstance.Render()
 			vdom.AssignHIDs(childTree, s.hidGen)
-			s.collectHandlers(childTree, childInstance)
+			s.collectHandlersLocked(childTree, childInstance)
 		} else {
-			s.collectHandlers(child, instance)
+			s.collectHandlersLocked(child, instance)
 		}
 	}
 }
@@ -504,7 +536,17 @@ func (s *Session) handleEvent(event *Event) {
 	}
 
 	// Find handler using compound key
-	handler, exists := s.handlers[handlerKey]
+	var handler Handler
+	var owner *vango.Owner
+	var exists bool
+	s.stateMu.RLock()
+	handler, exists = s.handlers[handlerKey]
+	if instance := s.components[event.HID]; instance != nil && instance.Owner != nil {
+		owner = instance.Owner
+	} else {
+		owner = s.owner
+	}
+	s.stateMu.RUnlock()
 	if !exists {
 		s.logger.Warn("handler not found", "hid", event.HID, "type", event.Type, "key", handlerKey)
 		s.sendErrorMessage(protocol.ErrHandlerNotFound, "Handler not found: "+handlerKey)
@@ -521,10 +563,6 @@ func (s *Session) handleEvent(event *Event) {
 	// Execute handler and effects with context and owner set.
 	// Shared signals and other context-bound primitives rely on a current Owner.
 	// We prefer the owner of the component that owns this HID.
-	owner := s.owner
-	if instance := s.components[event.HID]; instance != nil && instance.Owner != nil {
-		owner = instance.Owner
-	}
 	vango.WithCtx(ctx, func() {
 		vango.WithOwner(owner, func() {
 			// Execute handler with panic recovery
@@ -594,19 +632,47 @@ func (s *Session) safeExecute(handler Handler, event *Event) {
 
 // registerComponent adds a component to the allComponents set for dirty tracking.
 func (s *Session) registerComponent(comp *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.registerComponentLocked(comp)
+}
+
+// registerComponentLocked requires stateMu to be held.
+func (s *Session) registerComponentLocked(comp *ComponentInstance) {
+	if comp == nil {
+		return
+	}
 	s.allComponents[comp] = struct{}{}
 }
 
 // unregisterComponent removes a component from the allComponents set.
 func (s *Session) unregisterComponent(comp *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.unregisterComponentLocked(comp)
+}
+
+// unregisterComponentLocked requires stateMu to be held.
+func (s *Session) unregisterComponentLocked(comp *ComponentInstance) {
+	if comp == nil {
+		return
+	}
 	delete(s.allComponents, comp)
 }
 
 // renderDirty re-renders all dirty components and sends patches.
 func (s *Session) renderDirty() {
 	// Collect dirty components from ALL components (not just those with handlers)
-	var dirty []*ComponentInstance
+	s.stateMu.RLock()
+	allComponents := make([]*ComponentInstance, 0, len(s.allComponents))
 	for comp := range s.allComponents {
+		allComponents = append(allComponents, comp)
+	}
+	root := s.root
+	s.stateMu.RUnlock()
+
+	var dirty []*ComponentInstance
+	for _, comp := range allComponents {
 		if comp.IsDirty() {
 			dirty = append(dirty, comp)
 			comp.ClearDirty()
@@ -614,9 +680,9 @@ func (s *Session) renderDirty() {
 	}
 
 	// Also check root if not in allComponents (edge case)
-	if s.root != nil && s.root.IsDirty() {
-		dirty = append(dirty, s.root)
-		s.root.ClearDirty()
+	if root != nil && root.IsDirty() {
+		dirty = append(dirty, root)
+		root.ClearDirty()
 	}
 
 	if DebugMode && len(dirty) == 0 {
@@ -651,6 +717,9 @@ func (s *Session) renderDirty() {
 
 // hasDirtyComponents returns true if any component is marked dirty.
 func (s *Session) hasDirtyComponents() bool {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+
 	for comp := range s.allComponents {
 		if comp.IsDirty() {
 			return true
@@ -732,6 +801,9 @@ func (s *Session) processPendingNavigation() {
 
 // renderComponent re-renders a single component and returns patches.
 func (s *Session) renderComponent(comp *ComponentInstance) []vdom.Patch {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
 	// Get old tree
 	oldTree := comp.LastTree()
 
@@ -763,13 +835,20 @@ func (s *Session) renderComponent(comp *ComponentInstance) []vdom.Patch {
 	comp.SetLastTree(newTree)
 
 	// Re-collect handlers (they may have changed)
-	s.clearSubtreeHandlers(comp)
-	s.collectHandlersFromInstances(comp)
+	s.clearSubtreeHandlersLocked(comp)
+	s.collectHandlersFromInstancesLocked(comp)
 
 	return patches
 }
 
 func (s *Session) clearSubtreeHandlers(root *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.clearSubtreeHandlersLocked(root)
+}
+
+// clearSubtreeHandlersLocked requires stateMu to be held.
+func (s *Session) clearSubtreeHandlersLocked(root *ComponentInstance) {
 	if root == nil {
 		return
 	}
@@ -807,6 +886,13 @@ func (s *Session) clearSubtreeHandlers(root *ComponentInstance) {
 // clearComponentHandlers removes handlers for a component.
 // This clears all handlers with keys prefixed by the component's HIDs.
 func (s *Session) clearComponentHandlers(comp *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.clearComponentHandlersLocked(comp)
+}
+
+// clearComponentHandlersLocked requires stateMu to be held.
+func (s *Session) clearComponentHandlersLocked(comp *ComponentInstance) {
 	// First, collect all HIDs owned by this component
 	var hidsToRemove []string
 	for hid, c := range s.components {
@@ -848,6 +934,9 @@ func (s *Session) RebuildHandlers() error {
 		return fmt.Errorf("no root component to rebuild")
 	}
 
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
 	// 1. Clear handlers and component mappings (NOT owner!)
 	s.handlers = make(map[string]Handler)
 	s.components = make(map[string]*ComponentInstance)
@@ -862,7 +951,7 @@ func (s *Session) RebuildHandlers() error {
 	vdom.AssignHIDs(tree, s.hidGen)
 
 	// 5. Collect handlers from fresh render (use existing instances)
-	s.collectHandlersFromInstances(s.root)
+	s.collectHandlersFromInstancesLocked(s.root)
 
 	// 6. Store new tree
 	s.currentTree = tree
@@ -879,6 +968,7 @@ func (s *Session) RebuildHandlers() error {
 
 // rerenderTree recursively re-renders all components in the tree.
 // This uses existing component instances (preserving their state).
+// Caller must hold stateMu.
 func (s *Session) rerenderTree(instance *ComponentInstance) *vdom.VNode {
 	tree := instance.Render()
 
@@ -891,6 +981,7 @@ func (s *Session) rerenderTree(instance *ComponentInstance) *vdom.VNode {
 // rerenderChildren walks the tree and re-renders child component instances.
 // When it finds a KindComponent node, it looks up the existing child instance
 // and renders it instead of creating a new one.
+// Caller must hold stateMu.
 func (s *Session) rerenderChildren(node *vdom.VNode, parent *ComponentInstance) {
 	if node == nil {
 		return
@@ -913,14 +1004,14 @@ func (s *Session) rerenderChildren(node *vdom.VNode, parent *ComponentInstance) 
 					childInstance = oldChildren[slot]
 					if childInstance == nil {
 						childInstance = newComponentInstance(child.Comp, parent, s)
-						s.registerComponent(childInstance)
+						s.registerComponentLocked(childInstance)
 					}
 					// Update component implementation each render so "props via closure"
 					// patterns (e.g., Counter(initial)) work while preserving owner state.
 					childInstance.Component = child.Comp
 				} else {
 					childInstance = newComponentInstance(child.Comp, parent, s)
-					s.registerComponent(childInstance)
+					s.registerComponentLocked(childInstance)
 				}
 
 				// Ensure correct parent pointer (defensive; should already be set).
@@ -944,24 +1035,31 @@ func (s *Session) rerenderChildren(node *vdom.VNode, parent *ComponentInstance) 
 
 	// Dispose any instances that are no longer present at this component slot sequence.
 	for i := len(usedChildren); i < len(oldChildren); i++ {
-		s.disposeInstanceTree(oldChildren[i])
+		s.disposeInstanceTreeLocked(oldChildren[i])
 	}
 
 	parent.Children = usedChildren
 }
 
 func (s *Session) disposeInstanceTree(instance *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.disposeInstanceTreeLocked(instance)
+}
+
+// disposeInstanceTreeLocked requires stateMu to be held.
+func (s *Session) disposeInstanceTreeLocked(instance *ComponentInstance) {
 	if instance == nil {
 		return
 	}
 
 	// Unregister descendants first.
 	for _, ch := range instance.Children {
-		s.disposeInstanceTree(ch)
+		s.disposeInstanceTreeLocked(ch)
 	}
 
-	s.clearSubtreeHandlers(instance)
-	s.unregisterComponent(instance)
+	s.clearSubtreeHandlersLocked(instance)
+	s.unregisterComponentLocked(instance)
 	instance.Dispose()
 }
 
@@ -969,6 +1067,13 @@ func (s *Session) disposeInstanceTree(instance *ComponentInstance) {
 // using existing component instances instead of creating new ones.
 // This is similar to collectHandlers but for the resume path.
 func (s *Session) collectHandlersPreserving(node *vdom.VNode, instance *ComponentInstance) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.collectHandlersPreservingLocked(node, instance)
+}
+
+// collectHandlersPreservingLocked requires stateMu to be held.
+func (s *Session) collectHandlersPreservingLocked(node *vdom.VNode, instance *ComponentInstance) {
 	if node == nil {
 		return
 	}
@@ -1032,13 +1137,13 @@ func (s *Session) collectHandlersPreserving(node *vdom.VNode, instance *Componen
 				if childInstance.Component == child.Comp {
 					// Collect handlers from the child's last rendered tree
 					if childInstance.LastTree() != nil {
-						s.collectHandlersPreserving(childInstance.LastTree(), childInstance)
+						s.collectHandlersPreservingLocked(childInstance.LastTree(), childInstance)
 					}
 					break
 				}
 			}
 		} else {
-			s.collectHandlersPreserving(child, instance)
+			s.collectHandlersPreservingLocked(child, instance)
 		}
 	}
 }
@@ -1047,14 +1152,17 @@ func (s *Session) collectHandlersPreserving(node *vdom.VNode, instance *Componen
 // This is used as a fallback when HIDs may not align between SSR and remount.
 // The client will replace its entire body content with this HTML.
 func (s *Session) SendResyncFull() error {
-	if s.currentTree == nil {
+	s.stateMu.RLock()
+	tree := s.currentTree
+	s.stateMu.RUnlock()
+	if tree == nil {
 		return errors.New("no tree to send")
 	}
 
 	// Render tree to HTML using the render package
 	// The tree already has HIDs assigned from RebuildHandlers()
 	renderer := render.NewRenderer(render.RendererConfig{})
-	html, err := renderer.RenderToString(s.currentTree)
+	html, err := renderer.RenderToString(tree)
 	if err != nil {
 		return fmt.Errorf("render tree to HTML: %w", err)
 	}
@@ -1359,6 +1467,9 @@ func (s *Session) beginClose() {
 // to run at most once. It must not run while session work is in-flight.
 func (s *Session) finalizeClose() {
 	s.finalizeOnce.Do(func() {
+		s.stateMu.Lock()
+		defer s.stateMu.Unlock()
+
 		// Dispose reactive owner (cleans up effects and signals)
 		if s.owner != nil {
 			s.owner.Dispose()
@@ -1498,6 +1609,11 @@ func (s *Session) SetInitialURL(path string, params map[string]string) {
 
 // Stats returns session statistics.
 func (s *Session) Stats() SessionStats {
+	s.stateMu.RLock()
+	handlerCount := len(s.handlers)
+	componentCount := len(s.components)
+	s.stateMu.RUnlock()
+
 	return SessionStats{
 		ID:             s.ID,
 		UserID:         s.UserID,
@@ -1507,8 +1623,8 @@ func (s *Session) Stats() SessionStats {
 		PatchCount:     s.patchCount.Load(),
 		BytesSent:      s.bytesSent.Load(),
 		BytesRecv:      s.bytesRecv.Load(),
-		HandlerCount:   len(s.handlers),
-		ComponentCount: len(s.components),
+		HandlerCount:   handlerCount,
+		ComponentCount: componentCount,
 	}
 }
 
@@ -1528,6 +1644,9 @@ type SessionStats struct {
 
 // MemoryUsage estimates the memory used by this session.
 func (s *Session) MemoryUsage() int64 {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+
 	var size int64 = 512 // Base struct size
 
 	// Handlers map
@@ -1537,6 +1656,9 @@ func (s *Session) MemoryUsage() int64 {
 	size += EstimateMapMemory(len(s.components), 16, 8)
 	size += EstimateMapMemory(len(s.allComponents), 8, 8)
 	for _, comp := range s.components {
+		if comp == nil {
+			continue
+		}
 		size += comp.MemoryUsage()
 	}
 

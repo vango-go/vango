@@ -334,17 +334,20 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 		params:    match.GetParams(),
 	}
 
+	rn.session.stateMu.Lock()
+	defer rn.session.stateMu.Unlock()
+
 	oldTree := rn.session.currentTree
 
 	if rn.session.root != nil {
-		rn.session.disposeInstanceTree(rn.session.root)
+		rn.session.disposeInstanceTreeLocked(rn.session.root)
 		rn.session.root = nil
 	}
 
 	newRoot := newComponentInstance(newRootComp, nil, rn.session)
 	newRoot.InstanceID = "root"
 	rn.session.root = newRoot
-	rn.session.registerComponent(newRoot)
+	rn.session.registerComponentLocked(newRoot)
 
 	newTree := rn.session.rerenderTree(newRoot)
 
@@ -359,7 +362,7 @@ func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {
 	// Rebuild handler and ownership maps from the mounted component instances.
 	rn.session.handlers = make(map[string]Handler)
 	rn.session.components = make(map[string]*ComponentInstance)
-	rn.session.collectHandlersFromInstances(newRoot)
+	rn.session.collectHandlersFromInstancesLocked(newRoot)
 
 	// Store new tree for future diffs.
 	rn.session.currentTree = newTree
@@ -388,6 +391,13 @@ func (rn *RouteNavigator) useCachedTree(cachedTree *vdom.VNode, match RouteMatch
 // This is used after rendering a new page to register handlers without
 // creating ComponentInstance wrappers (since page handlers return VNodes directly).
 func (rn *RouteNavigator) collectHandlersFromTree(node *vdom.VNode) {
+	rn.session.stateMu.Lock()
+	defer rn.session.stateMu.Unlock()
+	rn.collectHandlersFromTreeLocked(node)
+}
+
+// collectHandlersFromTreeLocked requires session.stateMu to be held.
+func (rn *RouteNavigator) collectHandlersFromTreeLocked(node *vdom.VNode) {
 	if node == nil {
 		return
 	}
@@ -410,7 +420,7 @@ func (rn *RouteNavigator) collectHandlersFromTree(node *vdom.VNode) {
 
 	// Recurse to children
 	for _, child := range node.Children {
-		rn.collectHandlersFromTree(child)
+		rn.collectHandlersFromTreeLocked(child)
 	}
 }
 
