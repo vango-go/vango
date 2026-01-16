@@ -7,6 +7,7 @@
 <p align="center">
   <strong>Server-driven UI for Go.</strong><br>
   Build modern web apps with a single language, a single binary, and no client/server state synchronization.
+  Solid's reactivity meets LiveView's architecture—in Go.
 </p>
 
 <p align="center">
@@ -28,9 +29,7 @@
 
 ## Why Vango?
 
-Solid's reactivity meets LiveView's architecture—in Go.
-
-**Vango takes a different approach.** Your UI is a projection of server state. The browser runs a thin client (~12KB) that captures events, sends them to the server, and applies binary patches to the DOM. No hydration. No client-side state management. No synchronization bugs.
+**Vango takes a unique approach.** Your UI is a projection of server state. The browser runs a thin client (~12KB) that captures events, sends them to the server, and applies binary patches to the DOM. No hydration. No client-side state management. No synchronization bugs.
 
 ```go
 func Counter(initial int) vango.Component {
