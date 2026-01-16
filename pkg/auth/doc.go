@@ -68,6 +68,9 @@
 //	    ExpiresAtUnixMs: expiresAt.UnixMilli(),
 //	})
 //
+// If ExpiresAtUnixMs is zero, SetPrincipal will not set SessionKeyExpiryUnixMs,
+// so passive expiry checks remain disabled unless you set the key explicitly.
+//
 // # Auth Freshness (Passive + Active)
 //
 // Passive expiry is enforced on every WebSocket event when

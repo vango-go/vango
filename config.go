@@ -162,6 +162,11 @@ type SecurityConfig struct {
 	// Example: []string{"https://myapp.com", "https://www.myapp.com"}
 	AllowedOrigins []string
 
+	// AllowedRedirectHosts lists hostnames (and optional ports) allowed for external redirects.
+	// When empty, external redirects are rejected.
+	// Example: []string{"accounts.google.com", "auth.mycompany.com", "auth.mycompany.com:8443"}
+	AllowedRedirectHosts []string
+
 	// AllowSameOrigin enables automatic same-origin validation.
 	// When true and AllowedOrigins is empty, validates that Origin header
 	// matches the request Host header.

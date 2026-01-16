@@ -137,8 +137,14 @@ func (nr *NavigationRequest) BuildURL() (string, error) {
 	return u.String(), nil
 }
 
-// Redirect sends an HTTP redirect response.
+// Redirect sends an HTTP redirect response (relative paths only).
 // This should only be used for initial page loads, not WebSocket navigations.
 func Redirect(ctx server.Ctx, path string, code int) {
 	ctx.Redirect(path, code)
+}
+
+// RedirectExternal sends an HTTP redirect to an external URL.
+// External redirects require an explicit allowlist.
+func RedirectExternal(ctx server.Ctx, url string, code int) {
+	ctx.RedirectExternal(url, code)
 }

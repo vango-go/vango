@@ -112,10 +112,11 @@ func New(config *ServerConfig) *Server {
 
 	logger := slog.Default().With("component", "server")
 
-	// SECURITY WARNING: Log if CSRF protection is disabled
-	if config.CSRFSecret == nil {
-		logger.Warn("CSRF protection is DISABLED. Set CSRFSecret for production use. " +
-			"This will become a hard requirement in Vango v3.0.")
+	for _, warning := range config.GetConfigWarnings() {
+		logger.Warn("config warning", "warning", warning)
+	}
+	if err := config.ValidateConfig(); err != nil {
+		logger.Error("config validation failed", "error", err)
 	}
 
 	// Build session limits from config (use defaults for unset values)
@@ -459,7 +460,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				"was_authenticated", wasAuthenticated,
 				"auth_valid", authValid,
 				"resume_error", resumeErr)
-			s.sendHandshakeError(conn, protocol.HandshakeNotAuthorized)
+			s.sendHandshakeErrorWithReason(conn, protocol.HandshakeNotAuthorized, AuthExpiredResumeRehydrateFailed)
 			conn.Close()
 			// Clean up the session since auth failed
 			session.Close()
@@ -481,7 +482,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.logger.Warn("session resume rejected: auth not rehydrated",
 				"session_id", hello.SessionID,
 				"hint", "OnSessionResume or authFunc must call auth.Set or auth.SetPrincipal to rehydrate auth")
-			s.sendHandshakeError(conn, protocol.HandshakeNotAuthorized)
+			s.sendHandshakeErrorWithReason(conn, protocol.HandshakeNotAuthorized, AuthExpiredResumeRehydrateFailed)
 			conn.Close()
 			session.Close()
 			s.sessions.Close(session.ID)
@@ -626,6 +627,15 @@ func (s *Server) sendHandshakeError(conn *websocket.Conn, status protocol.Handsh
 	conn.WriteMessage(websocket.BinaryMessage, frame.Encode())
 }
 
+func (s *Server) sendHandshakeErrorWithReason(conn *websocket.Conn, status protocol.HandshakeStatus, reason AuthExpiredReason) {
+	hello := protocol.NewServerHelloErrorWithReason(status, uint8(reason))
+	payload := protocol.EncodeServerHello(hello)
+	frame := protocol.NewFrame(protocol.FrameHandshake, payload)
+
+	conn.SetWriteDeadline(time.Now().Add(s.config.SessionConfig.WriteTimeout))
+	conn.WriteMessage(websocket.BinaryMessage, frame.Encode())
+}
+
 // sendServerHello sends a successful handshake response.
 func (s *Server) sendServerHello(conn *websocket.Conn, session *Session) {
 	hello := protocol.NewServerHello(
@@ -740,6 +750,10 @@ func (s *Server) SetCSRFCookie(w http.ResponseWriter, r *http.Request, token str
 
 // Run starts the server and blocks until shutdown.
 func (s *Server) Run() error {
+	if err := s.config.ValidateConfig(); err != nil {
+		return err
+	}
+
 	s.httpServer = &http.Server{
 		Addr:              s.config.Address,
 		Handler:           s,

@@ -72,7 +72,9 @@ func SetPrincipal(session Session, principal Principal) {
 		return
 	}
 	session.Set(SessionKeyPrincipal, principal)
-	session.Set(SessionKeyExpiryUnixMs, principal.ExpiresAtUnixMs)
+	if principal.ExpiresAtUnixMs > 0 {
+		session.Set(SessionKeyExpiryUnixMs, principal.ExpiresAtUnixMs)
+	}
 	session.Set(SessionKeyHadAuth, true)
 	session.Set(sessionPresenceKey, true)
 }

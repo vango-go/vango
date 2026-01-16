@@ -104,6 +104,14 @@ func TestServerHelloEncodeDecode(t *testing.T) {
 				NextSeq:   1,
 			},
 		},
+		{
+			name: "not_authorized_with_reason",
+			hello: &ServerHello{
+				Status:         HandshakeNotAuthorized,
+				AuthReason:    0x02,
+				AuthReasonSet: true,
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -128,6 +136,12 @@ func TestServerHelloEncodeDecode(t *testing.T) {
 			}
 			if decoded.Flags != tc.hello.Flags {
 				t.Errorf("Flags = %x, want %x", decoded.Flags, tc.hello.Flags)
+			}
+			if decoded.AuthReasonSet != tc.hello.AuthReasonSet {
+				t.Errorf("AuthReasonSet = %v, want %v", decoded.AuthReasonSet, tc.hello.AuthReasonSet)
+			}
+			if tc.hello.AuthReasonSet && decoded.AuthReason != tc.hello.AuthReason {
+				t.Errorf("AuthReason = %d, want %d", decoded.AuthReason, tc.hello.AuthReason)
 			}
 		})
 	}

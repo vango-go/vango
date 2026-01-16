@@ -369,10 +369,12 @@ export class VangoClient {
         switch (action) {
             case AuthAction.FORCE_RELOAD:
                 this._broadcastAuth(channel, type, reason);
+                this.wsManager.clearResumeInfo();
                 setTimeout(() => location.reload(), 0);
                 break;
             case AuthAction.HARD_NAVIGATE: {
                 this._broadcastAuth(channel, type, reason);
+                this.wsManager.clearResumeInfo();
                 const target = path || location.pathname;
                 setTimeout(() => location.assign(target), 0);
                 break;

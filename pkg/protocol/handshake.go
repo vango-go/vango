@@ -71,6 +71,10 @@ type ServerHello struct {
 	NextSeq    uint32          // Next expected sequence number
 	ServerTime uint64          // Server time in Unix milliseconds
 	Flags      uint16          // Server capability flags
+	// AuthReason is an optional auth expiration reason for error handshakes.
+	// AuthReasonSet indicates whether the reason was included in the payload.
+	AuthReason    uint8
+	AuthReasonSet bool
 }
 
 // Server capability flags.
@@ -167,6 +171,9 @@ func EncodeServerHelloTo(e *Encoder, sh *ServerHello) {
 	e.WriteUint32(sh.NextSeq)
 	e.WriteUint64(sh.ServerTime)
 	e.WriteUint16(sh.Flags)
+	if sh.AuthReasonSet {
+		e.WriteByte(sh.AuthReason)
+	}
 }
 
 // DecodeServerHello decodes a ServerHello from bytes.
@@ -206,6 +213,15 @@ func DecodeServerHelloFrom(d *Decoder) (*ServerHello, error) {
 		return nil, err
 	}
 
+	if d.Remaining() > 0 {
+		reason, err := d.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		sh.AuthReason = reason
+		sh.AuthReasonSet = true
+	}
+
 	return sh, nil
 }
 
@@ -231,5 +247,14 @@ func NewServerHello(sessionID string, nextSeq uint32, serverTime uint64) *Server
 func NewServerHelloError(status HandshakeStatus) *ServerHello {
 	return &ServerHello{
 		Status: status,
+	}
+}
+
+// NewServerHelloErrorWithReason creates a ServerHello with an error status and reason.
+func NewServerHelloErrorWithReason(status HandshakeStatus, reason uint8) *ServerHello {
+	return &ServerHello{
+		Status:         status,
+		AuthReason:    reason,
+		AuthReasonSet: true,
 	}
 }

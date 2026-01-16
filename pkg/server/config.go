@@ -757,49 +757,21 @@ func (c *ServerConfig) WithCookieDomain(domain string) *ServerConfig {
 	return c
 }
 
-// ValidateConfig validates the server configuration and logs warnings.
-// Called automatically by Server.Start().
+// ValidateConfig validates the server configuration.
+// Called automatically by Server.New() and Server.Run().
 // Returns any fatal configuration errors.
 func (c *ServerConfig) ValidateConfig() error {
-	var warnings []string
-
-	// Check DevMode
-	if c.DevMode {
-		warnings = append(warnings, "DEV MODE ENABLED - Security checks disabled. DO NOT USE IN PRODUCTION.")
-	}
-
-	// Check CSRF secret
-	if c.CSRFSecret == nil && !c.DevMode {
-		warnings = append(warnings, "CSRFSecret not set. CSRF protection disabled. Set CSRFSecret for production.")
-	}
-
-	// Check cookie security
-	if !c.SecureCookies && !c.DevMode {
-		warnings = append(warnings, "SecureCookies disabled. Cookies will not have Secure flag. Enable for HTTPS.")
-	}
-
-	// Check session limits
-	if c.MaxSessionsPerIP == 0 {
-		warnings = append(warnings, "MaxSessionsPerIP is 0 (unlimited). Consider setting a limit to prevent DoS.")
-	}
-
-	if c.MaxDetachedSessions == 0 {
-		warnings = append(warnings, "MaxDetachedSessions is 0 (unlimited). Consider setting a limit to prevent memory exhaustion.")
-	}
-
-	// Log warnings
-	for _, w := range warnings {
-		// Warnings are informational, not fatal
-		// Server will still start but these should be addressed
-		_ = w // In production, this would log via slog
-	}
-
+	_ = c.configWarnings()
 	return nil
 }
 
-// GetConfigWarnings returns a list of configuration warnings without logging them.
+// GetConfigWarnings returns a list of configuration warnings.
 // Useful for displaying warnings in a custom way.
 func (c *ServerConfig) GetConfigWarnings() []string {
+	return c.configWarnings()
+}
+
+func (c *ServerConfig) configWarnings() []string {
 	var warnings []string
 
 	if c.DevMode {
@@ -807,7 +779,7 @@ func (c *ServerConfig) GetConfigWarnings() []string {
 	}
 
 	if c.CSRFSecret == nil && !c.DevMode {
-		warnings = append(warnings, "CSRFSecret not set - CSRF protection disabled")
+		warnings = append(warnings, "CSRFSecret not set - CSRF protection disabled. Set CSRFSecret for production. This will become a hard requirement in Vango v3.0.")
 	}
 
 	if !c.SecureCookies && !c.DevMode {

@@ -179,6 +179,57 @@ func TestCtxRedirect(t *testing.T) {
 	}
 }
 
+func TestCtxRedirect_RejectsAbsoluteURL(t *testing.T) {
+	req := httptest.NewRequest("GET", "/old", nil)
+	w := httptest.NewRecorder()
+	c := newCtx(w, req, slog.Default())
+
+	c.Redirect("https://example.com/login", http.StatusFound)
+
+	if w.Header().Get("Location") != "" {
+		t.Errorf("expected no Location header, got %q", w.Header().Get("Location"))
+	}
+	if c.isWritten() {
+		t.Error("isWritten should be false after rejected redirect")
+	}
+}
+
+func TestCtxRedirectExternal_AllowsListedHost(t *testing.T) {
+	req := httptest.NewRequest("GET", "/old", nil)
+	w := httptest.NewRecorder()
+	c := newCtx(w, req, slog.Default())
+	c.redirectAllowlist = map[string]struct{}{
+		"accounts.example.com": {},
+	}
+
+	c.RedirectExternal("https://accounts.example.com/login", http.StatusFound)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("RedirectExternal status = %d, want %d", w.Code, http.StatusFound)
+	}
+	if w.Header().Get("Location") != "https://accounts.example.com/login" {
+		t.Errorf("RedirectExternal location = %s, want https://accounts.example.com/login", w.Header().Get("Location"))
+	}
+	if !c.isWritten() {
+		t.Error("isWritten should be true after external redirect")
+	}
+}
+
+func TestCtxRedirectExternal_RejectsUnlistedHost(t *testing.T) {
+	req := httptest.NewRequest("GET", "/old", nil)
+	w := httptest.NewRecorder()
+	c := newCtx(w, req, slog.Default())
+
+	c.RedirectExternal("https://accounts.example.com/login", http.StatusFound)
+
+	if w.Header().Get("Location") != "" {
+		t.Errorf("expected no Location header, got %q", w.Header().Get("Location"))
+	}
+	if c.isWritten() {
+		t.Error("isWritten should be false after rejected external redirect")
+	}
+}
+
 func TestCtxSetHeader(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()

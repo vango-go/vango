@@ -52,6 +52,7 @@ func (m *mockCtx) Header(key string) string                 { return "" }
 func (m *mockCtx) Cookie(name string) (*http.Cookie, error) { return nil, nil }
 func (m *mockCtx) Status(code int)                          {}
 func (m *mockCtx) Redirect(url string, code int)            {}
+func (m *mockCtx) RedirectExternal(url string, code int)    {}
 func (m *mockCtx) SetHeader(key, value string)              {}
 func (m *mockCtx) SetCookie(cookie *http.Cookie)            {}
 func (m *mockCtx) Session() *server.Session                 { return m.session }

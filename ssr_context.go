@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/vango-go/vango/pkg/auth"
+	"github.com/vango-go/vango/pkg/routepath"
 	"github.com/vango-go/vango/pkg/server"
 	"github.com/vango-go/vango/pkg/vango"
 )
@@ -67,8 +68,28 @@ func (c *ssrContext) Status(code int) {
 }
 
 func (c *ssrContext) Redirect(url string, code int) {
+	canon, err := routepath.CanonicalizeAndValidateNavPath(url)
+	if err != nil {
+		if c.logger != nil {
+			c.logger.Error("invalid redirect path (must be relative)", "path", url, "error", err)
+		}
+		return
+	}
 	c.redirected = true
-	c.redirectURL = url
+	c.redirectURL = canon
+	c.redirectCode = code
+}
+
+func (c *ssrContext) RedirectExternal(url string, code int) {
+	canon, ok := server.ValidateExternalRedirectURL(url, c.config.Security.AllowedRedirectHosts)
+	if !ok {
+		if c.logger != nil {
+			c.logger.Error("external redirect rejected", "url", url)
+		}
+		return
+	}
+	c.redirected = true
+	c.redirectURL = canon
 	c.redirectCode = code
 }
 

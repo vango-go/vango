@@ -141,7 +141,14 @@ export class WebSocketManager {
                     0x09: 'Too many active sessions from this IP',
                 };
                 const msg = errorMessages[hello.status] || `Handshake failed: ${hello.status}`;
-                this.client._onError(new Error(msg));
+                const err = new Error(msg);
+                if (hello.authReason !== undefined) {
+                    err.vangoAuthReason = hello.authReason;
+                    if (this.client.options.debug) {
+                        console.log('[Vango] Handshake auth reason:', hello.authReason);
+                    }
+                }
+                this.client._onError(err);
 
                 if (hello.status === 0x09 /* Limit exceeded */) {
                     this.reconnectDisabled = true;
@@ -395,5 +402,11 @@ export class WebSocketManager {
         } catch {
             // Ignore
         }
+    }
+
+    clearResumeInfo() {
+        this._clearResumeInfo();
+        this.sessionId = null;
+        this.lastSeq = 0;
     }
 }

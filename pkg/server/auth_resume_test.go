@@ -104,6 +104,12 @@ func TestResumeRejectsWhenAuthFuncFailsForAuthenticatedSession(t *testing.T) {
 	if h2.Status != protocol.HandshakeNotAuthorized {
 		t.Fatalf("resume handshake status=%v, want %v (HandshakeNotAuthorized)", h2.Status, protocol.HandshakeNotAuthorized)
 	}
+	if !h2.AuthReasonSet {
+		t.Fatal("expected auth reason to be set for resume rejection")
+	}
+	if h2.AuthReason != uint8(AuthExpiredResumeRehydrateFailed) {
+		t.Fatalf("auth reason=%v, want %v", h2.AuthReason, uint8(AuthExpiredResumeRehydrateFailed))
+	}
 }
 
 // TestResumeSucceedsWhenAuthFuncSucceedsForAuthenticatedSession tests that
@@ -370,6 +376,12 @@ func TestOnSessionResumeCanRejectResume(t *testing.T) {
 	if h2.Status != protocol.HandshakeNotAuthorized {
 		t.Fatalf("resume handshake status=%v, want %v (OnSessionResume rejected)", h2.Status, protocol.HandshakeNotAuthorized)
 	}
+	if !h2.AuthReasonSet {
+		t.Fatal("expected auth reason to be set for resume rejection")
+	}
+	if h2.AuthReason != uint8(AuthExpiredResumeRehydrateFailed) {
+		t.Fatalf("auth reason=%v, want %v", h2.AuthReason, uint8(AuthExpiredResumeRehydrateFailed))
+	}
 }
 
 // TestOnSessionResumeCanRehydrateUser tests that OnSessionResume can rehydrate
@@ -574,6 +586,12 @@ func TestResumeRejectsGhostAuthState(t *testing.T) {
 
 	if h2.Status != protocol.HandshakeNotAuthorized {
 		t.Fatalf("resume handshake status=%v, want %v (ghost auth should be rejected)", h2.Status, protocol.HandshakeNotAuthorized)
+	}
+	if !h2.AuthReasonSet {
+		t.Fatal("expected auth reason to be set for resume rejection")
+	}
+	if h2.AuthReason != uint8(AuthExpiredResumeRehydrateFailed) {
+		t.Fatalf("auth reason=%v, want %v", h2.AuthReason, uint8(AuthExpiredResumeRehydrateFailed))
 	}
 }
 

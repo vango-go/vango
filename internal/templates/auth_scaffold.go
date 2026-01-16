@@ -98,6 +98,7 @@ func hydrateSession(httpCtx context.Context, s *vango.Session, provider *session
 	if user := authstore.UserFromStored(stored); user != nil {
 		auth.Set(s, user)
 	}
+	// If principal.ExpiresAtUnixMs is zero, passive expiry checks stay disabled.
 	auth.SetPrincipal(s, principal)
 }
 `

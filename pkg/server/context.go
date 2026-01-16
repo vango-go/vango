@@ -13,6 +13,7 @@ import (
 	"github.com/vango-go/vango/pkg/assets"
 	"github.com/vango-go/vango/pkg/auth"
 	"github.com/vango-go/vango/pkg/protocol"
+	"github.com/vango-go/vango/pkg/routepath"
 	"github.com/vango-go/vango/pkg/vango"
 )
 
@@ -134,7 +135,12 @@ type Ctx interface {
 	Status(code int)
 
 	// Redirect redirects to the given URL with the given status code.
+	// Redirects are relative-only and reject absolute URLs.
 	Redirect(url string, code int)
+
+	// RedirectExternal redirects to an absolute URL with the given status code.
+	// External redirects require an explicit allowlist.
+	RedirectExternal(url string, code int)
 
 	// SetHeader sets a response header.
 	SetHeader(key, value string)
@@ -362,6 +368,9 @@ type ctx struct {
 	// Per Section 4.4 (Programmatic Navigation), navigation is processed
 	// at flush time so NAV_* + DOM patches are sent in ONE transaction.
 	pendingNavigation *pendingNav
+
+	// redirectAllowlist is an optional allowlist for external redirects.
+	redirectAllowlist map[string]struct{}
 }
 
 // pendingNav holds a pending navigation request.
@@ -450,7 +459,33 @@ func (c *ctx) Status(code int) {
 
 // Redirect redirects to the given URL with the given status code.
 func (c *ctx) Redirect(url string, code int) {
-	http.Redirect(c.writer, c.request, url, code)
+	if c.writer == nil || c.request == nil {
+		return
+	}
+	canon, err := routepath.CanonicalizeAndValidateNavPath(url)
+	if err != nil {
+		if c.logger != nil {
+			c.logger.Error("invalid redirect path (must be relative)", "path", url, "error", err)
+		}
+		return
+	}
+	http.Redirect(c.writer, c.request, canon, code)
+	c.written = true
+}
+
+// RedirectExternal redirects to an absolute URL if it is explicitly allowed.
+func (c *ctx) RedirectExternal(url string, code int) {
+	if c.writer == nil || c.request == nil {
+		return
+	}
+	canon, ok := validateExternalRedirect(url, c.redirectAllowlist)
+	if !ok {
+		if c.logger != nil {
+			c.logger.Error("external redirect rejected", "url", url)
+		}
+		return
+	}
+	http.Redirect(c.writer, c.request, canon, code)
 	c.written = true
 }
 
@@ -818,6 +853,34 @@ func isRelativePath(path string) bool {
 		return false
 	}
 	return true
+}
+
+func validateExternalRedirect(rawURL string, allowlist map[string]struct{}) (string, bool) {
+	if rawURL == "" || len(allowlist) == 0 {
+		return "", false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", false
+	}
+	if parsed.User != nil {
+		return "", false
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+	default:
+		return "", false
+	}
+
+	host := strings.ToLower(parsed.Hostname())
+	hostPort := strings.ToLower(parsed.Host)
+	if _, ok := allowlist[host]; ok {
+		return parsed.String(), true
+	}
+	if _, ok := allowlist[hostPort]; ok {
+		return parsed.String(), true
+	}
+	return "", false
 }
 
 // =============================================================================

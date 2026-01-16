@@ -367,6 +367,30 @@ func TestSetPrincipal(t *testing.T) {
 	}
 }
 
+func TestSetPrincipal_WithoutExpiry(t *testing.T) {
+	session := server.NewMockSession()
+	principal := auth.Principal{
+		ID:              "user-1",
+		Email:           "user@example.com",
+		ExpiresAtUnixMs: 0,
+	}
+
+	auth.SetPrincipal(session, principal)
+
+	if session.Get(auth.SessionKeyPrincipal) == nil {
+		t.Fatal("expected principal to be stored")
+	}
+	if session.Get(auth.SessionKeyExpiryUnixMs) != nil {
+		t.Fatal("expected expiry key to be absent when ExpiresAtUnixMs <= 0")
+	}
+	if session.Get(auth.SessionKeyHadAuth) != true {
+		t.Error("expected SessionKeyHadAuth to be true")
+	}
+	if session.Get(auth.SessionPresenceKey()) != true {
+		t.Error("expected presence flag to be true")
+	}
+}
+
 // =============================================================================
 // SessionPresenceKey Tests
 // =============================================================================

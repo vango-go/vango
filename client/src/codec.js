@@ -906,7 +906,7 @@ export class BinaryCodec {
     /**
      * Decode ServerHello from handshake response
      * Frame format: [type:1][flags:1][len:2][payload...]
-     * ServerHello payload: [status:1][sessionID:string][nextSeq:4][serverTime:8][flags:2]
+     * ServerHello payload: [status:1][sessionID:string][nextSeq:4][serverTime:8][flags:2][authReason?:1]
      */
     decodeServerHello(buffer) {
         // Need at least 4-byte header + 1-byte status
@@ -948,6 +948,12 @@ export class BinaryCodec {
 
         // Flags (uint16 little-endian)
         const flags = this.decodeUint16(buffer, offset);
+        offset += 2;
+
+        let authReason;
+        if (offset < buffer.length) {
+            authReason = buffer[offset];
+        }
 
         return {
             status,
@@ -955,6 +961,7 @@ export class BinaryCodec {
             nextSeq,
             serverTime,
             flags,
+            authReason,
             ok: status === 0,
         };
     }

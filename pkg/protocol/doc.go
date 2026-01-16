@@ -73,6 +73,8 @@
 //	  │     (status, session, time)   │
 //	  │                                │
 //
+// Error ServerHello messages may include an optional auth-expired reason byte.
+//
 // # Control Messages
 //
 //   - Ping/Pong: Heartbeat for connection health
