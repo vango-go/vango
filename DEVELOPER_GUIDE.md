@@ -1,951 +1,70 @@
----
-title: "Vango Developer Guide"
-slug: vango-developer-guide
-version: 0.1.0
-status: Draft (Expandable)
-last_updated: 2026-01-07
----
+# Full Developer Guide
 
-# Vango Developer Guide
+## Preface
 
-This is the **practical, application-focused** guide for building production Vango apps.
+### Version & Status
 
-- For the **normative framework contract** (render rules, routing contracts, protocol, thin client behavior), treat `VANGO_ARCHITECTURE_AND_GUIDE.md` as the source of truth.
-- This guide focuses on **how to assemble an app**: project structure, routing/layouts, data access, forms, auth, assets, testing, and deployment.
+* **Document:** Vango Developer Guide
+* **Version:** v0.1.0
+* **Status:** Complete / Live
+* **Last Updated:** 2026-01-07
+* **Normative Source of Truth:** `VANGO_ARCHITECTURE_AND_GUIDE.md` (render rules, routing/runtime contracts, wire protocol, thin client behavior)
 
-## How this guide is organized
+This guide is **application-focused**: it teaches an LLM or developer how to build Vango apps correctly and idiomatically, without requiring them to understand Vango internals (VDOM encoder/diff, binary protocol layout, session serialization, etc.). When anything here conflicts with the normative spec, **the spec is authoritative**.
 
-Each section is written to be expanded over multiple passes:
-- **Scope**: what the section covers and what it intentionally does not cover.
-- **Decisions**: the default recommendations and the alternatives you can pick.
-- **Recipes**: copy/paste-friendly patterns with explanations and pitfalls.
-- **Checklists**: production readiness, security, performance, and ops checklists.
+### Audience
 
----
+This guide is written for:
 
-## Table of Contents
+1. **Go backend developers building full web apps**
+   You want a single-language stack, direct DB access, and deployment as a single Go binary.
 
-1. [Audience, Scope, and Guarantees](#1-audience-scope-and-guarantees)
-2. [Mental Model: How Vango Apps Work](#2-mental-model-how-vango-apps-work)
-3. [Install, Requirements, and Tooling](#3-install-requirements-and-tooling)
-4. [Creating a New App](#4-creating-a-new-app)
-5. [Project Layout and Code Organization](#5-project-layout-and-code-organization)
-6. [App Entry Point and Configuration](#6-app-entry-point-and-configuration)
-7. [Routing, Layouts, and Middleware](#7-routing-layouts-and-middleware)
-8. [Components and UI Composition](#8-components-and-ui-composition)
-9. [State Management in Real Apps](#9-state-management-in-real-apps)
-10. [Data Loading and Caching](#10-data-loading-and-caching)
-11. [Mutations, Background Work, and Side Effects](#11-mutations-background-work-and-side-effects)
-12. [Forms, Validation, and UX](#12-forms-validation-and-ux)
-13. [Navigation, URL State, and Progressive Enhancement](#13-navigation-url-state-and-progressive-enhancement)
-14. [Styling and Design Systems](#14-styling-and-design-systems)
-15. [Static Assets, Bundles, and the Thin Client](#15-static-assets-bundles-and-the-thin-client)
-16. [Client Hooks, JavaScript Islands, and WASM](#16-client-hooks-javascript-islands-and-wasm)
-17. [Authentication, Authorization, and Sessions](#17-authentication-authorization-and-sessions)
-18. [Security Checklist](#18-security-checklist)
-19. [Performance and Scaling](#19-performance-and-scaling)
-20. [Observability: Logging, Metrics, Tracing](#20-observability-logging-metrics-tracing)
-21. [Testing Strategy](#21-testing-strategy)
-22. [Deployment and Operations](#22-deployment-and-operations)
-23. [Migration and Interop](#23-migration-and-interop)
-24. [Recipes and Reference Apps](#24-recipes-and-reference-apps)
-25. [Troubleshooting and FAQ](#25-troubleshooting-and-faq)
-26. [Appendices](#26-appendices)
+2. **SPA refugees (React/Vue/Next) who want the same UX with less complexity**
+   You want modern interactivity without a large client bundle, hydration pitfalls, or a client/server state sync problem.
 
----
+3. **Server-driven UI adopters (LiveView/Livewire-style) who want Go performance and ergonomics**
+   You accept the render-purity constraints and want clear “pit of success” patterns.
 
-## API Quick Reference
+### Imports Policy (Normalized)
 
-This section provides canonical API signatures per the normative spec. Refer to `VANGO_ARCHITECTURE_AND_GUIDE.md` for full details.
-
-> [!IMPORTANT]
-> **CRITICAL ERRATA & NOTATIONS**
-> 1. **Page handlers are REACTIVE**: Page handlers registered via `app.Page(...)` execute during the render cycle, not once per navigation. They are wrapped in `vango.Func` internally and MUST follow render-purity rules: no blocking I/O, no goroutines, stable hook order. Use `Resource` for data loading.
-> 2. **Pervasive `Append`, `Inc`, `RemoveAt` usage**: In many examples, we use shorthand like `count.Inc()` or `items.Append(item)`. While these are supported for convenience, the underlying primitive is `signal.Set(newVal)`.
-> 3. **`vango.Effect` returning `Cleanup`**: Many older examples in this guide may show `vango.Effect(func() { ... })`. Per the normative spec, `Effect` MUST return `vango.Cleanup` (or `nil`).
-> 4. **`vango.UseCtx()` in goroutines**: Never call `vango.UseCtx()` or use a captured `ctx` to read/write state from a goroutine without using `ctx.Dispatch`.
-> 5. **Route filename conventions**: The framework uses `index.go`, `about.go`, `[id].go`, `layout.go`, and `middleware.go`. Avoid `page.go` and nested directories for simple pages.
-> 6. **Route Handler Signatures**: All handlers with parameters MUST use a `Params` struct with `param` tags, e.g., `func ShowPage(ctx vango.Ctx, p Params)`. Positional arguments are not supported.
-> 7. **UUID Parameters**: Parameters annotated with `:uuid` in filenames are mapped to Go `string` types, with runtime format validation provided by the router. Do not use `uuid.UUID` in `Params` structs.
-> 8. **WebSocket `?path=` parameter**: The thin client connects to `/_vango/live?path=<current-path>`. This is required for immediate interactivity after SSR (server must know initial route). If `?path=` is absent or invalid, Vango defaults to `/` or triggers a hard-reload per self-heal rules. Custom WS URL overrides must preserve this parameter.
-
-### Core Reactive Primitives
+All examples in this guide assume **only two Vango imports**:
 
 ```go
-// Signals
-signal := vango.NewSignal(initialValue)
-signal.Get()                    // Read (creates dependency)
-signal.Set(newValue)            // Write (must be on session loop)
-signal.Peek()                   // Read without dependency
-
-// Memos
-memo := vango.NewMemo(func() T { return derivedValue })
-memo.Get()                      // Read derived value
-
-// Effects (return Cleanup, call helpers inside)
-vango.Effect(func() vango.Cleanup {
-    return vango.Interval(time.Second, fn)  // Helper returns Cleanup
-})
-
-// Transactions
-vango.Tx(func() { /* multiple writes, one commit */ })
-vango.TxNamed("domain:action", func() { /* named for observability */ })
+import "github.com/vango-go/vango"
+import . "github.com/vango-go/vango/el"
 ```
 
-### Data Loading & Mutations
+(You will still see standard-library imports like `time`, `context`, `fmt` where required.)
 
-```go
-// Resource (async data loading)
-resource := vango.NewResource(func() (T, error) { ... })
-resource := vango.NewResourceKeyed(key, func(k K) (T, error) { ... })
-// key can be *Signal[K] or func() K
+### The “Pit of Success” Philosophy
 
-// States: vango.Pending, vango.Loading, vango.Ready, vango.Error
-resource.Match(
-    vango.OnPending(func() *vdom.VNode { ... }),
-    vango.OnLoading(func() *vdom.VNode { ... }),
-    vango.OnReady(func(data T) *vdom.VNode { ... }),
-    vango.OnError(func(err error) *vdom.VNode { ... }),
-)
-// Action (async mutations)
-action := vango.NewAction(
-    func(ctx context.Context, arg A) (R, error) { ... },
-    vango.CancelLatest(),  // Default concurrency policy
-)
-accepted := action.Run(arg)  // Returns bool
-action.State()               // ActionIdle, ActionRunning, ActionSuccess, ActionError
-result, ok := action.Result()
-action.Error()
-action.Reset()
-```
+Vango is designed so that the default, straightforward approach yields:
 
-### Effect Helpers (call inside Effect, return Cleanup)
+* **Server-side state and logic** (signals/resources/actions run on the server)
+* **Client-side feel** (fast incremental updates via patches; SPA navigation when connected)
+* **Predictable correctness** through strict contracts:
 
-```go
-vango.Interval(duration, fn, opts...)             // Returns Cleanup
-vango.Subscribe(stream, fn, opts...)              // Returns Cleanup  
-vango.GoLatest(key, work, apply, opts...)         // Returns Cleanup
-```
+  * render functions are pure
+  * stable hook order
+  * single-writer session loop
 
-### Navigation & Links
+In practice, Vango aims for the common 80/20 split:
 
-```go
-// Link helpers (SPA navigation with data-vango-link)
-Link("/path", Text("Label"))
-LinkPrefetch("/path", Text("Label"))  // With hover prefetch
-NavLink(ctx, "/path", Text("Label"))  // With active class
-
-// Programmatic navigation
-ctx.Navigate("/path")
-ctx.Navigate("/path", server.WithReplace())
-
-// URL params (query string state)
-param := vango.URLParam("key", defaultValue, vango.Replace)
-search := vango.URLParam("q", "", vango.Replace, vango.URLDebounce(300*time.Millisecond))
-
-// Assets (fingerprinted/manifest-aware)
-src := ctx.Asset("images/logo.png") // Returns hashed path in prod
-```
-
-### Shared & Global State
-
-```go
-// Session-scoped (per browser tab)
-var UserState = vango.NewSharedSignal(initial)
-
-// Global-scoped (all users, real-time)
-var OnlinePlayers = vango.NewGlobalSignal(initial)
-```
-
-### Routing File Conventions
-
-```
-routes/
-├── index.go              → /            (IndexPage)
-├── about.go              → /about       (AboutPage)  
-├── projects/
-│   ├── index.go          → /projects    (IndexPage)
-│   └── [id].go           → /projects/:id (ShowPage)
-├── layout.go             → Layout wrapper
-├── middleware.go         → Middleware stack
-└── api/
-    └── health.go         → API handler (HealthGET)
-```
-
-### Client Hooks & Islands
-
-```go
-// Hooks: 60fps client-side behavior
-Hook("Sortable", config)
-OnEvent("reorder", func(e vango.HookEvent) { ... })
-
-// Islands: Third-party JS libraries
-JSIsland("editor", config)
-
-// WASM: Compute-heavy client work
-WASMWidget("physics", config)
-```
+* ~80%: server-driven pages with **no custom client JS**
+* ~15%: client hooks for **60fps interactions** (drag/drop, fine-grained UI behavior)
+* ~5%: JS/WASM islands for **third-party widgets** or **compute-heavy client work**
 
 ---
 
-## 1. Audience, Scope, and Guarantees
+# Getting Started
 
-### 1.1 Who This Guide Is For
-
-This guide is written for three primary audiences:
-
-**Go Backend Developers Building Full Web Apps**
-
-You're comfortable with Go and want to build complete, interactive web applications without becoming a JavaScript expert. You value type safety, direct database access, and the simplicity of deploying a single binary. Vango lets you write your entire application—from database queries to DOM updates—in Go.
-
-**Teams Migrating from SPAs**
-
-You've experienced the pain of two-language codebases, complex state synchronization, and 200KB+ JavaScript bundles. You're looking for a simpler architecture that keeps most logic server-side while still delivering modern, interactive UIs. This guide will help you translate your SPA mental models into Vango patterns.
-
-**Teams Adopting Server-Driven UI**
-
-You've heard about Phoenix LiveView or Laravel Livewire and want similar capabilities with Go's performance and concurrency model. You understand the value proposition of server-driven UI and are ready to learn the specific patterns and constraints of building apps this way.
-
-### 1.2 What "Building a Vango App" Means
-
-This guide covers the full lifecycle of building production Vango applications:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    VANGO APP DEVELOPMENT                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. Project Setup     →  Scaffold, configure, structure         │
-│  2. Routing           →  Define pages, layouts, middleware      │
-│  3. Components        →  Build UI with Go DSL                   │
-│  4. State             →  Signals, memos, shared state           │
-│  5. Data              →  Resources, actions, loading states     │
-│  6. Forms             →  Validation, submission, UX             │
-│  7. Auth              →  Sessions, middleware, authorization    │
-│  8. Styling           →  CSS, theming, design systems           │
-│  9. Deploy            →  Build, configure, operate              │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**What this guide does NOT cover:**
-- Framework internals (VDOM diffing, binary protocol encoding, session serialization)
-- Contributing to Vango itself
-- Building custom runtimes or modifying the thin client
-
-For those topics, refer to `VANGO_ARCHITECTURE_AND_GUIDE.md` and the contributor documentation.
-
-### 1.3 Framework Contracts vs. Application Best Practices
-
-This guide distinguishes between two types of guidance:
-
-**Framework Contracts (Normative)**
-
-These are rules that Vango enforces. Breaking them causes bugs, panics, or undefined behavior. Examples:
-- Render functions must be pure (no I/O, no goroutine creation)
-- Signal writes must happen on the session loop (use `ctx.Dispatch` from goroutines)
-- Hook-order semantics must be stable (no conditional hook calls)
-
-When we describe a contract, we use RFC 2119 keywords: **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY**.
-
-**Application Best Practices (Informative)**
-
-These are recommendations based on production experience. Deviating from them is sometimes appropriate. Examples:
-- Prefer `Resource` over manual Effect + goroutine for data loading
-- Use `URLParam` for shareable, back-button-friendly state
-- Keep route handlers thin; push logic into services
-
-When we describe a best practice, we use softer language: "we recommend," "prefer," "consider."
-
-### 1.4 The Pit of Success: Default Recommendations
-
-Vango is designed to make the right thing easy. These defaults will serve most apps well:
-
-| Decision | Default Recommendation | Alternative When |
-|----------|------------------------|------------------|
-| **Rendering Mode** | Server-driven | WASM for offline-first; Hybrid for latency-critical widgets |
-| **State Location** | Server (signals) | Client (`LocalSignal`) for ephemeral UI state only |
-| **Data Loading** | `Resource` in components | Route handler for nav-blocking data |
-| **Mutations** | `Action` with concurrency policy | Direct handler for trivial updates |
-| **Forms** | `UseForm` with validation | Manual signals for very simple cases |
-| **Styling** | Tailwind CSS (Standalone) | Pure CSS if you prefer no build step |
-| **Client Code** | None (server handles everything) | Hooks for 60fps; Islands for third-party libs |
-
-**The 80/20 Rule**
-
-For most CRUD apps, dashboards, and admin panels:
-- 80% of your code is server-driven pages with no client-side JavaScript
-- 15% uses client hooks for smooth drag-drop, tooltips, or animations
-- 5% might need a JavaScript or WASM island for specialized widgets
-
-Start with server-driven, add client extensions when you have a specific need.
-
-### 1.5 The Contract Boundary
-
-Understanding the boundary between Vango's responsibilities and your application's responsibilities is critical for debugging and correctness.
-
-**What Vango Guarantees:**
-
-| Guarantee | Description |
-|-----------|-------------|
-| **Reactive Updates** | When a signal changes, all dependent components re-render and patches are sent |
-| **Session Durability** | Within `ResumeWindow`, refreshing the page restores session state (the thin client resumes by sending the last `sessionId` from `sessionStorage` in the WS handshake) |
-| **Patch Correctness** | If your render functions are pure and keys are stable, patches correctly update the DOM |
-| **Event Delivery** | User events are delivered to the correct handler identified by HID |
-| **XSS Prevention** | Text content is escaped by default; raw HTML requires explicit opt-in |
-| **CSRF Protection** | Cookie + handshake token validation protects against cross-site attacks |
-
-**What Your Application Must Guarantee:**
-
-| Responsibility | Description |
-|----------------|-------------|
-| **Render Purity** | No I/O, goroutines, or non-deterministic reads during render |
-| **Hook Order Stability** | Same sequence of `NewSignal`, `NewMemo`, `Effect`, etc. on every render |
-| **Session Loop Writes** | Signal mutations only on the session loop (use `ctx.Dispatch` from goroutines) |
-| **Key Stability** | Dynamic lists use stable keys for correct identity tracking |
-| **Input Validation** | All user input is validated server-side before use |
-| **Authorization** | Every action checks the user has permission |
-
-**When Things Go Wrong**
-
-| Symptom | Likely Cause | Where to Look |
-|---------|--------------|---------------|
-| "Hook order changed" panic | Conditional hook calls or variable loop counts | §3.1.3 in the spec |
-| Stale UI after mutation | Signal write from goroutine without `ctx.Dispatch` | §7.0, §3.9.6 |
-| Patch mismatch reload | Unstable keys, direct DOM mutation, or render impurity | §4.4.3, §3.1.2 |
-| Missing event handler | SSR/WS tree shape mismatch, HID drift, missing initial route mount | See below |
-| Events received, patches = 0 | Signal created/read outside tracked render (static VNode cached) | Ensure handler executes during render |
-| Blocking I/O stalls session | Blocking database/HTTP call in page handler | §2.5 (page handlers are reactive) |
-
-**SSR/WS Alignment Issues ("Handler not found"):**
-
-The most common cause of "handler not found" errors is a mismatch between the SSR-rendered HTML and the WebSocket session's component tree. This happens when:
-
-1. **WS session mounts a different route than SSR** — The server must mount the same route during WS init as was rendered during SSR. The thin client sends `?path=<current-path>` to ensure this.
-
-2. **Different tree shape between SSR and WS** — If SSR renders one component tree but the WS session renders a different one (e.g., due to non-deterministic rendering or conditional logic), HIDs won't match.
-
-3. **Non-reactive page wrapper** — If page handlers were accidentally evaluated once and cached (a bug we fixed), HIDs would drift over time.
-
-4. **Nested components not expanded consistently** — SSR renders nested `vango.Component` nodes inline (so their elements consume HIDs). If the WS session mounts a tree where those nested components are not expanded before HID assignment/handler registration, all subsequent HIDs drift and events may target missing handlers.
-
-**Fix direction:** Ensure the WS session mounts the current route using the `?path=` parameter and renders the same tree shape as SSR. Both SSR and WS renders must be deterministic for the same inputs.
-
-**"Events received, patches = 0" Issues:**
-
-If events are reaching the server but no patches are sent back, the likely cause is signals being created or read outside the tracked render context:
-
-1. **Static VNode cached at module level** — If you cache a VNode that closes over signals, updates to those signals won't trigger re-renders because the VNode isn't part of the reactive tree.
-
-2. **Signal created outside `vango.Func`** — Signals must be created inside a tracked render function to participate in the reactive system.
-
-**Fix direction:** Ensure all signal creation and reads happen during render execution (inside `vango.Func` or page handlers). Don't cache VNodes that depend on reactive state.
-
-### 1.6 Reading This Guide Alongside the Spec
-
-This guide uses shorthand and focuses on application patterns. When you need the precise, normative contract:
-
-- **Render Rules** → `VANGO_ARCHITECTURE_AND_GUIDE.md` §3.1.2
-- **Signal/Memo/Effect API** → §3.9.4, §3.9.5, §3.9.6
-- **Resource and Action** → §3.9.7, §3.10.2
-- **Routing Contracts** → §9.1–9.9
-- **Protocol Specification** → §22
-
-This guide will link to specific spec sections when introducing concepts. If a pattern in this guide seems to conflict with the spec, the spec is authoritative.
+This section covers everything you need to set up a Vango development environment.
 
 ---
 
-## 2. Mental Model: How Vango Apps Work
+## System Requirements
 
-Understanding how Vango works at a conceptual level will help you write better applications and debug issues faster. This section provides the mental models you need.
-
-### 2.1 The Big Picture: Server-Driven UI
-
-In a traditional SPA, your JavaScript code runs in the browser, maintains state locally, and makes API calls to a backend:
-
-```
-Traditional SPA:
-┌─────────────────────┐          ┌─────────────────────┐
-│      Browser        │          │       Server        │
-│  ┌───────────────┐  │   API    │  ┌───────────────┐  │
-│  │ React/Vue/etc │◄─┼──────────┼─►│ REST/GraphQL  │  │
-│  │ State, Logic  │  │  JSON    │  │ Data Access   │  │
-│  │ Rendering     │  │          │  └───────────────┘  │
-│  └───────────────┘  │          │                     │
-└─────────────────────┘          └─────────────────────┘
-```
-
-In Vango, your Go code runs on the server. The browser runs a minimal client (~12KB) that:
-1. Captures user events and sends them to the server
-2. Receives binary patches and applies them to the DOM
-
-```
-Vango Server-Driven:
-┌─────────────────────┐          ┌─────────────────────┐
-│      Browser        │          │       Server        │
-│  ┌───────────────┐  │   WS     │  ┌───────────────┐  │
-│  │ Thin Client   │◄─┼──────────┼─►│ Vango Runtime │  │
-│  │ Event Capture │  │  Binary  │  │ Components    │  │
-│  │ Patch Apply   │  │  Patches │  │ State, Logic  │  │
-│  └───────────────┘  │          │  │ Data Access   │  │
-│                     │          │  └───────────────┘  │
-└─────────────────────┘          └─────────────────────┘
-```
-
-**Key insight**: Your components, signals, and business logic all run on the server. The browser is just a display and input device.
-
-### 2.2 Request Lifecycle: Initial Load
-
-When a user visits your app:
-
-```
-1. Browser requests   GET /projects/123
-                              │
-                              ▼
-2. Server matches route   → ProjectPage(ctx, id=123)
-                              │
-                              ▼
-3. Component renders      → Creates signals, builds VNode tree
-                              │
-                              ▼
-4. VNode → HTML          → SSR produces full HTML document
-                              │
-                              ▼
-5. HTML sent to browser   ← User sees content immediately
-                              │
-                              ▼
-6. Thin client loads      → ~12KB JavaScript initializes
-                              │
-                              ▼
-7. WebSocket connects     → Binary handshake, session established
-                              │
-                              ▼
-8. Page is interactive    → Events flow, patches apply
-```
-
-**User experience**: Content appears immediately (SSR). Interactivity follows within ~100-200ms as the thin client connects.
-
-**Developer experience**: You write one component that handles both SSR and interactive updates. No hydration bugs; the server owns state.
-
-### 2.3 Request Lifecycle: User Interaction
-
-When a user interacts with your app:
-
-```
-1. User clicks "Complete Task" button
-                              │
-                              ▼
-2. Thin client captures   → Click event on data-hid="h42"
-                              │
-                              ▼
-3. Binary event sent      → {type: CLICK, hid: "h42"}
-                              │
-                              ▼
-4. Server finds handler   → session.Handlers["h42"] = completeTask
-                              │
-                              ▼
-5. Handler runs           → task.Status.Set("done")
-                              │
-                              ▼
-6. Signal triggers render → Affected components re-render
-                              │
-                              ▼
-7. Diff: old vs new       → Only changed nodes produce patches
-                              │
-                              ▼
-8. Binary patches sent    → [{SET_TEXT, "h17", "✓ Done"}]
-                              │
-                              ▼
-9. Client applies patches → DOM updates, user sees "✓ Done"
-```
-
-**Latency**: Typical round-trip is 50-100ms. For most applications, this feels instant. For 60fps interactions (drag-drop, drawing), use client hooks.
-
-### 2.4 Session and Event Loop
-
-Each browser tab maintains a WebSocket connection with its own server-side session:
-
-```go
-// Conceptual model of a session (simplified)
-type Session struct {
-    ID         string
-    Conn       *websocket.Conn        // WebSocket connection
-    Signals    map[uint32]*SignalBase // All signals for this session
-    Components map[uint32]*Component  // Mounted component tree
-    Handlers   map[string]func()      // HID → event handler mapping
-    LastTree   *VNode                 // Previous render for diffing
-}
-```
-
-The session runs an **event loop** that processes one event at a time:
-
-```go
-// Simplified event loop
-for event := range session.events {
-    // 1. Find and run the handler
-    handler := session.Handlers[event.HID]
-    handler()  // This may Set/Update signals
-    
-    // 2. Re-render components whose signals changed
-    session.renderDirtyComponents()
-    
-    // 3. Diff and send patches
-    patches := diff(session.LastTree, session.CurrentTree)
-    session.sendPatches(patches)
-    session.LastTree = session.CurrentTree
-}
-```
-
-**Key constraint**: All signal writes happen on this event loop. If you do async work in a goroutine, you **must** marshal results back via `ctx.Dispatch(func() { ... })`.
-
-### 2.5 Route Handlers and Render Functions
-
-> **IMPORTANT UPDATE**: Page handlers registered via `app.Page(...)` are now **reactive**. They are wrapped in `vango.Func` internally and execute during the component render cycle, not once per navigation. This means page handlers **must follow render-purity and hook-order rules** just like any other render function.
-
-Vango page handlers produce UI and participate in the reactive system:
-
-**Page Handlers** (Reactive—execute during render)
-
-```go
-// Page handler signature
-func IndexPage(ctx vango.Ctx) *vango.VNode
-
-// With parameters
-func ShowPage(ctx vango.Ctx, p Params) *vango.VNode
-
-// Runs when: component renders (on mount AND on reactive updates)
-// Must be: PURE (no blocking I/O, no goroutines, stable hook order)
-// Produces: VNode tree for this route
-```
-
-Page handlers are the entry point for a page. They receive the routing context and URL parameters. Because they execute as part of the reactive render cycle:
-
-- **DO NOT** perform blocking I/O (database queries, HTTP calls) directly
-- **DO NOT** spawn goroutines
-- **DO** create signals, memos, effects, and resources inside them
-- **DO** follow hook-order rules (same sequence of hooks on every render)
-
-**Correct Pattern—Use Resource for Data Loading:**
-
-```go
-func ShowPage(ctx vango.Ctx, p Params) *vango.VNode {
-    return ProjectPageComponent(p.ID)
-}
-
-func ProjectPageComponent(id int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-
-        // Resource handles async loading properly
-        project := vango.NewResource(func() (*Project, error) {
-            return services.Projects.GetByID(ctx.StdContext(), id)
-        })
-
-        return project.Match(
-            vango.OnLoading(ProjectSkeleton),
-            vango.OnError(ErrorCard),
-            vango.OnReady(ProjectView),
-        )
-    })
-}
-```
-
-**Render Functions** (Run on state changes)
-
-```go
-func TaskList(tasks Signal[[]Task]) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        // Runs when: tasks signal changes
-        // Must be: pure (no I/O, no goroutines)
-        // Produces: VNode tree for this component
-        return Ul(
-            Range(tasks.Get(), func(t Task, _ int) *vango.VNode {
-                return Li(Key(t.ID), Text(t.Name))
-            }),
-        )
-    })
-}
-```
-
-Both page handlers and render functions inside `vango.Func` are reactive. They re-run automatically when any signal they read (via `.Get()`) changes. They **must** be pure—no I/O, no side effects.
-
-**When to use what:**
-
-| Scenario | Use |
-|----------|-----|
-| Load data for a page | `Resource` inside page handler or component |
-| Async mutations | `Action` with concurrency policy |
-| Transform or filter existing data | `Memo` |
-| React to user input | Event handler → signal `.Set()` |
-| Prefetch data before navigation | Router-level prefetch (future feature) |
-
-### 2.6 Where State Lives: The Three Modes
-
-Vango supports three rendering modes. Understanding them helps you make architecture decisions:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        VANGO MODES                              │
-├─────────────────┬─────────────────┬─────────────────────────────┤
-│  SERVER-DRIVEN  │     HYBRID      │           WASM              │
-│   (Default)     │                 │                             │
-├─────────────────┼─────────────────┼─────────────────────────────┤
-│ State lives on  │ Most state on   │ State lives in browser      │
-│ the server      │ server; some    │ WASM memory                 │
-│                 │ client-side     │                             │
-├─────────────────┼─────────────────┼─────────────────────────────┤
-│ Signals update  │ Server signals  │ Signals update locally      │
-│ via WS patches  │ + LocalSignals  │ No server round-trip        │
-├─────────────────┼─────────────────┼─────────────────────────────┤
-│ ~12KB client    │ ~12KB + hooks   │ ~300KB+ WASM                │
-├─────────────────┼─────────────────┼─────────────────────────────┤
-│ Requires        │ Requires        │ Works fully offline         │
-│ connection      │ connection      │                             │
-├─────────────────┼─────────────────┼─────────────────────────────┤
-│ Best for: CRUD, │ Best for: apps  │ Best for: offline-first,    │
-│ dashboards,     │ with some 60fps │ latency-critical apps       │
-│ admin panels    │ interactions    │ (games, drawing tools)      │
-└─────────────────┴─────────────────┴─────────────────────────────┘
-```
-
-**The same component code works in all modes**:
-
-```go
-func Counter(initial int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        count := vango.NewSignal(initial)
-
-        return Div(
-            H1(Textf("Count: %d", count.Get())),
-            Button(OnClick(count.Inc), Text("+")),
-            Button(OnClick(count.Dec), Text("-")),
-        )
-    })
-}
-```
-
-| Mode | Where `count` lives | Where `OnClick` runs | How DOM updates |
-|------|---------------------|---------------------|-----------------|
-| Server-Driven | Server memory | Server event loop | Binary patches over WS |
-| Hybrid | Server (or client if using `LocalSignal`) | Depends on signal scope | Mixed |
-| WASM | Browser WASM memory | Browser WASM | Direct DOM manipulation |
-
-**Start with server-driven mode** and only add client-side execution when you have a specific need (offline support, sub-16ms responsiveness, or heavy client computation).
-
-### 2.7 Understanding Patches and HIDs
-
-When a component re-renders, Vango doesn't send a new HTML document. It computes the **diff** between the old and new VNode trees and sends only the changes as **patches**.
-
-**Example**: A counter incrementing from 5 to 6
-
-```html
-<!-- Before -->
-<div class="counter">
-    <h1 data-hid="h1">Count: 5</h1>
-    <button data-hid="h2">+</button>
-</div>
-
-<!-- After (only the text changed) -->
-<div class="counter">
-    <h1 data-hid="h1">Count: 6</h1>  <!-- Just this text -->
-    <button data-hid="h2">+</button>
-</div>
-
-<!-- Patch sent: -->
-[SET_TEXT, hid="h1", "Count: 6"]
-```
-
-**HIDs (Hydration IDs)** identify elements for:
-1. **Event routing**: When user clicks `data-hid="h2"`, server looks up `handlers["h2"]`
-2. **Patch targeting**: When text changes, patch targets `hid="h1"`
-
-**Wire format efficiency**: HIDs are numeric on the wire. `data-hid="h42"` becomes varint `42`. Combined with binary patch encoding, the protocol is extremely compact.
-
-### 2.8 Why Keys Matter for Lists
-
-When rendering dynamic lists, **keys** provide stable identity:
-
-```go
-// Good: Stable key based on item identity
-Range(tasks, func(task Task, _ int) *vango.VNode {
-    return Li(Key(task.ID), Text(task.Title))
-})
-
-// Bad: No key (or index-based key)
-Range(tasks, func(task Task, i int) *vango.VNode {
-    return Li(Key(i), Text(task.Title))  // Index changes when list reorders!
-})
-```
-
-**Why stable keys matter:**
-
-1. **Correct patching**: When you reorder items, Vango can emit `MOVE_NODE` instead of deleting and recreating elements
-2. **Preserved state**: If list items contain component state (signals, form inputs), keys preserve that state across reorders
-3. **Efficient diffs**: Less DOM churn means smaller patches and faster updates
-
-**Rule of thumb**: Use a stable, unique identifier from your domain (database ID, UUID) as the key.
-
-### 2.9 Translating Client-Side State to Server Signals
-
-If you're coming from SPAs, here's how to translate your thinking. **Important**: While Vango has hook-order rules similar to React, the execution model is closer to **SolidJS** (fine-grained signal dependencies) than React (component-level re-renders). Signals track dependencies precisely—only affected computations re-run when a signal changes.
-
-#### State Location
-
-**SPA**: State lives in the browser. You architect around client state management (Redux, Zustand, Pinia) and sync with the server via API calls.
-
-**Vango**: State lives on the server by default. There's no synchronization problem because there's only one source of truth. The browser shows a projection of server state.
-
-```
-SPA:                              Vango:
-┌─────────────────────┐           ┌─────────────────────┐
-│ Browser State       │           │ Server State        │
-│  ↕ (sync problem)   │           │  ↓ (patches)        │
-│ Server State        │           │ Browser (display)   │
-└─────────────────────┘           └─────────────────────┘
-```
-
-#### Event Handling
-
-**SPA**: Events run JavaScript handlers in the browser. Updates are computed locally. Server is called for mutations.
-
-**Vango**: Events are captured and sent to the server. Handlers run on the server. Patches are sent back. The browser is an input/output device.
-
-```go
-// SPA (React)
-const handleClick = () => {
-  setCount(count + 1);        // Local state update
-  api.saveCount(count + 1);   // Server sync
-};
-
-// Vango
-OnClick(func() {
-    count.Inc()  // State update on server; patch sent automatically
-})
-```
-
-Vango event handlers are type-safe: each `On*` helper supports a small set of function signatures.
-
-```go
-// Input/change: shorthand value or full event payload
-OnInput(func(value string) { query.Set(value) })
-OnInput(func(e vango.InputEvent) { query.Set(e.Value) })
-
-// Click: omit payload or request mouse coordinates/modifiers
-OnClick(func() { count.Inc() })
-OnClick(func(e vango.MouseEvent) { log.Printf("%d,%d", e.ClientX, e.ClientY) })
-
-// Submit: use FormData when you need fields
-OnSubmit(func() { submit.Run() })
-OnSubmit(func(data vango.FormData) {
-    _ = data.Get("name")
-    submit.Run()
-})
-
-// Browser behavior and timing are expressed with event modifiers
-OnSubmit(vango.PreventDefault(func() { submit.Run() }))
-OnInput(vango.Debounce(300*time.Millisecond, func(value string) { query.Set(value) }))
-```
-
-#### Data Fetching
-
-**SPA**: Components fetch data, manage loading states, handle caching, deal with stale data and cache invalidation.
-
-**Vango**: Components can access the database directly. There's no API layer for your own UI. Loading states are handled by `Resource`.
-
-```go
-// SPA: useQuery, SWR, React Query...
-const { data, isLoading, error } = useQuery(['user', id], () => fetchUser(id));
-
-// Vango: Resource wraps async loading with states
-user := vango.NewResource(func() (*User, error) {
-    return db.Users.FindByID(ctx.StdContext(), userID)
-})
-
-// Use directly—no JSON, no API contracts, no cache sync
-return user.Match(
-    vango.OnLoading(func() *vango.VNode { return Spinner() }),
-    vango.OnReady(func(u *User) *vango.VNode { return UserCard(u) }),
-    vango.OnError(func(err error) *vango.VNode { return ErrorCard(err) }),
-)
-```
-
-#### Routing
-
-**SPA**: Client-side router intercepts navigation, manages history, lazy-loads route bundles, calls APIs for route data.
-
-**Vango**: Navigation triggers server-side route handler. Server sends patches (or full page for first load). URLs are still shareable; back button still works.
-
-```go
-// Navigation looks like normal links
-A(Href("/projects/123"), Text("View Project"))
-
-// Or programmatic
-Button(OnClick(func() {
-    ctx.Navigate("/projects/123")
-}), Text("Go to Project"))
-```
-
-#### Offline and Latency Concerns
-
-**SPA**: Works offline once loaded (if you build that). Every interaction is local-first with eventual server sync.
-
-**Vango (Server-Driven)**: Requires connection. Every interaction has network latency (~50-100ms).
-
-**Vango (Hybrid/WASM)**: Can work offline. Can have local-first interactions. You opt in where needed.
-
-**When latency matters**: For most CRUD apps, 50-100ms is imperceptible. For drag-drop, drawing, or games, use client hooks (60fps on client, commit on mouse-up) or WASM islands.
-
-### 2.10 The Single-Writer Session Loop
-
-The most important correctness rule in Vango:
-
-> **All signal writes must happen on the session event loop.**
-
-The session processes one event at a time. This ensures:
-1. No race conditions on signal state
-2. Predictable render order
-3. Atomic commit of patches
-
-**What this means for your code:**
-
-```go
-// ✅ Correct: Write in event handler (runs on session loop)
-Button(OnClick(func() {
-    count.Inc()  // Fine—we're on the session loop
-}), Text("+"))
-
-// ✅ Correct: Write via ctx.Dispatch from goroutine
-vango.Effect(func() vango.Cleanup {
-    ctx := vango.UseCtx()
-    id := userID.Get()
-    
-    go func(id int) {
-        user, err := fetchUser(id)
-        
-        // Marshal back to session loop before writing signals
-        ctx.Dispatch(func() {
-            if userID.Peek() != id {
-                return  // Stale result
-            }
-            if err != nil {
-                errorState.Set(err)
-                return
-            }
-            userData.Set(user)
-        })
-    }(id)
-    
-    return nil
-})
-
-// ❌ Wrong: Write directly from goroutine
-vango.Effect(func() vango.Cleanup {
-    go func() {
-        user, _ := fetchUser(userID.Get())
-        userData.Set(user)  // PANIC: not on session loop!
-    }()
-    return nil
-})
-```
-
-**Prefer structured helpers**: `Resource`, `Action`, `Interval`, `Subscribe`, and `GoLatest` handle the dispatch logic correctly. Raw `Effect` + goroutine is the low-level primitive, not the default.
-
-### 2.11 Reactivity Flow
-
-Understanding how changes propagate helps you design efficient components:
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      REACTIVITY FLOW                             │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  1. User Action          Button click, input, form submit        │
-│         │                                                        │
-│         ▼                                                        │
-│  2. Event Handler        signal.Set(newValue)                    │
-│         │                                                        │
-│         ▼                                                        │
-│  3. Mark Dirty           Components/memos that read this signal  │
-│         │                                                        │
-│         ▼                                                        │
-│  4. Recompute Memos      Derived values recalculate              │
-│         │                                                        │
-│         ▼                                                        │
-│  5. Re-render Components Dirty components produce new VNodes     │
-│         │                                                        │
-│         ▼                                                        │
-│  6. Diff                 Compare old VNode tree to new           │
-│         │                                                        │
-│         ▼                                                        │
-│  7. Encode Patches       Minimal binary diff                     │
-│         │                                                        │
-│         ▼                                                        │
-│  8. Send to Client       Over WebSocket                          │
-│         │                                                        │
-│         ▼                                                        │
-│  9. Apply to DOM         Thin client updates browser DOM         │
-│                                                                  │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-**Granularity**: Vango tracks dependencies at the component level, not the expression level. A component re-renders if any signal it reads changes. Use memos to isolate expensive computations and avoid unnecessary work.
-
-```go
-// Expensive filter runs every time ANY signal in this component changes
-func BadExample() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        filter := filterSignal.Get()
-        items := hugeList.Get()  // 10,000 items
-        
-        // This runs on EVERY render
-        filtered := expensiveFilter(items, filter)
-        
-        return ItemList(filtered)
-    })
-}
-
-// Good: Memo caches the filtered result
-func GoodExample() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        filtered := vango.NewMemo(func() []Item {
-            // Only runs when filterSignal or hugeList changes
-            return expensiveFilter(hugeList.Get(), filterSignal.Get())
-        })
-        
-        return ItemList(filtered.Get())
-    })
-}
-```
-
-### 2.12 Summary: The Vango Mental Model
-
-1. **Your code runs on the server**. The browser is a thin display/input layer.
-
-2. **State is server-side by default**. No client-server sync problems.
-
-3. **Events go up, patches come down**. User actions become events; state changes become patches.
-
-4. **One event at a time per session**. The session loop ensures consistency.
-
-5. **Render functions are pure**. No I/O, no side effects, no goroutines.
-
-6. **Use structured primitives**. `Resource` for loading, `Action` for mutations, structured helpers for async work.
-
-7. **Keys provide identity**. Stable keys enable efficient diffs for lists.
-
-8. **Client extensions exist**. Hooks for 60fps, islands for third-party libs, WASM for offline-first.
-
-9. **Progressive enhancement always**. Links/forms work without JS; enhanced when connected.
-
-10. **The spec is authoritative**. When in doubt, consult `VANGO_ARCHITECTURE_AND_GUIDE.md`.
-
-## 3. Install, Requirements, and Tooling
-
-This section covers everything you need to set up a Vango development environment and production build pipeline.
-
-### 3.1 System Requirements
-
-**Go Version**
+### Go Version
 
 Vango requires **Go 1.22 or later**. We recommend always using the latest stable Go release.
 
@@ -957,17 +76,19 @@ go version
 # Install or update Go: https://go.dev/dl/
 ```
 
-**Node.js (Not Required)**
+### Node.js (Not Required)
 
-Vango does not require Node.js for its core features or for the default Tailwind CSS pipeline. Tailwind is managed via a standalone binary that Vango handles automatically.
+Vango does not require Node.js for its core features or for the default Tailwind CSS pipeline. Tailwind is managed via a **standalone binary** that Vango downloads and manages automatically.
 
-Node.js is only needed if you explicitly choose to use other JavaScript-based tooling in your project (like custom PostCSS plugins not supported by the standalone binary).
+Node.js is only needed if you explicitly choose to use other JavaScript-based tooling (like custom PostCSS plugins not supported by the standalone binary).
 
-**Operating System**
+### Operating System
 
 Vango works on macOS, Linux, and Windows. For production deployments, we recommend Linux containers.
 
-### 3.2 Installing the Vango CLI
+---
+
+## Installing the Vango CLI
 
 The Vango CLI provides project scaffolding, development server, code generation, and build tools.
 
@@ -991,9 +112,21 @@ vango version
 | `vango gen component` | Generate component boilerplate |
 | `vango gen route` | Generate route file with registration |
 
-### 3.3 Go Module Setup
+---
 
-Vango apps are standard Go modules. Your `go.mod` should import the Vango framework:
+## Creating Your First App
+
+```bash
+# Create with default template (Tailwind + example pages)
+vango create myapp
+cd myapp
+
+# Start development server
+vango dev
+# → Opens browser at http://localhost:8080
+```
+
+Your app is a standard Go module. The `go.mod` imports the Vango framework:
 
 ```go
 module myapp
@@ -1011,178 +144,13 @@ require (
 - Keep your module path simple (e.g., `myapp` or `github.com/org/myapp`)
 - Vango's code generator uses your module path to generate correct imports
 
-### 3.4 Tailwind CSS Pipeline (Default Template)
+---
 
-The default template uses Tailwind CSS for styling. Here's how it works:
+## Editor Setup
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    TAILWIND BUILD PIPELINE                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  1. Source Files       app/**/*.go (Class("...") calls)        │
-│         │                                                        │
-│         ▼                                                        │
-│  2. Tailwind Scan      Extracts class names from Go files        │
-│         │                                                        │
-│         ▼                                                        │
-│  3. Generate CSS       Only includes classes actually used       │
-│         │                                                        │
-│         ▼                                                        │
-│  4. Output             public/styles.css                         │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+### VS Code (Recommended)
 
-**Configuration Files:**
-
-```
-myapp/
-├── vango.json            # Tailwind config is here
-└── app/styles/
-    └── input.css         # Tailwind source (@import "tailwindcss")
-```
-
-**Development:**
-
-```bash
-# Tailwind runs automatically with vango dev.
-# No Node.js required!
-vango dev
-```
-
-**Customizing Tailwind:**
-
-Vango uses Tailwind CSS v4. Most configuration is done directly in your CSS using `@theme` blocks. If you need a `tailwind.config.js`, you can still use one, but it is optional.
-
-```javascript
-// tailwind.config.js (Optional in v4)
-export default {
-  theme: {
-    extend: {
-      colors: {
-        primary: '#3b82f6',
-      },
-    },
-  },
-}
-```
-
-**Scanner Limitations:**
-
-Tailwind's scanner uses regex-based extraction to find class names in your Go files. It looks for complete class name strings, not computed values.
-
-```go
-// ✅ WORKS: Full class names in strings
-Class("bg-blue-500")                        // Detected
-Class("text-red-500", "font-bold")          // Detected
-Class(isActive && "bg-blue-500")            // Detected (conditional)
-
-// ❌ WON'T WORK: Dynamic string construction
-Class("btn-" + variant)                     // NOT detected
-Class(fmt.Sprintf("text-%s-500", color))    // NOT detected
-Class("bg-" + getColorName())               // NOT detected
-```
-
-**Recommendation**: Always use full class names in your Go code so the scanner can detect them. If you need variant-based styling, use explicit conditionals:
-
-```go
-// ✅ CORRECT: Explicit class names
-func buttonClass(variant string) string {
-    switch variant {
-    case "primary":
-        return "bg-blue-500 text-white"
-    case "danger":
-        return "bg-red-500 text-white"
-    default:
-        return "bg-gray-500 text-white"
-    }
-}
-```
-
-### 3.5 Pure CSS (No Build Step)
-
-If you prefer to use pure CSS without any build step, you can disable Tailwind in `vango.json`:
-
-1. Set `"tailwind": { "enabled": false }` in `vango.json`
-2. Write CSS directly in `public/styles.css`
-3. No build step for CSS—just edit and refresh
-
-**CSS Organization:**
-
-```css
-/* public/css/app.css */
-
-/* Design tokens */
-:root {
-    --color-primary: #3b82f6;
-    --color-secondary: #10b981;
-    --spacing-sm: 0.5rem;
-    --spacing-md: 1rem;
-    --spacing-lg: 2rem;
-    --radius: 0.375rem;
-}
-
-/* Component styles */
-.btn {
-    padding: var(--spacing-sm) var(--spacing-md);
-    border-radius: var(--radius);
-    font-weight: 500;
-}
-
-.btn-primary {
-    background: var(--color-primary);
-    color: white;
-}
-
-/* Utility classes you actually use */
-.flex { display: flex; }
-.flex-col { flex-direction: column; }
-.gap-4 { gap: var(--spacing-md); }
-```
-
-### 3.6 Development Server (`vango dev`)
-
-The development server provides:
-
-- **Hot reload**: Go file changes trigger recompile and browser refresh
-- **Tailwind watch**: CSS rebuilds on class name changes (if using Tailwind)
-- **Route regeneration**: New pages automatically register routes
-- **DevTools**: Browser extension integration for debugging
-
-```bash
-# Start dev server
-vango dev
-
-# With options
-vango dev --port 3000        # Custom port (default: 8080)
-vango dev --host 0.0.0.0     # Listen on all interfaces
-vango dev --no-browser       # Don't auto-open browser
-```
-
-**What `vango dev` does:**
-
-```
-1. Generates route glue (app/routes/routes_gen.go)
-2. Starts Tailwind watcher (if configured)
-3. Compiles and runs your app
-4. Watches for file changes
-5. On change: regenerate routes → recompile → restart → notify browser
-```
-
-**Development Configuration:**
-
-During development, Vango enables:
-- Detailed error pages with stack traces
-- Effect strictness warnings (§3.10.4)
-- DevTools transaction naming with source locations
-- Longer timeouts for debugging
-
-### 3.7 Editor Setup
-
-**VS Code (Recommended):**
-
-Install the Go extension and configure:
+Install the Go extension and configure Tailwind IntelliSense for Go files:
 
 ```json
 // .vscode/settings.json
@@ -1191,7 +159,7 @@ Install the Go extension and configure:
     "go.lintTool": "golangci-lint",
     "go.formatTool": "goimports",
     "editor.formatOnSave": true,
-    
+
     // Tailwind IntelliSense for Go files
     "tailwindCSS.includeLanguages": {
         "go": "html"
@@ -1202,540 +170,1545 @@ Install the Go extension and configure:
 }
 ```
 
-**GoLand / IntelliJ:**
+The `classRegex` pattern enables Tailwind autocomplete inside `Class(...)` calls in your Go code.
+
+### GoLand / IntelliJ
 
 - Import the project as a Go module
 - Enable "Format on Save" with goimports
 - Install the Tailwind CSS plugin for class name completion
 
-**Vim / Neovim:**
+### Vim / Neovim
 
-Use gopls for Go support and the tailwindcss-language-server for Tailwind completion.
-
-### 3.8 Testing Workflow
-
-```bash
-# Run all tests
-go test ./...
-
-# Run with verbose output
-go test -v ./...
-
-# Run specific package
-go test ./app/routes/...
-
-# Run with coverage
-go test -cover ./...
-
-# Run with race detector (recommended in CI)
-go test -race ./...
-```
-
-**Test Organization:**
-
-```
-app/
-├── routes/
-│   ├── projects/
-│   │   ├── [id].go           # Dynamic route /projects/:id
-│   │   └── index.go          # List route /projects
-│   │   └── index_test.go     # Route handler tests
-├── components/
-│   ├── button.go
-│   └── button_test.go        # Component tests
-└── services/
-    ├── tasks.go
-    └── tasks_test.go         # Service/logic tests
-```
-
-### 3.9 Configuration Management
-
-**Environment Variables:**
-
-```go
-// config/config.go
-package config
-
-import "os"
-
-type Config struct {
-    DatabaseURL   string
-    Port          string
-    Environment   string  // "development", "staging", "production"
-    SessionSecret string
-}
-
-func Load() Config {
-    return Config{
-        DatabaseURL:   getEnv("DATABASE_URL", "postgres://localhost/myapp_dev"),
-        Port:          getEnv("PORT", "8080"),
-        Environment:   getEnv("ENVIRONMENT", "development"),
-        SessionSecret: mustGetEnv("SESSION_SECRET"),
-    }
-}
-
-func getEnv(key, fallback string) string {
-    if val := os.Getenv(key); val != "" {
-        return val
-    }
-    return fallback
-}
-
-func mustGetEnv(key string) string {
-    if val := os.Getenv(key); val != "" {
-        return val
-    }
-    panic("required environment variable not set: " + key)
-}
-```
-
-**Development vs Production:**
-
-| Setting | Development | Production |
-|---------|-------------|------------|
-| Error pages | Detailed with stack traces | Generic error messages |
-| Effect strictness | Warn on effect-time writes | Off (unless configured) |
-| DevTools | Full transaction names with source locations | Component-level names only |
-| Session store | In-memory (lost on restart) | Redis or database |
-| Static caching | No caching (reload on every request) | Long-lived with fingerprinting |
-
-### 3.10 CI/CD Setup
-
-**GitHub Actions Example:**
-
-```yaml
-# .github/workflows/ci.yml
-name: CI
-
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      
-      - name: Generate routes
-        run: vango gen routes
-      
-      - name: Build project (includes Tailwind)
-        run: vango build
-      
-      - name: Run tests
-        run: go test -race -v ./...
-      
-      - name: Build binary
-        run: go build -o myapp .
-
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-      
-      # ... build and deploy steps
-```
-
-**Reproducible Builds:**
-
-```bash
-# Pin tool versions in go.mod with tool directive (Go 1.22+)
-# or use a tools.go pattern
-
-# Pin Vango CLI version
-go install github.com/vango-go/vango/cmd/vango@v1.2.3
-```
+Use gopls for Go support and the tailwindcss-language-server for Tailwind completion. Configure the language server to recognize `Class(...)` patterns.
 
 ---
 
-## 4. Creating a New App
+# Part I: The Core
 
-This section walks you through creating and understanding your first Vango application.
+Fundamentals required to write a correct “Hello World” application: how Vango runs, how you write UI, and how you style it.
 
-### 4.1 Scaffolding a New Project
+---
 
-Use `vango create` to scaffold a new project:
+## 1. Mental Model & Architecture
 
-```bash
-# Create with default template (Tailwind + example pages)
-vango create myapp
+### 1.1 Server-Driven UI
 
-# Create in current directory
-vango create .
+In a traditional SPA:
 
-# Create with Tailwind CSS
-vango create myapp --with-tailwind
+* state + rendering live in the browser
+* the server is an API provider
+* UI correctness depends on client/server sync and hydration consistency
 
-# Create with minimal template (bare bones)
-vango create myapp --minimal
+In Vango:
 
-# Create with all features (Tailwind, database, auth)
-vango create myapp --full
-```
+* **state + rendering live on the server**
+* the browser runs a **thin client (~12KB)** whose job is:
 
-**Template Options:**
+  1. capture user events
+  2. send them to the server
+  3. apply server-sent **binary patches** to the DOM
 
-| Flag | What's Included |
-|------|-----------------|
-| **(default)** | Standard starter with home, about, health API, navbar, footer, and Tailwind CSS |
-| **--with-tailwind** | Explicitly include Tailwind CSS (managed via standalone binary) |
-| **--minimal** | Just the essentials: home page, health API |
-| **--with-db=postgres** | Include database setup (sqlite or postgres) |
-| **--with-auth** | Include admin routes with authentication middleware |
-| **--full** | All features: Tailwind, database (sqlite), auth |
+**Key implication:** your UI is a projection of server state. There is no client/server state synchronization problem because the server is the source of truth.
 
-### 4.2 Project Structure After Scaffolding
+### 1.2 The Session Loop (Single Writer)
 
-```
-myapp/
-├── main.go                   # Entry point (at repo root)
-├── app/
-│   ├── routes/
-│   │   ├── routes_gen.go     # Generated route registration
-│   │   ├── layout.go         # Root layout
-│   │   ├── index.go          # Home page (/)
-│   │   ├── about.go          # About page (/about)
-│   │   └── api/
-│   │       └── health.go     # Health API (/api/health)
-│   ├── components/
-│   │   ├── shared/
-│   │   │   ├── navbar.go     # Navbar component
-│   │   │   └── footer.go     # Footer component
-│   │   └── ui/
-│   │       └── .gitkeep      # Placeholder for UI components
-│   ├── middleware/
-│   │   └── auth.go           # Auth middleware scaffold
-│   └── store/
-│       └── .gitkeep          # Placeholder for shared state
-├── db/
-│   └── .gitkeep              # Placeholder for database code
-├── public/
-│   ├── styles.css            # CSS (pure CSS by default)
-│   └── favicon.ico
-├── vango.json                # Vango configuration
-├── go.mod
-└── .gitignore
-```
+Each browser tab has a server-side **session** backed by a WebSocket connection. Each session runs a **single-threaded event loop**:
 
-**With `--with-tailwind` flag:**
+* events are processed one-at-a-time
+* state updates are applied deterministically
+* the UI re-renders and patches are emitted after the event is handled
 
-```
-myapp/
-├── ...                       # Same as above, plus:
-├── app/styles/
-│   └── input.css             # Tailwind source (@import "tailwindcss")
-└── tailwind.config.js        # Optional Tailwind configuration
-```
+**The single most important correctness rule:**
 
-### 4.3 Understanding the Entry Point
+> **All signal writes MUST happen on the session loop.**
 
-The entry point (`main.go` at project root) boots your Vango app:
+This is why Vango is race-resistant by default: it enforces a single-writer model.
 
-```go
-package main
+If you do background work in goroutines, you must marshal results back to the session loop using `ctx.Dispatch(...)` (detailed later in the guide; mentioned here because it explains many “why did this panic?” issues).
 
-import (
-    "log"
-    "net/http"
-    
-    "github.com/vango-go/vango"
-    "myapp/app/routes"
-)
+### 1.3 The Request Lifecycle
 
-func main() {
-    // Create the Vango app with configuration
-    app := vango.New(vango.Config{
-        // Session configuration
-        Session: vango.SessionConfig{
-            ResumeWindow:  30 * time.Second,
-            // Store: vango.RedisStore(redisClient), // Production
-        },
-        
-        // Static file serving
-        Static: vango.StaticConfig{
-            Dir:    "public",
-            Prefix: "/",
-        },
-        
-        // Development mode (auto-detected, but can be explicit)
-        DevMode: os.Getenv("ENVIRONMENT") != "production",
-    })
-    
-    // Register routes (generated code handles this)
-    routes.Register(app)
-    
-    // Mount into standard http.Handler
-    mux := http.NewServeMux()
-    mux.Handle("/", app)
-    
-    // Start server
-    log.Println("Server starting on http://localhost:8080")
-    log.Fatal(http.ListenAndServe(":8080", mux))
-}
-```
+#### Initial Load (SSR)
 
-**Key Points:**
+1. Browser requests `GET /some/path?query=...`
+2. Vango matches the route and executes the page handler (render phase)
+3. Vango renders a VDOM tree and produces **HTML** (SSR)
+4. Browser displays content immediately
+5. Thin client JS loads and connects via WebSocket to enable interactivity
 
-- `vango.New()` creates the app with configuration
-- `routes.Register()` is generated and registers all your pages
-- The app is a standard `http.Handler`—integrate with any Go router
-- Static files are served from `public/`
+#### WebSocket Upgrade and Route Mount
 
-### 4.4 Your First Page
+The thin client connects to:
 
-Pages live in `app/routes/`. The file path Determines the URL:
+* `/_vango/live?path=<current-path-and-query>`
+
+That `?path=` parameter is required so the server mounts **the same route** the browser is currently showing. If the server mounts a different route/tree than SSR, event handler IDs won’t align and you’ll see “handler not found” or self-heal reloads.
+
+#### Event/Patch Cycle (Interactive Loop)
+
+1. user triggers an event (click/input/submit)
+2. thin client sends a binary event referencing the element’s HID
+3. server resolves HID → handler function
+4. handler runs on the session loop (may write signals)
+5. Vango re-renders affected components
+6. Vango diffs old vs new VDOM and sends minimal patches
+7. thin client applies patches to the DOM
+
+### 1.4 The Thin Client
+
+The thin client provides:
+
+* WebSocket connect/reconnect
+* event capture + binary event encoding
+* patch application
+* progressive enhancement (links/forms work without WS; enhanced when connected)
+* self-heal (hard reload on patch mismatch or invalid session resume)
+
+**Script inclusion:** You can include `VangoScripts()` explicitly in your root layout, or rely on auto-injection during SSR. Both work; explicit inclusion is recommended for clarity.
 
 ```go
-// app/routes/index.go → /
-// app/routes/about.go → /about
-// app/routes/projects/index.go → /projects
-// app/routes/projects/[id].go → /projects/:id
-```
-
-**A Simple Page:**
-
-```go
-// app/routes/index.go
-package routes
-
-import (
-    "github.com/vango-go/vango"
-    . "github.com/vango-go/vango/el"
-)
-
-// IndexPage is the route handler for /
-func IndexPage(ctx vango.Ctx) *vango.VNode {
-    return Div(Class("container mx-auto p-8"),
-        H1(Class("text-3xl font-bold mb-4"),
-            Text("Welcome to Vango"),
-        ),
-        P(Class("text-gray-600"),
-            Text("Build modern web apps with Go."),
-        ),
-    )
-}
-```
-
-### 4.5 Your First Layout
-
-Layouts wrap pages and provide shared UI (header, footer, scripts):
-
-```go
-// app/routes/layout.go
-package routes
-
-import (
-    "github.com/vango-go/vango"
-    . "github.com/vango-go/vango/el"
-)
-
-// Layout wraps all pages in this directory and subdirectories.
 func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    return Html(Lang("en"),
-        Head(
-            Meta(Charset("utf-8")),
-            Meta(Name("viewport"), Content("width=device-width, initial-scale=1")),
-            TitleEl(Text("My Vango App")),
-            LinkEl(Rel("stylesheet"), Href(ctx.Asset("styles.css"))),
-        ),
-        Body(Class("bg-gray-50 min-h-screen"),
-            Header(Class("bg-white shadow"),
-                Nav(Class("container mx-auto px-4 py-3 flex gap-6"),
-                    Link("/", Class("font-bold"), Text("Home")),
-                    Link("/about", Class("text-gray-600 hover:text-gray-900"), 
-                        Text("About")),
-                ),
-            ),
-            Main(Class("container mx-auto px-4 py-8"),
-                children,  // Page content goes here
-            ),
-            Footer(Class("container mx-auto px-4 py-8 text-gray-500 text-sm"),
-                Text("© 2024 My App"),
-            ),
-            // VangoScripts() is automatically injected at the end of Body if not present
-        ),
-    )
+	return Html(
+		Head(
+			Meta(Charset("utf-8")),
+			Meta(Name("viewport"), Content("width=device-width, initial-scale=1")),
+			TitleEl(Text("My App")),
+		),
+		Body(
+			children,
+			VangoScripts(), // recommended explicit inclusion
+		),
+	)
 }
 ```
 
-### 4.6 Your First Interactive Component
+### 1.5 Critical Contracts (What Must Be True)
 
-Now let's add state and event handling:
+Vango correctness depends on these application responsibilities:
+
+1. **Render Purity (MUST):**
+   Render functions (including page handlers) must not do blocking I/O, spawn goroutines, or perform non-deterministic side effects.
+
+2. **Hook Order Stability (MUST):**
+   Calls like `vango.NewSignal`, `vango.NewMemo`, `vango.Effect`, `vango.NewResource`, etc. must occur in a stable order/count across renders. Do not create hooks conditionally or in variable-length loops.
+
+3. **Session Loop Writes (MUST):**
+   Signal writes happen on the session loop (event handlers are on-loop; goroutines must use `ctx.Dispatch`).
+
+4. **Stable Keys in Lists (SHOULD):**
+   Dynamic lists should use stable domain keys (database IDs, UUIDs) to preserve identity and produce correct/efficient patches.
+
+### 1.6 Page Handlers Are Reactive (Important)
+
+Page handlers registered via `app.Page(...)` are **reactive**: they execute during the render cycle and are wrapped in `vango.Func` internally. That means page handlers follow the same rules as any render function:
+
+* **MUST** be render-pure (no blocking I/O, no goroutines)
+* **MUST** maintain stable hook order
+* **SHOULD** use `Resource` for data loading (not blocking DB calls directly)
+
+A page handler typically delegates to a component that uses structured primitives for I/O.
+
+---
+
+## 2. Component Syntax & Composition
+
+### 2.1 The Go DSL (HTML in Go)
+
+Vango UI is built using the `el` package DSL:
+
+* elements: `Div(...)`, `Button(...)`, `Input(...)`, etc.
+* text: `Text("...")`, `Textf("...")`
+* attributes/modifiers: `Class(...)`, `ID(...)`, `Href(...)`, `Type(...)`, etc.
+
+Example:
 
 ```go
-// app/routes/counter.go → /counter
-package routes
+import "github.com/vango-go/vango"
+import . "github.com/vango-go/vango/el"
 
-import (
-    "github.com/vango-go/vango"
-    . "github.com/vango-go/vango/el"
-)
-
-func CounterPage(ctx vango.Ctx) *vango.VNode {
-    return Div(Class("space-y-4"),
-        H1(Class("text-2xl font-bold"), Text("Counter Example")),
-        Counter(0),
-    )
+func IndexPage(ctx vango.Ctx) *vango.VNode {
+	return Div(
+		Class("container mx-auto p-8"),
+		H1(Class("text-3xl font-bold"), Text("Welcome to Vango")),
+		P(Class("text-gray-600"), Text("Server-driven UI with a client-side feel.")),
+	)
 }
+```
 
+**Mental model:** element functions build a VNode tree; Vango diffs successive trees and sends patches.
+
+### 2.2 Creating Components
+
+There are two common “shapes”:
+
+#### A) Stateless VNode-returning functions
+
+Use when the component has no local reactive state and is a pure function of inputs.
+
+```go
+func Badge(label string) *vango.VNode {
+	return Span(
+		Class("inline-flex items-center rounded px-2 py-1 text-xs"),
+		Text(label),
+	)
+}
+```
+
+#### B) Stateful reactive components via `vango.Func`
+
+Use when the component needs signals, resources, actions, memos, or effects.
+
+```go
 func Counter(initial int) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		count := vango.NewSignal(initial)
+
+		return Div(
+			Class("flex items-center gap-3"),
+			Button(Class("px-3 py-2 rounded bg-gray-200"), OnClick(count.Dec), Text("-")),
+			Span(Class("font-mono"), Textf("%d", count.Get())),
+			Button(Class("px-3 py-2 rounded bg-gray-200"), OnClick(count.Inc), Text("+")),
+		)
+	})
+}
+```
+
+**Key point:** hooks like `vango.NewSignal(...)` are correct inside `vango.Func` (and inside reactive page handlers). The rule is not “no signals in render”; the rule is “stable hook order.”
+
+### 2.3 Props & Children (Slots)
+
+Vango supports composition by passing:
+
+* typed props (Go parameters)
+* children via `vango.Slot` (for layouts and “slot-like” APIs)
+
+#### Layouts use `vango.Slot`
+
+```go
+func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
+	return Html(
+		Head(/* ... */),
+		Body(
+			Header(Class("p-4 border-b"), Text("My App")),
+			Main(Class("p-4"), children),
+			VangoScripts(),
+		),
+	)
+}
+```
+
+#### Component “children” patterns
+
+A common pattern is to accept `children ...any` and pass them through to an element constructor:
+
+```go
+func Card(children ...any) *vango.VNode {
+	return Div(
+		Class("rounded border p-4 bg-white"),
+		Group(children...),
+	)
+}
+```
+
+You can also expose more structured slots by taking explicit `*vango.VNode` or `vango.Slot` parameters if you want stronger shape guarantees.
+
+### 2.4 Event Handlers (OnClick, OnInput, OnSubmit) and Modifiers
+
+Events are attached using DSL helpers like `OnClick`, `OnInput`, `OnChange`, `OnSubmit`, etc.
+
+#### Common patterns
+
+```go
+func Example() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		name := vango.NewSignal("")
+
+		return Div(
+			Input(
+				Type("text"),
+				Value(name.Get()),
+				OnInput(func(v string) { name.Set(v) }),
+			),
+			Button(
+				OnClick(func() { /* do something */ }),
+				Text("Save"),
+			),
+		)
+	})
+}
+```
+
+#### PreventDefault and debouncing
+
+Browser behavior and timing are expressed with modifiers. Two canonical cases from the current guide:
+
+* **Form submit without navigation:** `vango.PreventDefault(...)`
+* **Debounced input handling:** `vango.Debounce(d, handler)`
+
+```go
+func SearchBox() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		q := vango.NewSignal("")
+
+		return Form(
+			OnSubmit(vango.PreventDefault(func() {
+				// submit logic without full reload
+			})),
+			Input(
+				Type("search"),
+				Value(q.Get()),
+				OnInput(vango.Debounce(300, func(v string) { // duration units depend on your imports; typically time.Millisecond
+					q.Set(v)
+				})),
+			),
+		)
+	})
+}
+```
+
+The important architectural point: event handlers run on the **session loop**, so signal writes inside them are safe and deterministic.
+
+---
+
+## 3. Styling & Design Systems
+
+Vango does not require a particular styling strategy. The current developer guide defines two primary approaches:
+
+1. Tailwind pipeline (default template)
+2. Plain static CSS (Tailwind disabled)
+
+### 3.1 Tailwind Pipeline (Default)
+
+The default template uses Tailwind with a zero-config pipeline (no Node.js required). Vango runs a Tailwind scan over your Go files to discover classes used in `Class("...")` calls and produces a CSS output file in `public/`.
+
+**Critical constraint (from current guide):**
+
+> Tailwind’s scanner is string-based. **No dynamic string construction** for class names.
+
+Good (detected):
+
+```go
+Div(Class("bg-blue-500 text-white"))
+Div(Class("text-red-500", "font-bold"))
+Div(Class(isActive && "bg-blue-500"))
+```
+
+Bad (not detected):
+
+```go
+Div(Class("btn-" + variant))
+Div(Classf("text-%s-500", color))
+```
+
+If you need variants, use explicit branching that returns full class strings.
+
+### 3.2 Conditional Classes with `Class(...)`
+
+Prefer variadic `Class(...)` with conditional entries. This keeps class usage discoverable by Tailwind and readable by humans and coding agents:
+
+```go
+func NavItem(active bool, label string) *vango.VNode {
+	return Div(
+		Class(
+			"px-3 py-2 rounded",
+			active && "bg-gray-900 text-white",
+			!active && "text-gray-700 hover:bg-gray-100",
+		),
+		Text(label),
+	)
+}
+```
+
+### 3.3 Standard CSS (No Tailwind)
+
+You can disable Tailwind in `vango.json` (as described in the current guide) and use static CSS files served from `public/`.
+
+Typical approach:
+
+* place CSS in `public/styles.css` (or your chosen static path)
+* reference it via `ctx.Asset("styles.css")` from your layout (manifest-aware in production)
+
+```go
+func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
+	return Html(
+		Head(
+			LinkEl(Rel("stylesheet"), Href(ctx.Asset("styles.css"))),
+		),
+		Body(children, VangoScripts()),
+	)
+}
+```
+
+### 3.4 Dark Mode (Theme Toggle)
+
+The current guide’s recommended dark-mode approach is class-based (e.g., Tailwind `dark:` or CSS variables toggled by `html.dark`).
+
+Two important constraints in a server-driven, patch-based UI:
+
+1. **Theme initialization should happen before paint** to avoid a flash (FOUC).
+2. **DOM event listener wiring in inline scripts is fragile** under patch-based navigation unless it’s implemented as a client hook. For theme toggles, prefer a hook (the current guide references a `ThemeToggle` hook pattern).
+
+A practical, robust approach:
+
+* inline script in `<head>` to set the initial `dark` class based on `localStorage` and OS preference
+* a client hook on the toggle button to flip `document.documentElement.classList` and persist to `localStorage`
+
+(Exact hook packaging/registration is covered later in the guide’s client boundary section; the styling contract here is simply: toggle a stable `dark` class on `<html>` and let CSS handle the rest.)
+
+# Part II: Reactivity
+
+This part teaches the reactive programming model you use to build real Vango applications: **Signals** for state, **Memos** for derived state, and **Effects/Transactions** for side effects and atomic multi-writes. All examples assume:
+
+```go
+import "github.com/vango-go/vango"
+import . "github.com/vango-go/vango/el"
+```
+
+(When an example needs `context` or `time`, it also imports those from the standard library.)
+
+Two cross-cutting rules apply to everything in this part:
+
+* **Render purity:** render functions (including reactive page handlers and `vango.Func`) must not do blocking I/O or spawn goroutines.
+* **Stable hook order:** calls like `vango.NewSignal`, `vango.NewMemo`, `vango.Effect`, `vango.NewResource`, `vango.NewAction`, etc. must occur in a stable order/count across renders (never conditionally or in variable-length loops).
+
+---
+
+## 4. Signals
+
+Signals are the core state primitive in Vango: a signal is a mutable value container that participates in dependency tracking.
+
+### 4.1 The Signal Pattern
+
+A signal supports three essential operations:
+
+* **`Get()`**: read the value **and** register a dependency (the current component/memo will re-run when the signal changes)
+* **`Set(v)`**: write a new value (must occur on the session loop; see §6.3)
+* **`Peek()`**: read the value **without** registering a dependency (useful to avoid accidental reactivity)
+
+```go
+func Example() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		count := vango.NewSignal(0)
+
+		return Div(
+			Textf("Count: %d", count.Get()), // Get() tracks dependency
+			Button(OnClick(func() {
+				count.Set(count.Peek() + 1) // Peek() avoids creating a dependency here
+			}), Text("+")),
+		)
+	})
+}
+```
+
+**What dependency tracking means in practice**
+
+If a render function calls `count.Get()`, that render function becomes a dependent of `count`. When `count.Set(...)` is called, Vango marks the dependent computations dirty and re-runs them on the session loop, then diffs and patches the DOM.
+
+#### Reactive Granularity: The Recomputation Unit
+
+Vango uses **component-level dependency tracking**, not expression-level. The recomputation unit is:
+
+| Construct | Recomputation Behavior |
+|-----------|------------------------|
+| `vango.Func` (component) | The entire render function re-runs if any signal read via `.Get()` during that render changes |
+| `vango.NewMemo` | The memo function re-runs if any signal/memo read via `.Get()` during memo computation changes |
+| Effects | Effects do not re-run from signal reads; they run once on mount and can optionally run cleanup/re-setup via returned cleanup function |
+
+**Implications for structuring code:**
+
+1. **Large components re-render fully.** If a component reads 10 signals, a change to any one re-runs the entire render function. The virtual DOM diff then minimizes actual DOM changes.
+
+2. **Use memos to isolate expensive computation.** If you have an expensive filter/sort, wrap it in `vango.NewMemo`. The memo only recomputes when its specific dependencies change, and its result is cached.
+
+3. **Component boundaries provide isolation.** Child components (separate `vango.Func` instances) only re-render if *their* dependencies change. A parent re-rendering doesn't force children to re-render unless the parent passes new props that the child reads.
+
+```go
+// Example: memo isolates expensive work
+func ProductList() vango.Component {
     return vango.Func(func() *vango.VNode {
-        // Create reactive state
-        count := vango.NewSignal(initial)
-        
-        return Div(Class("flex items-center gap-4"),
-            Button(
-                Class("px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"),
-                OnClick(count.Dec),
-                Text("-"),
-            ),
-            Span(Class("text-2xl font-mono w-16 text-center"),
-                Textf("%d", count.Get()),
-            ),
-            Button(
-                Class("px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"),
-                OnClick(count.Inc),
-                Text("+"),
-            ),
+        products := vango.NewSignal(loadProducts())
+        filter := vango.NewSignal("")
+        sortBy := vango.NewSignal("name")
+
+        // Memo: only recomputes when filter or products change
+        // Does NOT recompute when sortBy changes (not read inside)
+        filtered := vango.NewMemo(func() []Product {
+            f := filter.Get()
+            return filterProducts(products.Get(), f)
+        })
+
+        // Separate memo for sorting (recomputes when sortBy or filtered changes)
+        sorted := vango.NewMemo(func() []Product {
+            return sortProducts(filtered.Get(), sortBy.Get())
+        })
+
+        return Div(
+            Input(OnInput(filter.Set)),
+            Select(OnChange(sortBy.Set), /* options */),
+            Ul(Range(sorted.Get(), renderProduct)),
         )
     })
 }
 ```
 
-**What happens when you click "+":**
+This is similar to SolidJS's model (fine-grained at the memo level) rather than React's model (subtree re-render with reconciliation). The key insight: **signals + memos give you explicit control over what recomputes when**, while virtual DOM diffing ensures only necessary DOM mutations occur.
 
-1. Thin client captures click on the button (identified by HID)
-2. Binary event sent to server: `{type: CLICK, hid: "h3"}`
-3. Server finds handler: `count.Inc`
-4. `count.Inc()` updates the signal value
-5. Component re-renders, producing new VNode tree
-6. Diff detects text change: `"0"` → `"1"`
-7. Patch sent: `[SET_TEXT, hid="h2", "1"]`
-8. Thin client updates the DOM
-9. User sees "1" (~50-100ms total)
+### 4.2 Scope 1: Local State (`NewSignal`)
 
-### 4.7 Running Your App
+`vango.NewSignal(...)` creates **component-instance state**. Each mounted instance of the component gets its own value. When the component unmounts, the signal is discarded.
 
-```bash
-# Start development server (recommended)
-vango dev
+Use for:
 
-# Or manually:
-go run main.go        # Run the app
-```
-
-Visit `http://localhost:8080` to see your app.
-
-### 4.8 Choosing a Rendering Mode
-
-Most apps should use **server-driven mode** (the default). Here's when to consider alternatives:
-
-| Mode | When to Use | How to Enable |
-|------|-------------|---------------|
-| **Server-Driven** | CRUD apps, dashboards, most web apps | Default—no configuration needed |
-| **Hybrid** | Apps with some 60fps interactions | Add hooks or WASM islands as needed |
-| **Full WASM** | Offline-first, latency-critical apps | Set `"mode": "wasm"` in vango.json |
-
-**Start server-driven** and add client extensions when you have a specific need.
-
-### 4.9 First Architecture Decisions
-
-Before building features, make a few structural decisions:
-
-**Domain Organization:**
-
-```
-Option A: Feature Folders (Recommended for most apps)
-app/
-├── routes/
-│   ├── projects/
-│   │   ├── index.go
-│   │   └── id_/
-│   │       └── index.go
-│   │   ├── components.go      # Project-specific components
-│   │   └── store.go           # Project-specific state
-│   └── tasks/
-│       └── ...
-
-Option B: Layered Architecture (For larger teams/apps)
-app/
-├── routes/              # Just routing + page assembly
-├── components/          # All UI components
-├── services/           # Business logic
-├── store/              # All state
-└── repositories/       # Data access
-```
-
-**Where Database Code Lives:**
+* form field values local to a component
+* toggles, accordion open/closed, modal state
+* ephemeral UI state that should reset when leaving the page/component
 
 ```go
-// Option A: Direct in route handlers (simple apps)
-type Params struct {
-    ID int `param:"id"`
-}
+func Counter(initial int) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		count := vango.NewSignal(initial)
 
-func Page(ctx vango.Ctx, p Params) *vango.VNode {
-    project, err := db.Projects.FindByID(ctx.StdContext(), p.ID)
-    // ...
+		return Div(
+			Button(OnClick(count.Dec), Text("-")),
+			Span(Textf("%d", count.Get())),
+			Button(OnClick(count.Inc), Text("+")),
+		)
+	})
 }
+```
 
-// Option B: Service layer (recommended for most apps)
-func Page(ctx vango.Ctx, p Params) *vango.VNode {
-    project, err := services.Projects.GetByID(ctx.StdContext(), p.ID)
-    // ...
+### 4.3 Scope 2: Session State (`NewSharedSignal`)
+
+`vango.NewSharedSignal(...)` creates **session-scoped state**: it is shared across pages/components **within the same browser tab/session** and persists across navigation. It is appropriate for “app shell” state.
+
+Use for:
+
+* current user (session projection)
+* notifications/toasts
+* shopping cart for the tab
+* cross-page UI state (sidebar collapsed, last visited section)
+
+```go
+// app/store/cart.go (example pattern)
+package store
+
+import "github.com/vango-go/vango"
+
+// Session-scoped: one per browser tab/session.
+var CartItems = vango.NewSharedSignal([]CartItem{})
+
+func AddToCart(item CartItem) {
+	CartItems.Set(append(CartItems.Get(), item))
 }
+```
 
-// Option C: Resource for async loading
-func Page(ctx vango.Ctx, p Params) *vango.VNode {
-    return ProjectPage(p.ID)
+Then in UI:
+
+```go
+func CartBadge() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		n := len(store.CartItems.Get())
+		return Span(Class("text-sm"), Textf("Cart (%d)", n))
+	})
 }
+```
 
-func ProjectPage(id int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        project := vango.NewResource(func() (*Project, error) {
-            return services.Projects.GetByID(ctx.StdContext(), id)
-        })
-        // ...
-    })
+### 4.4 Scope 3: Global State (`NewGlobalSignal`)
+
+`vango.NewGlobalSignal(...)` creates **global app-wide state**, shared across sessions/users. Any user can observe updates in real time (as patches).
+
+Use for:
+
+* presence/online users
+* global announcements
+* shared collaborative state (careful: multi-tenant scoping is your responsibility)
+
+```go
+// store/presence.go
+package store
+
+import "github.com/vango-go/vango"
+
+// Global: shared across all sessions/users.
+var OnlineCount = vango.NewGlobalSignal(0)
+
+func UserConnected()  { OnlineCount.Set(OnlineCount.Get() + 1) }
+func UserDisconnected(){ OnlineCount.Set(OnlineCount.Get() - 1) }
+```
+
+**Important:** global state is not automatically tenant-scoped. If your app is multi-tenant, represent global state as a map keyed by tenant, or otherwise isolate it explicitly.
+
+### 4.5 Immutable Update Patterns (Slices and Maps)
+
+Signals should be updated using **copy-on-write** patterns. Mutating a slice/map in place and re-setting the same underlying reference is error-prone and can lead to confusing behavior. Prefer creating new values or using provided helpers.
+
+#### Slice patterns
+
+```go
+// Add
+items.Set(append(items.Get(), newItem))
+
+// Remove by index
+items.RemoveAt(i)
+
+// Remove by predicate
+items.RemoveWhere(func(x Item) bool { return x.ID == id })
+
+// Update element by index
+items.UpdateAt(i, func(x Item) Item {
+	x.Done = !x.Done
+	return x
+})
+
+// Filter
+items.Filter(func(x Item) bool { return x.Active })
+```
+
+#### Map patterns
+
+```go
+users := vango.NewSignal(map[int]User{})
+
+// Set entry (copy-on-write)
+users.SetEntry(u.ID, u)
+
+// Delete entry
+users.DeleteEntry(id)
+
+// Update entry (copy-on-write)
+users.UpdateEntry(id, func(u User) User {
+	u.LastSeenUnix = time.Now().Unix()
+	return u
+})
+```
+
+### 4.6 Avoiding Hook-Order Violations with Signals
+
+Signals are created inside render functions (including reactive page handlers), but you must create them in a stable order.
+
+Bad (conditional creation):
+
+```go
+func Bad(show bool) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		a := vango.NewSignal(0)
+		if show {
+			b := vango.NewSignal(0) // violates stable hook order
+			_ = b
+		}
+		return Div(Textf("%d", a.Get()))
+	})
+}
+```
+
+Good (always create the same hooks; conditionally use them):
+
+```go
+func Good(show bool) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		a := vango.NewSignal(0)
+		b := vango.NewSignal(0) // always created
+		if show {
+			return Div(Textf("%d %d", a.Get(), b.Get()))
+		}
+		return Div(Textf("%d", a.Get()))
+	})
 }
 ```
 
 ---
 
-## 5. Project Layout and Code Organization
+## 5. Memos (Derived State)
 
-This section provides the recommended structure for Vango apps and guidelines for keeping codebases clean as they grow.
+Memos represent computed values derived from signals and other memos. They are cached and recomputed when their dependencies change.
 
-### 5.1 Recommended Baseline Layout
+### 5.1 Creating Memos (`NewMemo`)
+
+```go
+func Example() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		count := vango.NewSignal(2)
+
+		double := vango.NewMemo(func() int {
+			return count.Get() * 2
+		})
+
+		return Div(
+			Textf("count=%d", count.Get()),
+			Textf("double=%d", double.Get()),
+			Button(OnClick(count.Inc), Text("+")),
+		)
+	})
+}
+```
+
+* `double.Get()` reads the memo value (and memo itself participates in dependency tracking like signals).
+* The memo recomputes when `count` changes.
+
+### 5.2 Dependency Graph and “Accidental Dependencies”
+
+Memo dependencies are discovered by which signals/memos are read via `Get()` inside the memo function. Two practical rules:
+
+1. **Make dependencies explicit:** avoid calling helper functions that read signals indirectly (it makes the dependency graph opaque).
+2. **Avoid conditional dependencies:** if you only read a signal on some branches, updates to that signal may not be tracked when the branch is not taken.
+
+Opaque dependency (avoid):
+
+```go
+func currentFilter() string {
+	return filterSignal.Get() // hidden dependency
+}
+
+filtered := vango.NewMemo(func() []Item {
+	f := currentFilter() // dependency is non-obvious
+	return applyFilter(allItems.Get(), f)
+})
+```
+
+Explicit dependency (prefer):
+
+```go
+filtered := vango.NewMemo(func() []Item {
+	f := filterSignal.Get()
+	items := allItems.Get()
+	return applyFilter(items, f)
+})
+```
+
+Conditional dependency pitfall (avoid):
+
+```go
+display := vango.NewMemo(func() string {
+	if showDetails.Get() {
+		return details.Get() // only tracked when showDetails is true
+	}
+	return summary.Get()
+})
+```
+
+Safer pattern: read dependencies unconditionally, then branch:
+
+```go
+display := vango.NewMemo(func() string {
+	show := showDetails.Get()
+	d := details.Get()
+	s := summary.Get()
+	if show {
+		return d
+	}
+	return s
+})
+```
+
+### 5.3 When to Use Memos
+
+Use a memo when it provides real value:
+
+* caching an expensive computation
+* isolating derived selectors that are used in multiple places
+* keeping render functions clean and predictable
+
+Example: expensive filtering
+
+```go
+func Good() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		query := vango.NewSignal("")
+		items := vango.NewSignal(loadBigList()) // example
+
+		filtered := vango.NewMemo(func() []Item {
+			return expensiveFilter(items.Get(), query.Get())
+		})
+
+		return Div(
+			Input(Type("search"), Value(query.Get()), OnInput(query.Set)),
+			Ul(Range(filtered.Get(), func(it Item, _ int) *vango.VNode {
+				return Li(Key(it.ID), Text(it.Name))
+			})),
+		)
+	})
+}
+```
+
+Avoid memos for trivial expressions where inline code is clearer and the overhead isn’t justified.
+
+### 5.4 Session-Scoped Derived State (Shared Memos)
+
+In real apps, you often want session-scoped derived values that follow session-scoped signals (e.g., current user → isAuthenticated). The existing guide uses `vango.NewSharedMemo(...)` for this pattern:
+
+```go
+// store/auth.go
+package store
+
+import "github.com/vango-go/vango"
+
+var CurrentUser = vango.NewSharedSignal[*User](nil)
+
+var IsAuthenticated = vango.NewSharedMemo(func() bool {
+	return CurrentUser.Get() != nil
+})
+```
+
+(If your codebase chooses to keep “derived session state” inside components instead, that’s fine; the important point is: derived computations should remain reactive and dependency-driven.)
+
+---
+
+## 6. Effects & Transactions
+
+Effects are for side effects that run in response to reactive changes. Transactions batch multiple writes into one commit.
+
+### 6.1 Effects (`vango.Effect`) and Cleanup
+
+An effect runs after a commit when its dependencies have changed. In Vango, an effect function **returns a cleanup** (or `nil`). Cleanup runs when:
+
+* the effect is re-run (due to dependency change)
+* the owning component unmounts
+
+```go
+import (
+	"time"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
+)
+
+func Clock() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		now := vango.NewSignal(time.Now())
+
+		vango.Effect(func() vango.Cleanup {
+			// Interval returns a Cleanup; returning it ties lifecycle to the component.
+			return vango.Interval(1*time.Second, func() {
+				now.Set(time.Now())
+			})
+		})
+
+		return Div(Text(now.Get().Format(time.RFC3339)))
+	})
+}
+```
+
+**Key discipline:** do not write effects that directly cause render-loop amplification (e.g., an effect that writes to a signal it depends on without a guard). Use explicit guards or structured helpers, and rely on storm budgets/limits where configured.
+
+### 6.2 Structured Effect Helpers
+
+The existing guide describes several helpers that are designed to be called inside effects and return cleanup:
+
+* `vango.Interval(duration, fn, opts...)`
+* `vango.Subscribe(stream, fn, opts...)`
+* `vango.GoLatest(key, work, apply, opts...)`
+
+These helpers centralize correct lifecycle and session-loop dispatch behavior so you don’t hand-roll goroutine plumbing.
+
+#### `GoLatest` pattern (cancel stale work, apply on session loop)
+
+```go
+import (
+	"context"
+	"time"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
+)
+
+func SearchBox() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		q := vango.NewSignal("")
+		results := vango.NewSignal([]Result{})
+		errSig := vango.NewSignal[error](nil)
+		loading := vango.NewSignal(false)
+
+		vango.Effect(func() vango.Cleanup {
+			key := q.Get() // dependency
+			if key == "" {
+				results.Set(nil)
+				errSig.Set(nil)
+				loading.Set(false)
+				return nil
+			}
+
+			loading.Set(true)
+
+			return vango.GoLatest(
+				key,
+				func(ctx context.Context, k string) ([]Result, error) {
+					// example debounce inside work
+					select {
+					case <-time.After(300 * time.Millisecond):
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+					return search(ctx, k) // your I/O
+				},
+				func(r []Result, e error) {
+					// apply runs on the session loop; safe to write signals
+					if e != nil {
+						errSig.Set(e)
+					} else {
+						results.Set(r)
+						errSig.Set(nil)
+					}
+					loading.Set(false)
+				},
+			)
+		})
+
+		return Div(
+			Input(Type("search"), Value(q.Get()), OnInput(q.Set)),
+			loading.Get() && Div(Text("Loading...")),
+			errSig.Get() != nil && Div(Text(errSig.Get().Error())),
+			Ul(Range(results.Get(), func(r Result, _ int) *vango.VNode {
+				return Li(Key(r.ID), Text(r.Label))
+			})),
+		)
+	})
+}
+```
+
+### 6.3 The Dispatch Rule (Goroutines → Session Loop)
+
+Vango sessions are single-writer. Event handlers run on the session loop, but goroutines do not. Therefore:
+
+> If a goroutine needs to read/write reactive state, it must use `ctx.Dispatch(func(){...})` to run that work on the session loop.
+
+**Critical rule: Never call `vango.UseCtx()` from inside a goroutine.** `UseCtx()` returns the context for the *current render*—calling it from a goroutine races with render completion and may return stale or invalid context. Instead, capture `ctx` in the render function *before* spawning the goroutine:
+
+```go
+// CORRECT: capture ctx before goroutine
+ctx := vango.UseCtx()
+go func() {
+    result := fetchData()
+    ctx.Dispatch(func() { data.Set(result) })
+}()
+
+// WRONG: calling UseCtx() inside goroutine
+go func() {
+    ctx := vango.UseCtx() // ❌ races with render; undefined behavior
+    ctx.Dispatch(func() { data.Set("x") })
+}()
+```
+
+Correct pattern:
+
+```go
+import (
+	"context"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
+)
+
+func Example() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		data := vango.NewSignal("")
+
+		Button(OnClick(func() {
+			go func() {
+				// Do I/O off-loop
+				val := fetchSomething(context.Background())
+
+				// Marshal back to session loop for signal write
+				ctx.Dispatch(func() {
+					data.Set(val)
+				})
+			}()
+		}), Text("Load"))
+
+		return Div(Text(data.Get()))
+	})
+}
+```
+
+Incorrect pattern (do not do this):
+
+```go
+go func() {
+	data.Set("x") // signal write outside session loop → panic/undefined behavior
+}()
+```
+
+**Practical guidance:** prefer `Resource`, `Action`, and structured effect helpers (`GoLatest`, `Subscribe`, `Interval`) over ad-hoc goroutines. They exist specifically to keep your code safe and predictable in the single-writer model.
+
+### 6.4 Transactions (`vango.Tx`, `vango.TxNamed`)
+
+Transactions batch multiple signal writes into a single commit so you don’t trigger multiple renders/patches.
+
+```go
+func UpdateProfile(first, last, email *vango.Signal[string], f, l, e string) {
+	vango.Tx(func() {
+		first.Set(f)
+		last.Set(l)
+		email.Set(e)
+	})
+}
+```
+
+Named transactions add observability value (DevTools, logs):
+
+```go
+vango.TxNamed("UpdateUserProfile", func() {
+	first.Set("John")
+	last.Set("Doe")
+	email.Set("j@d.com")
+})
+```
+
+Use transactions when:
+
+* one user action updates multiple signals
+* you want atomic UI updates (all-or-nothing from the user’s perspective)
+* you want clearer debugging (named intent)
+
+### 6.5 Effect-Time Writes and Feedback Loops
+
+Effects often write signals (e.g., `Interval` updating a clock). That is allowed, but you must avoid unbounded feedback:
+
+Bad (self-triggering without guard):
+
+```go
+vango.Effect(func() vango.Cleanup {
+	// If the effect depends on count.Get(), this Set will retrigger it indefinitely.
+	count.Set(count.Get() + 1)
+	return nil
+})
+```
+
+Good (use event handlers, transactions, or structured helpers with explicit cadence/guards):
+
+* write in event handlers (user-driven)
+* use `Interval` for cadence
+* use `GoLatest` for key-driven cancellation
+* ensure writes do not create an infinite dependency cycle
+
+### 6.6 Summary: Choosing the Right Primitive
+
+Use this mapping as your default:
+
+* **Signal**: mutable state
+* **Memo**: derived/computed state
+* **Effect**: side effects tied to reactive dependencies + lifecycle cleanup
+* **Tx/TxNamed**: batch multi-writes into one commit
+* **Dispatch**: the bridge from goroutines back to the session loop (when you truly need goroutines)
+
+# Part III: Data Flow
+
+This part covers Vango’s structured primitives for asynchronous work and server-side I/O: **Resources** for reading/loading and **Actions** for mutations. The goal is to let you do real database/network work **without violating render purity** and **without breaking the single-writer session loop**.
+
+All examples assume:
+
+```go
+import "github.com/vango-go/vango"
+import . "github.com/vango-go/vango/el"
+```
+
+(Examples that perform async work also import standard library `context` and/or `time` as needed.)
+
+---
+
+## 7. Resources (Reading Data)
+
+A **Resource** is Vango’s primary primitive for loading data asynchronously while rendering. It is designed for server-driven UI: render functions remain pure while data fetches occur off-loop and results are applied safely on the session loop.
+
+### 7.1 The Resource Primitive (`vango.NewResource`)
+
+Use `vango.NewResource(func() (T, error) { ... })` inside a render function (`vango.Func` or a reactive page handler). The loader function runs asynchronously; the component renders through state transitions.
+
+```go
+import (
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
+)
+
+type User struct {
+	ID   int
+	Name string
+}
+
+func UserCard(userID int) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		std := ctx.StdContext()
+
+		user := vango.NewResource(func() (*User, error) {
+			// Blocking I/O is allowed here; it is *not* running in render.
+			return loadUser(std, userID)
+		})
+
+		return user.Match(
+			vango.OnPending(func() *vango.VNode {
+				// Pending: created but not started yet (often transient)
+				return Div(Text("…"))
+			}),
+			vango.OnLoading(func() *vango.VNode {
+				return Div(Text("Loading user…"))
+			}),
+			vango.OnError(func(err error) *vango.VNode {
+				return Div(Class("text-red-600"), Text(err.Error()))
+			}),
+			vango.OnReady(func(u *User) *vango.VNode {
+				return Div(
+					H2(Class("font-bold"), Text(u.Name)),
+					P(Textf("User #%d", u.ID)),
+				)
+			}),
+		)
+	})
+}
+```
+
+**Rules for the loader function:**
+
+* It runs off the session loop, so it may do blocking DB/HTTP work.
+* Use `ctx.StdContext()` for cancellation/timeouts.
+* Do not call `vango.Ctx` methods (Navigate/Dispatch/etc.) from inside the loader.
+
+### 7.2 Resource States: Pending, Loading, Ready, Error
+
+Resources expose four states (from the current guide):
+
+* `vango.Pending`
+* `vango.Loading`
+* `vango.Ready`
+* `vango.Error`
+
+You can branch via `State()` or prefer `Match(...)` for clarity.
+
+```go
+r := vango.NewResource(loadSomething)
+
+switch r.State() {
+case vango.Pending:
+	return Div(Text("…"))
+case vango.Loading:
+	return Spinner()
+case vango.Error:
+	return ErrorCard(r.Error())
+case vango.Ready:
+	return View(r.Data())
+default:
+	return Div(Text("unexpected state"))
+}
+```
+
+**Empty results are application logic**: `Ready` can still mean “empty list,” so you handle that explicitly in your ready branch.
+
+### 7.3 Keyed Resources (`vango.NewResourceKeyed`)
+
+When the identity of the resource depends on a reactive value (URL param, signal, or memo), use `NewResourceKeyed`. It deduplicates by key and refetches when the key changes.
+
+Key can be:
+
+* a signal-like value (`*Signal[K]`, URLParam, memo-like)
+* a `func() K` (reactively read inside it)
+
+**Example: keyed by a signal**
+
+```go
+import "github.com/vango-go/vango"
+import . "github.com/vango-go/vango/el"
+
+func ProjectViewer() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		std := ctx.StdContext()
+
+		selectedID := vango.NewSignal(0)
+
+		project := vango.NewResourceKeyed(selectedID, func(id int) (*Project, error) {
+			if id == 0 {
+				return nil, nil
+			}
+			return loadProject(std, id)
+		})
+
+		return Div(
+			Button(OnClick(func() { selectedID.Set(1) }), Text("Load #1")),
+			Button(OnClick(func() { selectedID.Set(2) }), Text("Load #2")),
+			project.Match(
+				vango.OnLoading(func() *vango.VNode { return Div(Text("Loading…")) }),
+				vango.OnReady(func(p *Project) *vango.VNode {
+					if p == nil {
+						return Div(Text("No selection"))
+					}
+					return Div(Text(p.Name))
+				}),
+				vango.OnError(func(err error) *vango.VNode { return Div(Text(err.Error())) }),
+			),
+		)
+	})
+}
+```
+
+**Key behaviors (from the current guide’s semantics):**
+
+* same key → reuse cached result
+* different key → cancel stale work, start new load, transition to Loading
+* unmount → cancel in-flight work
+
+**Important pitfall to avoid**
+
+Do not create a new signal from a prop inside render and expect it to react to prop changes. If the key should change, pass a real reactive key (signal/URLParam/memo) from the parent.
+
+### 7.4 Caching and Deduplication
+
+Resource caching is primarily **per-resource instance** and key-based:
+
+* A keyed resource avoids restarting work if the key hasn’t changed.
+* It cancels stale requests when the key changes.
+* It prevents simple “refetch on every render” mistakes by giving identity to the load.
+
+If you need cross-component/process caching, do it at the service/repository layer (in-memory cache, Redis, singleflight, etc.). Resource is the UI-facing async state machine, not your global cache.
+
+---
+
+## 8. Actions (Mutating Data)
+
+An **Action** is the standard primitive for async mutations triggered by the user (save, delete, submit, etc.). Actions have explicit states and concurrency policies, and they handle safe application of results back to the session loop.
+
+### 8.1 The Action Primitive (`vango.NewAction`)
+
+The current guide defines the canonical shape:
+
+```go
+action := vango.NewAction(
+	func(ctx context.Context, arg A) (R, error) { ... },
+	vango.CancelLatest(), // default policy
+)
+
+accepted := action.Run(arg) // bool
+action.State()              // ActionIdle/Running/Success/Error
+result, ok := action.Result()
+action.Error()
+action.Reset()
+```
+
+**Example: submit a form**
+
+```go
+import (
+	"context"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
+)
+
+type SaveInput struct {
+	Name string
+}
+
+type SaveResult struct {
+	ID int
+}
+
+func SaveWidget() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		name := vango.NewSignal("")
+
+		save := vango.NewAction(
+			func(std context.Context, in SaveInput) (*SaveResult, error) {
+				// do I/O off-loop
+				return saveToDB(std, in.Name)
+			},
+			vango.DropWhileRunning(), // common for “Save” buttons
+		)
+
+		return Div(
+			Input(Type("text"), Value(name.Get()), OnInput(name.Set)),
+			Button(
+				Disabled(save.State() == vango.ActionRunning),
+				OnClick(func() {
+					save.Run(SaveInput{Name: name.Get()})
+				}),
+				Text("Save"),
+			),
+			save.State() == vango.ActionRunning && Div(Text("Saving…")),
+			save.State() == vango.ActionError && Div(Class("text-red-600"), Text(save.Error().Error())),
+			save.State() == vango.ActionSuccess && func() *vango.VNode {
+				if res, ok := save.Result(); ok && res != nil {
+					return Div(Class("text-green-700"), Textf("Saved as #%d", res.ID))
+				}
+				return Div(Class("text-green-700"), Text("Saved"))
+			}(),
+		)
+	})
+}
+```
+
+### 8.2 Concurrency Policies (CancelLatest, DropWhileRunning, Queue)
+
+Actions can be triggered multiple times; the concurrency policy defines what happens when `Run(...)` is called while a prior run is still in flight.
+
+From the current guide:
+
+* `vango.CancelLatest()` (default): cancel prior in-flight work; newest wins
+  Good for search/filter, typeahead, “recompute preview”.
+* `vango.DropWhileRunning()`: ignore new calls while running
+  Good for save/delete buttons to avoid double-submit.
+* `vango.Queue(n)`: queue up to `n` calls and run sequentially
+  Good for “process items” or ordered operations.
+
+```go
+// Search: newest wins
+search := vango.NewAction(doSearch, vango.CancelLatest())
+
+// Save: drop repeats while pending
+save := vango.NewAction(doSave, vango.DropWhileRunning())
+
+// Process: ordered queue
+process := vango.NewAction(doWork, vango.Queue(10))
+```
+
+### 8.3 Action States: Loading UX and Error Handling
+
+Actions expose `State()` with the following states (from the current guide):
+
+* `vango.ActionIdle`
+* `vango.ActionRunning`
+* `vango.ActionSuccess`
+* `vango.ActionError`
+
+Use these states to drive UI:
+
+* disable buttons during `Running`
+* show spinners/progress
+* surface error messages
+* show success confirmation
+* allow retry + `Reset()`
+
+```go
+switch save.State() {
+case vango.ActionRunning:
+	return Button(Disabled(true), Text("Saving…"))
+case vango.ActionError:
+	return Div(
+		Button(OnClick(func() { save.Run(SaveInput{Name: name.Get()}) }), Text("Retry")),
+		Div(Class("text-red-600"), Text(save.Error().Error())),
+	)
+default:
+	return Button(OnClick(func() { save.Run(SaveInput{Name: name.Get()}) }), Text("Save"))
+}
+```
+
+`Run(...)` returns a **bool** indicating whether the invocation was accepted under the current concurrency policy. If you care, check it; if not, you can ignore it.
+
+### 8.4 Optimistic UI
+
+Optimistic UI means you update the UI immediately, then reconcile when the server confirms success (or rollback on error). In Vango, the usual pattern is:
+
+1. write optimistic state in the event handler (session loop)
+2. trigger the action for the real I/O
+3. on error, restore prior state
+
+```go
+import (
+	"context"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
+)
+
+type Task struct {
+	ID   int
+	Name string
+	Done bool
+}
+
+func TaskRow(t Task) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		done := vango.NewSignal(t.Done)
+
+		toggle := vango.NewAction(
+			func(ctx context.Context, newDone bool) (bool, error) {
+				return newDone, setTaskDone(ctx, t.ID, newDone)
+			},
+			vango.CancelLatest(),
+		)
+
+		return Div(
+			Input(
+				Type("checkbox"),
+				Checked(done.Get()),
+				OnChange(func() {
+					prev := done.Get()
+					next := !prev
+
+					// optimistic update (session loop)
+					done.Set(next)
+
+					// async mutation
+					toggle.Run(next)
+
+					// if it fails, rollback
+					// (use an effect to observe action completion)
+				}),
+			),
+			Span(Text(t.Name)),
+			toggle.State() == vango.ActionRunning && Span(Class("ml-2 text-sm"), Text("Saving…")),
+			vango.Func(func() *vango.VNode {
+				// Observe completion via reactive reads
+				if toggle.State() == vango.ActionError {
+					// rollback
+					// Note: this is a signal write driven by reactive state; keep it guarded.
+					// A safer alternative is a dedicated Effect that triggers only on error transitions.
+					done.Set(t.Done)
+					return Span(Class("ml-2 text-sm text-red-600"), Text("Failed"))
+				}
+				return nil
+			})(),
+		)
+	})
+}
+```
+
+In practice, prefer handling rollback in an explicit `vango.Effect` that watches the action state transition to error/success, to keep rollback logic from repeatedly firing if the component re-renders while still in an error state.
+
+---
+
+## 9. Operational Correctness for Data Flow
+
+This is the condensed correctness model you should keep in mind while designing data flow.
+
+### 9.1 Where blocking I/O is allowed
+
+* **Allowed:** inside Resource loaders and Action work functions (they run off the session loop)
+* **Not allowed:** inside render functions (page handlers, `vango.Func`) directly
+
+Your default patterns should therefore be:
+
+* “show UI with loading states” → **Resource**
+* “user presses a button to mutate” → **Action**
+* “reactive async with cancellation” → **Effect + GoLatest** (or a keyed resource depending on shape)
+
+### 9.2 Context and cancellation
+
+Use `ctx.StdContext()` inside loaders/work functions. It carries cancellation signals appropriate to the request/session lifecycle.
+
+Do not use `vango.Ctx` methods from background goroutines or async loader functions. If you must do something session-related as a result of async work, it should occur in the apply callback (GoLatest) or after the resource/action has resolved (on the session loop).
+
+### 9.3 Common pitfalls (and the correct fix)
+
+* **Pitfall:** Querying the database in a page handler directly
+  **Fix:** Move I/O into `NewResource` / `NewResourceKeyed`.
+
+* **Pitfall:** Action invoked repeatedly (double submit)
+  **Fix:** `DropWhileRunning()` + disable UI while running.
+
+* **Pitfall:** Search runs per keystroke and results race
+  **Fix:** `CancelLatest()` or `Effect + GoLatest` with debounce/cancellation.
+
+* **Pitfall:** Writing signals from goroutines started in loaders
+  **Fix:** don’t; loaders shouldn’t mutate signals directly. Let Resource/Action resolution drive UI. If you truly have a goroutine, marshal back with `ctx.Dispatch`.
+
+---
+
+## 10. Practical Patterns (Resource + Action Together)
+
+### 10.1 Load → Edit → Save
+
+A canonical CRUD page:
+
+* Resource loads entity
+* UI edits local signals
+* Action saves
+* on success, update local state or navigate
+
+```go
+import (
+	"context"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
+)
+
+type Params struct {
+	ID int `param:"id"`
+}
+
+func ProjectEditPage(ctx vango.Ctx, p Params) *vango.VNode {
+	return ProjectEdit(p.ID)
+}
+
+func ProjectEdit(id int) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		std := ctx.StdContext()
+
+		project := vango.NewResource(func() (*Project, error) {
+			return loadProject(std, id)
+		})
+
+		return project.Match(
+			vango.OnLoading(func() *vango.VNode { return Div(Text("Loading…")) }),
+			vango.OnError(func(err error) *vango.VNode { return Div(Text(err.Error())) }),
+			vango.OnReady(func(p *Project) *vango.VNode {
+				name := vango.NewSignal(p.Name)
+
+				save := vango.NewAction(
+					func(ctx context.Context, newName string) (*Project, error) {
+						return updateProjectName(ctx, p.ID, newName)
+					},
+					vango.DropWhileRunning(),
+				)
+
+				return Div(
+					H1(Textf("Edit Project #%d", p.ID)),
+					Input(Type("text"), Value(name.Get()), OnInput(name.Set)),
+					Button(
+						Disabled(save.State() == vango.ActionRunning),
+						OnClick(func() { save.Run(name.Get()) }),
+						Text("Save"),
+					),
+					save.State() == vango.ActionRunning && Div(Text("Saving…")),
+					save.State() == vango.ActionError && Div(Class("text-red-600"), Text(save.Error().Error())),
+					save.State() == vango.ActionSuccess && Div(Class("text-green-700"), Text("Saved")),
+				)
+			}),
+		)
+	})
+}
+```
+
+This pattern keeps render pure, makes loading/saving states explicit, and preserves the single-writer model.
+
+# Part IV: Application Architecture
+
+This part explains how to structure a complete Vango application: project layout, routing and pages, forms, client-boundary escape hatches, and the CLI/tooling workflow. It is written so an LLM or developer can scaffold, extend, and maintain a Vango app without needing to consult framework internals.
+
+All examples assume:
+
+```go
+import "github.com/vango-go/vango"
+import . "github.com/vango-go/vango/el"
+```
+
+(Plus standard library imports where needed.)
+
+---
+
+## 11. Project Layout and Code Organization
+
+This section provides the recommended structure for Vango apps. Following these conventions ensures the CLI tools work correctly and keeps codebases clean as they grow.
+
+### 11.1 Recommended Project Structure
 
 ```
 myapp/
 ├── cmd/
 │   └── server/
-│       └── main.go                 # Entry point, config, server startup
+│       └── main.go                 # Entry point: config, server startup
 │
 ├── app/
-│   ├── routes/                     # File-based routing
-│   │   ├── routes_gen.go           # Generated route registration
+│   ├── routes/                     # File-based routing (required)
+│   │   ├── routes_gen.go           # Generated route registration (do not edit)
 │   │   ├── layout.go               # Root layout (wraps all pages)
 │   │   ├── index.go                # Home page (/)
 │   │   ├── about.go                # /about
 │   │   ├── projects/
 │   │   │   ├── layout.go           # Nested layout for /projects/*
 │   │   │   ├── index.go            # /projects (list)
-│   │   │   └── [id:int]/
+│   │   │   └── id_/
 │   │   │       ├── index.go        # /projects/{id}
 │   │   │       ├── edit.go         # /projects/{id}/edit
 │   │   │       └── tasks.go        # /projects/{id}/tasks
 │   │   └── api/
-│   │       └── health.go           # /api/health (API endpoint)
+│   │       └── health.go           # /api/health (typed API endpoint)
 │   │
 │   ├── components/                 # Shared UI components
 │   │   ├── button.go
@@ -1750,8 +1723,8 @@ myapp/
 │   │       ├── sidebar.go
 │   │       └── footer.go
 │   │
-│   ├── store/                      # Shared state
-│   │   ├── auth.go                 # Current user state
+│   ├── store/                      # Shared reactive state
+│   │   ├── auth.go                 # Current user (session-scoped)
 │   │   ├── notifications.go        # Toast/notification state
 │   │   └── preferences.go          # User preferences
 │   │
@@ -1773,11 +1746,11 @@ myapp/
 │   │   └── migrations/
 │   │       └── ...
 │   │
-│   └── config/                     # Configuration
+│   └── config/                     # Configuration loading
 │       └── config.go
 │
 ├── public/                         # Static assets (served directly)
-│   ├── styles.css                  # Compiled CSS (output of Tailwind)
+│   ├── styles.css                  # Compiled CSS (Tailwind output)
 │   ├── js/
 │   │   └── hooks/                  # Client hook bundles
 │   │       └── sortable.js
@@ -1791,123 +1764,120 @@ myapp/
 ├── app/styles/                     # CSS source (Tailwind input)
 │   └── input.css
 │
-├── vango.json                      # Vango configuration
+├── vango.json                      # Vango CLI configuration
 ├── go.mod
 ├── go.sum
 └── tailwind.config.js              # Optional Tailwind configuration
 ```
 
-### 5.2 Routing Tree (`app/routes/`)
+### 11.2 Entry Point (`cmd/server/main.go`)
 
-The `app/routes/` directory uses file-based routing. The file path maps to the URL path:
-
-| File Path | URL | Convention |
-|-----------|-----|------------|
-| `routes/index.go` | `/` | Home page |
-| `routes/about.go` | `/about` | Static path segment |
-| `routes/projects/index.go` | `/projects` | List page |
-| `routes/projects/[id].go` | `/projects/:id` | Dynamic parameter |
-| `routes/projects/id_/edit.go` | `/projects/:id/edit` | Nested under param |
-| `routes/blog/[...slug].go` | `/blog/*slug` | Catch-all |
-| `routes/api/health.go` | `/api/health` | API endpoint |
-
-**File Naming Conventions:**
-
-| File | Purpose | Signature |
-|------|---------|-----------
-| `index.go` | Index page handler | `func IndexPage(ctx vango.Ctx) *vango.VNode` |
-| `about.go` | Named page | `func AboutPage(ctx vango.Ctx) *vango.VNode` |
-| `[id].go` | Dynamic page | `func ShowPage(ctx vango.Ctx, p Params) *vango.VNode` |
-| `layout.go` | Layout wrapper | `func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode` |
-| `middleware.go` | Directory middleware | `func Middleware() []router.Middleware` or `var Middleware = []router.Middleware{...}` |
-| `api/*.go` | API endpoint | `func ResourceGET(ctx vango.Ctx) (*Response, error)` |
-
-**Go Toolchain Rule (Important):** Avoid route files starting with `_` or `.` (e.g. `_layout.go`). Go ignores them, so the symbol won’t exist at build time.
-
-**Go Import Path Rule (Important):** Avoid route *directories* that contain characters that are invalid in Go import paths (notably `[` and `]`). For nested parameter routes, use the Go-friendly directory form like `id_/index.go` instead of `[id]/index.go`.
-
-**Go-Friendly Param Filenames (Optional):**
-
-- `id_.go` → `:id`
-- `slug___.go` → `*slug`
-
-**Parameter Types:**
+The entry point follows standard Go patterns:
 
 ```go
-// String parameter (default)
-// routes/users/[username].go
-type Params struct {
-    Username string `param:"username"`
-}
-func ShowPage(ctx vango.Ctx, p Params) *vango.VNode
+// cmd/server/main.go
+package main
 
-// Integer parameter
-// routes/projects/[id:int].go
-type Params struct {
-    ID int `param:"id"`
-}
-func ShowPage(ctx vango.Ctx, p Params) *vango.VNode
+import (
+	"context"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 
-	// UUID parameter
-	// routes/documents/[id:uuid].go
-	type Params struct {
-	    // UUID parameters are validated by the router, but are represented as strings.
-	    ID string `param:"id"`
+	"github.com/vango-go/vango"
+	"myapp/app/routes"
+	"myapp/internal/config"
+	"myapp/internal/db"
+)
+
+func main() {
+	// 1. Load configuration
+	cfg := config.Load()
+
+	// 2. Initialize dependencies
+	database, err := db.Connect(cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("failed to connect to database", "error", err)
+		os.Exit(1)
 	}
-	func ShowPage(ctx vango.Ctx, p Params) *vango.VNode
+	defer database.Close()
 
-// Catch-all parameter
-// routes/docs/[...path].go
-type Params struct {
-    Path []string `param:"path"`
+	// 3. Create Vango app
+	app := vango.New(cfg.VangoConfig())
+
+	// 4. Register routes (generated code)
+	routes.Register(app, database)
+
+	// 5. Graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// 6. Start server
+	slog.Info("starting server", "port", cfg.Port)
+	if err := app.Run(ctx, ":"+cfg.Port); err != nil {
+		slog.Error("server error", "error", err)
+		os.Exit(1)
+	}
 }
-func DocPage(ctx vango.Ctx, p Params) *vango.VNode
 ```
 
-### 5.3 Shared Components (`app/components/`)
+### 11.3 Where to Put Your Code
 
-Components that are used across multiple pages live in `app/components/`:
+| Code Type | Location | Why |
+|-----------|----------|-----|
+| Page handlers | `app/routes/` | File-based routing requires this location |
+| Shared UI components | `app/components/` | Reusable across pages; no route dependencies |
+| Session/global state | `app/store/` | Shared signals/memos used across pages |
+| HTTP/Vango middleware | `app/middleware/` | Auth guards, logging, rate limiting |
+| Business logic | `internal/services/` | Private; testable; no UI dependencies |
+| Database queries | `internal/db/` | Private; swappable; uses `context.Context` |
+| Configuration | `internal/config/` | Environment-based config loading |
+| Static files | `public/` | Served directly; fingerprinted in production |
+
+### 11.4 Shared Components (`app/components/`)
+
+Components used across multiple pages live in `app/components/`:
 
 ```go
 // app/components/button.go
 package components
 
 import (
-    "github.com/vango-go/vango"
-    . "github.com/vango-go/vango/el"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
 )
 
 type ButtonVariant string
 
 const (
-    ButtonPrimary   ButtonVariant = "primary"
-    ButtonSecondary ButtonVariant = "secondary"
-    ButtonDanger    ButtonVariant = "danger"
+	ButtonPrimary   ButtonVariant = "primary"
+	ButtonSecondary ButtonVariant = "secondary"
+	ButtonDanger    ButtonVariant = "danger"
 )
 
-// Button renders a styled button with variant support.
 func Button(variant ButtonVariant, children ...any) func(...any) *vango.VNode {
-    baseClass := "px-4 py-2 rounded font-medium transition-colors"
-    
-    variantClass := map[ButtonVariant]string{
-        ButtonPrimary:   "bg-blue-500 text-white hover:bg-blue-600",
-        ButtonSecondary: "bg-gray-200 text-gray-800 hover:bg-gray-300",
-        ButtonDanger:    "bg-red-500 text-white hover:bg-red-600",
-    }[variant]
-    
-    return func(attrs ...any) *vango.VNode {
-        allAttrs := append([]any{Class(baseClass, variantClass)}, attrs...)
-        allAttrs = append(allAttrs, children...)
-        return ButtonEl(allAttrs...)
-    }
+	baseClass := "px-4 py-2 rounded font-medium transition-colors"
+
+	variantClass := map[ButtonVariant]string{
+		ButtonPrimary:   "bg-blue-500 text-white hover:bg-blue-600",
+		ButtonSecondary: "bg-gray-200 text-gray-800 hover:bg-gray-300",
+		ButtonDanger:    "bg-red-500 text-white hover:bg-red-600",
+	}[variant]
+
+	return func(attrs ...any) *vango.VNode {
+		allAttrs := append([]any{Class(baseClass, variantClass)}, attrs...)
+		allAttrs = append(allAttrs, children...)
+		return ButtonEl(allAttrs...)
+	}
 }
 
 // Usage:
 // Button(ButtonPrimary, Text("Save"))(OnClick(handleSave))
-// Button(ButtonDanger, Text("Delete"))(OnClick(handleDelete), Disabled())
+// Button(ButtonDanger, Text("Delete"))(OnClick(handleDelete), Disabled(true))
 ```
 
-**Component Organization:**
+**Component organization pattern:**
 
 ```
 app/components/
@@ -1915,20 +1885,17 @@ app/components/
 ├── card.go
 ├── modal.go
 ├── badge.go
-├── avatar.go
 │
 ├── form/               # Group related components
 │   ├── input.go
 │   ├── textarea.go
 │   ├── select.go
-│   ├── checkbox.go
 │   └── field.go        # Field wrapper with label/error
 │
 ├── layout/             # Layout primitives
 │   ├── header.go
 │   ├── sidebar.go
-│   ├── footer.go
-│   └── container.go
+│   └── footer.go
 │
 └── data/               # Data display components
     ├── table.go
@@ -1936,37 +1903,7 @@ app/components/
     └── empty_state.go
 ```
 
-**Preventing Circular Dependencies:**
-
-The dependency graph should flow one way:
-
-```
-routes → components → (no app dependencies)
-routes → store → (no app dependencies)
-routes → services → db
-
-Never: components → routes (would be circular)
-Never: store → routes (would be circular)
-```
-
-If a component needs route-specific behavior, pass it as a prop or callback:
-
-```go
-// ❌ Bad: Component imports route-specific code
-package components
-
-import "myapp/app/routes/projects"  // Circular!
-
-// ✅ Good: Component accepts callback
-func TaskRow(task Task, onComplete func()) *vango.VNode {
-    return Tr(
-        Td(Text(task.Title)),
-        Td(Button(ButtonPrimary, Text("Complete"))(OnClick(onComplete))),
-    )
-}
-```
-
-### 5.4 Shared State (`app/store/`)
+### 11.5 Shared State (`app/store/`)
 
 Session-scoped and global state lives in `app/store/`:
 
@@ -1974,33 +1911,28 @@ Session-scoped and global state lives in `app/store/`:
 // app/store/auth.go
 package store
 
-import (
-    "github.com/vango-go/vango"
-    "github.com/vango-go/vango/pkg/auth"
-)
+import "github.com/vango-go/vango"
+
+type User struct {
+	ID    int
+	Email string
+	Role  string
+}
 
 // CurrentUser holds the authenticated user for this session.
 // Session-scoped: each browser tab has its own value.
-// This signal provides reactive updates for UI components.
 var CurrentUser = vango.NewSharedSignal[*User](nil)
 
 // IsAuthenticated is derived state.
 var IsAuthenticated = vango.NewSharedMemo(func() bool {
-    return CurrentUser.Get() != nil
+	return CurrentUser.Get() != nil
 })
 
-// SetUser stores the user in both the reactive signal and session.
-// Use this in login handlers for reactive UI + session persistence.
-func SetUser(ctx vango.Ctx, user *User) {
-    CurrentUser.Set(user)      // Update reactive UI
-    auth.Login(ctx, user)      // Store in session (enables resume)
-}
-
-// ClearUser removes the user from signal and session.
-func ClearUser(ctx vango.Ctx) {
-    CurrentUser.Set(nil)
-    auth.Logout(ctx)
-}
+// IsAdmin is derived state.
+var IsAdmin = vango.NewSharedMemo(func() bool {
+	u := CurrentUser.Get()
+	return u != nil && u.Role == "admin"
+})
 ```
 
 ```go
@@ -2010,1054 +1942,522 @@ package store
 import "github.com/vango-go/vango"
 
 type Toast struct {
-    ID      string
-    Type    string  // "success", "error", "info"
-    Message string
+	ID      string
+	Type    string // "success", "error", "info"
+	Message string
 }
 
 var Toasts = vango.NewSharedSignal([]Toast{})
 
 func ShowToast(toastType, message string) {
-    id := generateID()
-    Toasts.Set(append(Toasts.Get(), Toast{ID: id, Type: toastType, Message: message}))
-    
-    // Auto-dismiss after 5 seconds
-    go func() {
-        time.Sleep(5 * time.Second)
-        // Must use Dispatch to write from goroutine
-        vango.UseCtx().Dispatch(func() {
-            DismissToast(id)
-        })
-    }()
+	id := generateID()
+	Toasts.Set(append(Toasts.Get(), Toast{ID: id, Type: toastType, Message: message}))
 }
 
 func DismissToast(id string) {
-    Toasts.RemoveWhere(func(t Toast) bool {
-        return t.ID == id
-    })
+	Toasts.RemoveWhere(func(t Toast) bool {
+		return t.ID == id
+	})
 }
 ```
 
-**State Scope Guidelines:**
+**State scope guidelines:**
 
 | Scope | When to Use | Example |
 |-------|-------------|---------|
 | `NewSignal` (component) | UI state local to one component | Form inputs, accordion open/closed |
 | `NewSharedSignal` (session) | State shared across pages for one user | Shopping cart, current user, notifications |
-| `NewGlobalSignal` (all users) | Real-time shared state | Online users, live cursors, chat messages |
+| `NewGlobalSignal` (all users) | Real-time shared state | Online user count, live cursors |
 
-### 5.5 Static Assets (`public/`)
+### 11.6 Internal Packages (`internal/`)
 
-The `public/` directory is served directly by Vango:
-
-```
-public/
-├── css/
-│   └── app.css              # Compiled CSS (output of Tailwind)
-├── js/
-│   └── hooks/               # Client hook bundles
-│       ├── sortable.js
-│       └── tooltip.js
-├── images/
-│   ├── logo.svg
-│   └── hero.png
-├── fonts/
-│   └── inter.woff2
-└── favicon.ico
-```
-
-**URL Mapping:**
-
-| File Path | URL |
-|-----------|-----|
-| `public/css/app.css` | `/css/app.css` |
-| `public/images/logo.svg` | `/images/logo.svg` |
-| `public/favicon.ico` | `/favicon.ico` |
-
-**Cache Headers:**
-
-In production, Vango applies appropriate caching:
-- Fingerprinted assets (`app.abc123.css`): Long-lived cache
-- Non-fingerprinted assets: Short cache with revalidation
-
-### 5.6 Internal Packages (`internal/`)
-
-Go's `internal/` directory contains private packages that can't be imported by external code:
+Go's `internal/` directory contains private packages that can't be imported by external code. This is where your business logic and data access live:
 
 ```go
 // internal/services/projects.go
 package services
 
 import (
-    "context"
-    "myapp/internal/db" // Assuming db package is also internal
+	"context"
+	"myapp/internal/db"
 )
 
 type ProjectService struct {
-    db *db.Queries
+	db *db.Queries
 }
 
 func NewProjectService(db *db.Queries) *ProjectService {
-    return &ProjectService{db: db}
+	return &ProjectService{db: db}
 }
 
 func (s *ProjectService) List(ctx context.Context, userID int) ([]db.Project, error) {
-    return s.db.ListProjects(ctx, userID)
+	return s.db.ListProjects(ctx, userID)
 }
 
-func (s *ProjectService) GetByID(ctx context.Context, id int) (*db.Project, error) {
-    return s.db.GetProject(ctx, id)
-}
-
-type CreateProjectInput struct {
-    Name        string
-    Description string
-    OwnerID     int
-}
-
-func (s *ProjectService) Create(ctx context.Context, input CreateProjectInput) (*db.Project, error) {
-    // Validation
-    if input.Name == "" {
-        return nil, ErrNameRequired // Define ErrNameRequired elsewhere
-    }
-    
-    // Business logic
-    return s.db.CreateProject(ctx, db.CreateProjectParams{
-        Name:        input.Name,
-        Description: input.Description,
-        OwnerID:     input.OwnerID,
-    })
+func (s *ProjectService) Create(ctx context.Context, userID int, name string) (*db.Project, error) {
+	return s.db.CreateProject(ctx, db.CreateProjectParams{
+		UserID: userID,
+		Name:   name,
+	})
 }
 ```
 
-### 5.7 Scaling Patterns
+**Key principle:** Services accept `context.Context` and return data/errors. They do not import Vango or know about signals. This keeps business logic testable and decoupled from the UI framework.
 
-As your app grows, consider these organizational patterns:
+### 11.7 Dependency Flow (Preventing Circular Imports)
 
-**Feature Folders (Domain-Driven):**
-
-Group related routes, components, and state by feature:
+The dependency graph should flow one way:
 
 ```
-app/
-├── routes/
-│   ├── projects/
-│   │   ├── index.go
-│   │   ├── id_/
-│   │   │   └── index.go
-│   │   ├── components/      # Project-specific components
-│   │   │   ├── project_card.go
-│   │   │   └── task_list.go
-│   │   └── store/           # Project-specific state
-│   │       └── filters.go
-│   └── billing/
-│       ├── index.go
-│       ├── components/
-│       └── store/
+routes → components → (no app dependencies)
+routes → store → (no app dependencies)
+routes → internal/services → internal/db
+
+Never: components → routes (circular)
+Never: store → routes (circular)
+Never: internal → app (breaks encapsulation)
 ```
 
-**Shared Components Library:**
-
-For large apps or multi-app organizations, extract a shared component library:
-
-```
-# Separate module for shared components
-github.com/myorg/ui/
-├── button.go
-├── card.go
-├── modal.go
-└── form/
-    └── ...
-
-# In your app
-import "github.com/myorg/ui"
-
-Button := ui.Button  // Use in your app
-```
-
-### 5.8 Naming Conventions
-
-**Files:**
-
-- Use `snake_case` for file names: `project_card.go`, `task_list.go`
-- One component per file for major components
-- Group small related components in one file
-
-**Types and Functions:**
-
-- `PascalCase` for exported types and functions: `ProjectCard`, `TaskList`
-- Component functions return `*vango.VNode` or `vango.Component`
-- Stateless components are functions: `func Button(...) *vango.VNode`
-- Stateful components return `vango.Component`: `func Counter(...) vango.Component`
-
-**Packages:**
-
-- Short, lowercase package names: `routes`, `components`, `store`
-- Avoid stuttering: `store.CartStore` → `store.Cart`
-
-### 5.9 Keeping Page Handlers Pure
-
-> **CRITICAL**: Page handlers are reactive—they execute during the render cycle and **must not** contain blocking I/O. Always use `Resource` for data loading.
-
-Page handlers should:
-1. Extract parameters
-2. Return a component that uses `Resource` for data loading
-3. Remain pure (no blocking I/O, no goroutines)
+If a component needs route-specific behavior, pass it as a prop or callback:
 
 ```go
-type Params struct {
-    ID int `param:"id"`
-}
+// ❌ Bad: Component imports route-specific code
+package components
+import "myapp/app/routes/projects"  // Circular!
 
-// ❌ WRONG: Blocking I/O in page handler (violates render purity!)
-func ProjectShowPage_BAD(ctx vango.Ctx, p Params) *vango.VNode {
-    id := p.ID
-    db := getDB()
-    // These blocking calls will stall the session loop!
-    project, err := db.Query("SELECT * FROM projects WHERE id = ?", id)
-    if err != nil {
-        return ErrorPage(err)
-    }
-
-    tasks, err := db.Query("SELECT * FROM tasks WHERE project_id = ?", id)
-    if err != nil {
-        return ErrorPage(err)
-    }
-
-    // Business logic in render
-    var completedCount int
-    for _, t := range tasks {
-        if t.Done {
-            completedCount++
-        }
-    }
-
-    return Div(/* ... */)
-}
-
-// ✅ CORRECT: Page handler delegates to component with Resource
-func ProjectShowPage(ctx vango.Ctx, p Params) *vango.VNode {
-    return ProjectPage(p.ID)
-}
-
-func ProjectPage(id int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        data := vango.NewResource(func() (*ProjectPageData, error) {
-            return services.Projects.GetPageData(ctx.StdContext(), id)
-        })
-        
-        return data.Match(
-            vango.OnLoading(func() *vango.VNode {
-                return ProjectSkeleton()
-            }),
-            vango.OnError(func(err error) *vango.VNode {
-                return ErrorCard(err)
-            }),
-            vango.OnReady(func(d *ProjectPageData) *vango.VNode {
-                return ProjectView(d)
-            }),
-        )
-    })
+// ✅ Good: Component accepts callback
+func TaskRow(task Task, onComplete func()) *vango.VNode {
+	return Tr(
+		Td(Text(task.Title)),
+		Td(Button(ButtonPrimary, Text("Complete"))(OnClick(onComplete))),
+	)
 }
 ```
 
-**Benefits:**
+### 11.8 Static Assets (`public/`)
 
-- Handlers are easy to test (mock the service)
-- Business logic is reusable (call service from multiple routes)
-- Clear separation of concerns
-- Easier to refactor
+The `public/` directory is served directly by Vango:
 
-## 6. App Entry Point and Configuration
+| File Path | URL |
+|-----------|-----|
+| `public/styles.css` | `/styles.css` |
+| `public/images/logo.svg` | `/images/logo.svg` |
+| `public/favicon.ico` | `/favicon.ico` |
 
-This section covers how Vango apps boot and the full configuration surface.
+In production, Vango applies appropriate caching:
+- Fingerprinted assets (`app.abc123.css`): Immutable, long-lived cache
+- Non-fingerprinted assets: Short cache with revalidation
 
-### 6.1 The `main.go` Entry Point
-
-A Vango app's entry point follows a standard pattern:
-
-```go
-// main.go
-package main
-
-import (
-    "context"
-    "log/slog"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
-
-    "github.com/vango-go/vango"
-    "myapp/app/routes"
-    "myapp/internal/config"
-    "myapp/internal/db"
-)
-
-func main() {
-    // 1. Load configuration
-    cfg := config.Load()
-    
-    // 2. Initialize dependencies
-    database, err := db.Connect(cfg.DatabaseURL)
-    if err != nil {
-        slog.Error("failed to connect to database", "error", err)
-        os.Exit(1)
-    }
-    defer database.Close()
-    
-    // 3. Create Vango app
-    app := vango.New(vango.Config{
-        DevMode: cfg.Environment == "development",
-        
-        Session: vango.SessionConfig{
-            ResumeWindow:        30 * time.Second,
-            MaxDetachedSessions: 10000,
-            // Store: vango.RedisStore(redisClient), // Production
-        },
-        
-        Static: vango.StaticConfig{
-            Dir:    "public",
-            Prefix: "/",
-        },
-    })
-    
-    // 4. Register routes
-    routes.Register(app)
-    
-    // 5. Create HTTP server
-    server := &http.Server{
-        Addr:              ":" + cfg.Port,
-        Handler:           app,
-        ReadHeaderTimeout: 5 * time.Second,
-        ReadTimeout:       30 * time.Second,
-        WriteTimeout:      30 * time.Second,
-        IdleTimeout:       60 * time.Second,
-    }
-    
-    // 6. Graceful shutdown
-    go func() {
-        sigChan := make(chan os.Signal, 1)
-        signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-        <-sigChan
-        
-        ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-        defer cancel()
-        
-        slog.Info("shutting down server...")
-        if err := server.Shutdown(ctx); err != nil {
-            slog.Error("server shutdown error", "error", err)
-        }
-    }()
-    
-    // 7. Start server
-    slog.Info("server starting", "addr", server.Addr, "env", cfg.Environment)
-    if err := server.ListenAndServe(); err != http.ErrServerClosed {
-        slog.Error("server error", "error", err)
-        os.Exit(1)
-    }
-}
-```
-
-`app.Run()` uses Vango's internal server with HTTP timeout defaults (`ReadHeaderTimeout=5s`, `ReadTimeout=30s`, `WriteTimeout=30s`, `IdleTimeout=60s`). If you need different values, update the server config before starting:
+Use `ctx.Asset("...")` in layouts to get manifest-aware paths:
 
 ```go
-app := vango.New(cfg)
-routes.Register(app)
-
-srv := app.Server().Config()
-srv.ReadHeaderTimeout = 2 * time.Second
-srv.ReadTimeout = 20 * time.Second
-srv.WriteTimeout = 20 * time.Second
-srv.IdleTimeout = 60 * time.Second
-
-app.Run(":8080")
-```
-
-If you embed Vango as an `http.Handler` in your own `http.Server`, you must set equivalent timeouts on that server.
-
-### 6.2 Entry Point Responsibilities
-
-The entry point handles these concerns in order:
-
-| Step | Responsibility | Notes |
-|------|----------------|-------|
-| **1. Config** | Load and validate configuration | Fail fast on missing required values |
-| **2. Dependencies** | Initialize DB, cache, external clients | Pass to routes/services via closures or DI |
-| **3. App Creation** | Create Vango app with config | Set mode, session, static, security options |
-| **4. Route Registration** | Call generated `routes.Register()` | Generated code handles file-based routing |
-| **5. Server Setup** | Configure http.Server | Set HTTP timeouts (especially ReadHeaderTimeout); WebSocket timeouts live in SessionConfig |
-| **6. Graceful Shutdown** | Handle SIGINT/SIGTERM | Allow in-flight requests to complete |
-| **7. Start** | Listen and serve | Log startup info |
-
-### 6.3 Vango Configuration Reference
-
-#### Core Configuration
-
-```go
-vango.Config{
-    // Development mode enables detailed errors, strict effect warnings,
-    // and source-location transaction names
-    DevMode: true,
-    
-    // Session configuration (see 6.4)
-    Session: vango.SessionConfig{...},
-    
-    // Static file serving (see 6.5)
-    Static: vango.StaticConfig{...},
-    
-    // Security settings (see 6.6)
-    Security: vango.SecurityConfig{...},
-    
-    // Storm budgets for DoS protection (see 6.7)
-    StormBudget: vango.StormBudgetConfig{...},
-    
-    // Logging and observability
-    Logger: slog.Default(),
-}
-```
-
-### 6.4 Session Configuration
-
-```go
-vango.SessionConfig{
-    // How long a disconnected session is kept in memory
-    // Allows refresh/reconnect to restore state
-    ResumeWindow: 30 * time.Second,
-    
-    // Maximum detached sessions in memory (DoS protection)
-    MaxDetachedSessions: 10000,
-    
-    // Maximum sessions per IP (DoS protection)
-    MaxSessionsPerIP: 100,
-
-    // Evict the oldest detached session when MaxSessionsPerIP is reached
-    EvictOnIPLimit: true,
-    
-    // What to do when limits are exceeded
-    EvictionPolicy: vango.EvictionLRU,
-    
-    // Optional: Persist sessions for server restarts
-    Store: vango.RedisStore(redisClient),
-    // Or: Store: vango.PostgresStore(db),
-    
-    // Storm budgets per session (see §3.10.5 in spec)
-    StormBudget: vango.StormBudgetConfig{
-        MaxResourceStartsPerSecond: 100,
-        MaxActionStartsPerSecond:   50,
-        MaxGoLatestStartsPerSecond: 100,
-        MaxEffectRunsPerTick:       50,
-        WindowDuration:             time.Second,
-        OnExceeded:                 vango.BudgetThrottle,
-    },
-}
-```
-
-Important: If TrustedProxies is not configured correctly when running behind a load balancer
-(e.g., Nginx or a cloud L7 proxy), RemoteAddr will likely be the balancer's IP. This collapses
-all users into a single IP bucket and will trigger MaxSessionsPerIP immediately.
-
-**Session Durability Tiers:**
-
-| Tier | What Survives | Configuration |
-|------|---------------|---------------|
-| **None** | Nothing (fresh session on every connect) | `ResumeWindow: 0` |
-| **In-Memory** | Refresh/reconnect within ResumeWindow | `ResumeWindow: 30*time.Second` |
-| **Persistent** | Server restarts, non-sticky deploys | `Store: vango.RedisStore(...)` |
-
-### 6.5 Static File Configuration
-
-```go
-vango.StaticConfig{
-    // Directory containing static files
-    Dir: "public",
-    
-    // URL prefix (usually "/" for root)
-    Prefix: "/",
-    
-    // Cache control for production
-    // Fingerprinted files get immutable; others get short cache
-    CacheControl: vango.CacheControlProduction,
-    
-    // Brotli/gzip compression
-    Compression: true,
-    
-    // Custom headers
-    Headers: map[string]string{
-        "X-Content-Type-Options": "nosniff",
-    },
-}
-```
-
-**Cache Strategies:**
-
-| Strategy | Behavior | When to Use |
-|----------|----------|-------------|
-| `CacheControlNone` | No caching headers | Development |
-| `CacheControlProduction` | Fingerprinted: immutable; Others: short + revalidate | Production |
-| `CacheControlCustom` | You control headers | Special requirements |
-
-### 6.6 Security Configuration
-
-```go
-vango.SecurityConfig{
-    // CSRF protection (enabled when CSRFSecret is set)
-    CSRFSecret: []byte("your-32-byte-secret-key-here!!"),
-    
-    // Origin checking for WebSocket
-    AllowedOrigins: []string{
-        "https://myapp.com",
-        "https://www.myapp.com",
-    },
-    // Or allow same-origin automatically:
-    AllowSameOrigin: true,
-    
-    // Trusted reverse proxies (for X-Forwarded-Proto)
-    TrustedProxies: []string{"10.0.0.1"},
-    
-    // Cookie settings
-    CookieSecure:   true,  // Requires HTTPS
-    CookieHttpOnly: true,  // No JS access
-    CookieSameSite: http.SameSiteLaxMode,
-    CookieDomain:   "",
-}
-```
-
-Vango enforces these cookie defaults for `ctx.SetCookie` and `ctx.SetCookieStrict`. When
-`CookieSecure` is true and a request is not secure, cookies are dropped and
-`SetCookieStrict` returns `server.ErrSecureCookiesRequired`. Use
-`vango.WithCookieHTTPOnly(false)` for cookies that must be readable by JS.
-
-### 6.7 Storm Budget Configuration
-
-Storm budgets protect against runaway effects and DoS:
-
-```go
-vango.StormBudgetConfig{
-    // Per-second limits for async work
-    MaxResourceStartsPerSecond: 100,
-    MaxActionStartsPerSecond:   50,
-    MaxGoLatestStartsPerSecond: 100,
-    
-    // Per-tick limits
-    MaxEffectRunsPerTick: 50,
-    
-    // Time window for rate limiting
-    WindowDuration: time.Second,
-    
-    // What to do when exceeded
-    OnExceeded: vango.BudgetThrottle, // or vango.BudgetTripBreaker
-}
-```
-
-**Exceeded Behaviors:**
-
-| Mode | Behavior | When to Use |
-|------|----------|-------------|
-| `BudgetThrottle` | Deny/delay new starts, surface error | Most cases |
-| `BudgetTripBreaker` | Terminate/invalidate session | Critical resources |
-
-### 6.8 Environment-Based Configuration
-
-Structure your configuration around environments:
-
-```go
-// internal/config/config.go
-package config
-
-import (
-    "os"
-    "time"
-)
-
-type Config struct {
-    Environment   string
-    Port          string
-    DatabaseURL   string
-    RedisURL      string
-    SessionSecret string
-    
-    // Derived settings
-    IsDevelopment bool
-    IsProduction  bool
-}
-
-func Load() Config {
-    env := getEnv("ENVIRONMENT", "development")
-    
-    cfg := Config{
-        Environment:   env,
-        Port:          getEnv("PORT", "8080"),
-        DatabaseURL:   mustGetEnv("DATABASE_URL"),
-        RedisURL:      getEnv("REDIS_URL", ""),
-        SessionSecret: mustGetEnv("SESSION_SECRET"),
-        
-        IsDevelopment: env == "development",
-        IsProduction:  env == "production",
-    }
-    
-    cfg.Validate()
-    return cfg
-}
-
-func (c Config) Validate() {
-    if c.IsProduction {
-        if c.RedisURL == "" {
-            panic("REDIS_URL required in production for session persistence")
-        }
-        if len(c.SessionSecret) < 32 {
-            panic("SESSION_SECRET must be at least 32 characters")
-        }
-    }
-}
-
-func (c Config) VangoConfig() vango.Config {
-    cfg := vango.Config{
-        DevMode: c.IsDevelopment,
-        Session: vango.SessionConfig{
-            ResumeWindow: 30 * time.Second,
-        },
-        Static: vango.StaticConfig{
-            Dir:    "public",
-            Prefix: "/",
-        },
-    }
-    
-    if c.IsProduction {
-        cfg.Session.Store = vango.RedisStore(c.RedisURL)
-        cfg.Static.CacheControl = vango.CacheControlProduction
-        cfg.Security.CookieSecure = true
-    }
-    
-    return cfg
-}
-```
-
-### 6.9 Configuration Categories
-
-Understand what each configuration affects:
-
-| Category | Settings | Correctness | Performance | Security |
-|----------|----------|-------------|-------------|----------|
-| **Session** | ResumeWindow, Store | ✓ | ✓ | |
-| **Limits** | MaxDetachedSessions, Per-IP limits | | ✓ | ✓ |
-| **Storm Budgets** | Resource/Action/Effect limits | | ✓ | ✓ |
-| **CSRF** | CSRFSecret, Cookie flags | | | ✓ |
-| **Origins** | AllowedOrigins, AllowSameOrigin | | | ✓ |
-| **Cookies** | Secure, HttpOnly, SameSite | | | ✓ |
-| **Static** | CacheControl, Compression | | ✓ | |
-| **DevMode** | Error detail, effect warnings | ✓ | | |
-
-### 6.10 Production Checklist
-
-Before deploying to production:
-
-```go
-// ✅ Required for production
-vango.Config{
-    DevMode: false,  // Disable detailed errors
-    
-    Session: vango.SessionConfig{
-        Store: vango.RedisStore(...),  // Persist sessions
-        MaxDetachedSessions: 10000,    // Limit memory
-        MaxSessionsPerIP:    100,      // Rate limit
-    },
-    
-    Security: vango.SecurityConfig{
-        CSRFSecret:     []byte("your-32-byte-secret-key-here!!"),
-        AllowedOrigins: []string{"https://myapp.com"},  // Explicit origins
-        CookieSecure:   true,
-        CookieHttpOnly: true,
-        CookieSameSite: http.SameSiteLaxMode,
-    },
-    
-    Static: vango.StaticConfig{
-        CacheControl: vango.CacheControlProduction,
-        Compression:  true,
-    },
-}
-```
-
-### 6.11 Integrating with Existing Routers
-
-Vango is a standard `http.Handler`, so it integrates with any Go router:
-
-```go
-// With Chi
-import "github.com/go-chi/chi/v5"
-
-r := chi.NewRouter()
-r.Use(middleware.Logger)
-r.Use(middleware.Recoverer)
-
-// Mount Vango app
-r.Mount("/", app)
-
-// Or mount at a sub-path.
-//
-// IMPORTANT: Vango's WebSocket endpoint is rooted at "/_vango/*". If you mount
-// the app at a sub-path (e.g. "/app"), you MUST also route "/_vango/*" to the
-// same handler (or override the thin client WS URL).
-r.Mount("/app", app)
-r.Mount("/_vango", app)
-
-// Add non-Vango routes
-r.Get("/api/external", externalAPIHandler)
-```
-
-```go
-// With Gorilla Mux
-import "github.com/gorilla/mux"
-
-r := mux.NewRouter()
-r.PathPrefix("/").Handler(app)
-```
-
-```go
-// With standard library
-mux := http.NewServeMux()
-mux.Handle("/", app)
+LinkEl(Rel("stylesheet"), Href(ctx.Asset("styles.css")))
+// Production: /styles.abc123.css
+// Development: /styles.css
 ```
 
 ---
 
-## 7. Routing, Layouts, and Middleware
+## 12. Routing & Pages
 
-This section is the practical companion to the routing contracts in the spec (§9). It covers everything you need to build complex route structures.
+Vango uses file-based routing rooted at `app/routes`. Route handlers are reactive render functions (they run during the render cycle and must remain pure). Layouts and middleware compose hierarchically along the directory tree.
 
-### 7.1 File-Based Routing Overview
+### 12.1 File-Based Routing
 
-Vango uses file-based routing where the file path determines the URL:
+**Directory structure maps to URL paths:**
 
-```
-app/routes/                           URL
-├── index.go                         /
-├── about.go                         /about
-├── blog/
-│   ├── index.go                     /blog
-│   └── [slug].go                    /blog/:slug
-├── projects/
-│   ├── layout.go                    (wraps all /projects/* pages)
-│   ├── middleware.go                (directory middleware)
-│   ├── index.go                     /projects
-│   ├── [id:int].go                  /projects/:id
-│   ├── [id:int]/                    (nested directory for sub-routes)
-│   │   ├── edit.go                  /projects/:id/edit
-│   │   └── settings.go              /projects/:id/settings
-├── api/
-│   └── health.go                    /api/health (Typed API)
-└── [...path].go                     /* (catch-all)
-```
+* `app/routes/index.go` → `/`
+* `app/routes/about.go` → `/about`
+* `app/routes/projects/index.go` → `/projects`
+* `app/routes/projects/[id].go` (or `id_.go`) → `/projects/:id`
+* `app/routes/docs/[...path].go` → `/docs/*path`
+* `app/routes/layout.go` → root layout
+* `app/routes/**/layout.go` → nested layouts
+* `app/routes/**/middleware.go` → directory middleware
+* `app/routes/api/*.go` → typed API endpoints (registered via `app.API`)
 
-### 7.2 Route Handler Signatures
+**Canonical conventions from the current guide:**
 
-**Page Handlers:**
+* Prefer simple files for simple pages (`about.go` rather than nested directories).
+* Avoid route files beginning with `_` or `.` (Go ignores them).
+* Avoid directory names that are invalid in Go import paths; bracketed directory names are deprecated. For nested param directories, use Go-friendly directory names (e.g., `id_/index.go`).
 
-Route handlers receive `vango.Ctx` and a `Params` struct for path parameters.
+### 12.2 Route Parameters
+
+Vango supports typed params via filename annotations.
+
+#### Parameter filename syntax
+
+* `[id]` → string
+* `[id:int]` → int (invalid values 404)
+* `[id:uuid]` → string with runtime UUID validation
+* `[...path]` → catch-all
+
+#### Handler signature
+
+Handlers with params must use a `Params` struct with `param` tags.
 
 ```go
-// No parameters
-// routes/index.go
-func IndexPage(ctx vango.Ctx) *vango.VNode { ... }
-
-// With path parameters
-// routes/projects/[id:int].go
 type Params struct {
-    ID int `param:"id"`
-}
-
-func ShowPage(ctx vango.Ctx, p Params) *vango.VNode { ... }
-
-// Catch-all parameter
-// routes/docs/[...path].go
-type Params struct {
-    Path []string `param:"path"`
-}
-
-func DocPage(ctx vango.Ctx, p Params) *vango.VNode { ... }
-```
-
-**Layout Handlers:**
-
-```go
-// app/routes/layout.go
-func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode { ... }
-```
-
-**API Route Handlers:**
-
-API handlers are typed functions, not raw `net/http` handlers.
-
-```go
-// routes/api/users.go
-
-func GET(ctx vango.Ctx) ([]User, error) {
-    return db.Users.List(), nil
-}
-
-type CreateRequest struct {
-    Name string `json:"name"`
-}
-
-func POST(ctx vango.Ctx, body CreateRequest) (*User, error) {
-    return db.Users.Create(body.Name), nil
-}
-```
-
-### 7.3 Parameter Types
-
-Specify parameter types in filenames using `[name:type]` syntax:
-
-| Syntax | Go Type | Example | Matches |
-|--------|---------|---------|---------|
-| `[id]` | `string` | `/users/alice` | Any string segment |
-| `[id:int]` | `int` | `/projects/123` | Integers only |
-| `[id:uuid]` | `string` | `/docs/550e...` | Valid UUIDs only |
-| `[...path]` | `string` or `[]string` | `/docs/a/b/c` | Remaining path |
-
-**Type Safety:**
-
-```go
-// routes/projects/[id:int].go
-type Params struct {
-    ID int `param:"id"`
+	ID int `param:"id"`
 }
 
 func ShowPage(ctx vango.Ctx, p Params) *vango.VNode {
-    // p.ID is guaranteed to be a valid int
-    // Invalid URLs like /projects/abc return 404 automatically
-    
-    project := vango.NewResource(func() (*Project, error) {
-        return db.Projects.FindByID(ctx.StdContext(), p.ID)
-    })
-    
-    return project.Match(/* ... */)
+	// p.ID is already validated and parsed (because filename was [id:int])
+	return Div(Textf("Project %d", p.ID))
 }
 ```
 
-**Consistent Parameter Naming:**
+UUID params map to `string` (do not use `uuid.UUID` in Params):
 
 ```go
-// ✅ Good: Parameter name matches domain concept
-// routes/projects/[projectID:int]/tasks/[taskID:int].go
 type Params struct {
-    ProjectID int `param:"projectID"`
-    TaskID    int `param:"taskID"`
+	ID string `param:"id"` // from [id:uuid]
 }
-func TaskPage(ctx vango.Ctx, p Params) *vango.VNode
-
-// ❌ Avoid: Generic names are confusing with multiple params
-// routes/projects/[id:int]/tasks/[id:int].go  // Which id is which?
 ```
 
-### 7.4 Layout Composition
-
-Layouts wrap pages and can be nested:
-
-```
-Request: GET /projects/123/settings
-
-Layout hierarchy:
-1. routes/layout.go              (root layout: html, head, body)
-2. routes/projects/layout.go     (project layout: sidebar, nav)
-3. routes/projects/[id:int]/settings.go  (page content)
-
-Rendered structure:
-<RootLayout>
-  <ProjectLayout>
-    <SettingsPage />
-  </ProjectLayout>
-</RootLayout>
-```
-
-**Root Layout:**
+Catch-all params can be `[]string`:
 
 ```go
-// routes/layout.go
+type Params struct {
+	Path []string `param:"path"` // from [...path]
+}
+```
+
+### 12.3 Layouts (Nested and Persistent UI)
+
+Layouts wrap pages and can be nested by directory. Layout signature:
+
+```go
+func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode
+```
+
+**Root layout example (HTML shell + assets + scripts):**
+
+```go
 func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    return Html(Lang("en"),
-        Head(
-            Meta(Charset("utf-8")),
-            Meta(Name("viewport"), Content("width=device-width, initial-scale=1")),
-            TitleEl(Text("My App")),
-            LinkEl(Rel("stylesheet"), Href(ctx.Asset("styles.css"))),
-            // Preload critical assets
-            LinkEl(Rel("preload"), Href(ctx.Asset("fonts/inter.woff2")), As("font"), 
-                Type("font/woff2"), Crossorigin("anonymous")),
-        ),
-        Body(Class("min-h-screen bg-gray-50"),
-            children,
-            // VangoScripts() is auto-injected if not present
-        ),
-    )
+	return Html(Lang("en"),
+		Head(
+			Meta(Charset("utf-8")),
+			Meta(Name("viewport"), Content("width=device-width, initial-scale=1")),
+			TitleEl(Text("My Vango App")),
+			LinkEl(Rel("stylesheet"), Href(ctx.Asset("styles.css"))),
+		),
+		Body(
+			Header(Class("border-b p-4"),
+				Nav(Class("flex gap-4"),
+					Link("/", Text("Home")),
+					Link("/about", Text("About")),
+				),
+			),
+			Main(Class("p-4"), children),
+			VangoScripts(),
+		),
+	)
 }
 ```
 
-**Nested Layout:**
+**Nested layout example (section shell):**
 
 ```go
-// routes/projects/layout.go
+// app/routes/projects/layout.go
 func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    return Div(Class("flex min-h-screen"),
-        // Sidebar navigation
-        Aside(Class("w-64 bg-white border-r"),
-            Nav(Class("p-4 space-y-2"),
-                NavLink(ctx, "/projects", Text("All Projects")),
-                NavLink(ctx, "/projects/new", Text("New Project")),
-            ),
-        ),
-        // Main content area
-        Main(Class("flex-1 p-8"),
-            children,
-        ),
-    )
+	return Div(Class("flex min-h-screen"),
+		Aside(Class("w-64 border-r p-4"),
+			Nav(Class("space-y-2"),
+				NavLink(ctx, "/projects", Text("All Projects")),
+				NavLink(ctx, "/projects/new", Text("New Project")),
+			),
+		),
+		Main(Class("flex-1 p-6"), children),
+	)
 }
 ```
 
-**Layout with Dynamic Data:**
+**Design principle:** layouts are your persistent UI boundary (headers, sidebars, global toasts, connection banners, etc.). Keep them render-pure; load data via Resources if needed.
+
+### 12.4 Page Handlers and Components
+
+A page handler registered via routing is reactive and must remain render-pure. The simplest correct pattern is:
+
+* page handler extracts params
+* returns a component that uses Resources/Actions as needed
 
 ```go
-// routes/projects/[id:int]/layout.go
-func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    id := ctx.Param("id") // string
-    return Div(
-        H2(Text(fmt.Sprintf("Project #%s", id))),
-        Nav(
-            NavLink(ctx, fmt.Sprintf("/projects/%s", id), Text("Dashboard")),
-            NavLink(ctx, fmt.Sprintf("/projects/%s/settings", id), Text("Settings")),
-        ),
-        children,
-    )
+type Params struct {
+	ID int `param:"id"`
 }
 
-func ProjectLayoutComponent(id int, children *vango.VNode) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        project := vango.NewResource(func() (*Project, error) {
-            return db.Projects.FindByID(ctx.StdContext(), id)
-        })
-        
-        return project.Match(
-            vango.OnLoading(func() *vango.VNode {
-                return ProjectLayoutSkeleton(children)
-            }),
-            vango.OnReady(func(p *Project) *vango.VNode {
-                return Div(Class("space-y-4"),
-                    // Project header
-                    Header(Class("border-b pb-4"),
-                        H1(Class("text-2xl font-bold"), Text(p.Name)),
-                        ProjectTabs(id),
-                    ),
-                    // Page content
-                    children,
-                )
-            }),
-            vango.OnError(func(err error) *vango.VNode {
-                return ErrorPage(err)
-            }),
-        )
-    })
+func ShowPage(ctx vango.Ctx, p Params) *vango.VNode {
+	return ProjectPage(p.ID)
+}
+
+func ProjectPage(id int) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		std := ctx.StdContext()
+
+		project := vango.NewResource(func() (*Project, error) {
+			return loadProject(std, id)
+		})
+
+		return project.Match(
+			vango.OnLoading(func() *vango.VNode { return Div(Text("Loading…")) }),
+			vango.OnError(func(err error) *vango.VNode { return Div(Text(err.Error())) }),
+			vango.OnReady(func(p *Project) *vango.VNode {
+				return Div(
+					H1(Class("text-2xl font-bold"), Text(p.Name)),
+					P(Text(p.Description)),
+				)
+			}),
+		)
+	})
 }
 ```
 
-### 7.5 Middleware
+This avoids blocking I/O in the handler while keeping route logic and UI composition clean.
 
-Vango supports two middleware types:
+### 12.5 Navigation
 
-**HTTP Middleware** (runs before Vango):
+Vango supports:
+
+* declarative navigation via Link helpers (SPA when connected; normal navigation when not)
+* programmatic navigation via `ctx.Navigate`
+
+#### Link helpers
+
+From the current guide’s quick reference:
+
+* `Link("/path", children...)`
+* `LinkPrefetch("/path", children...)`
+* `NavLink(ctx, "/path", children...)` (active class when current)
+* `NavLinkPrefix(ctx, "/admin", ...)` (active for subroutes)
 
 ```go
-// app/middleware/logging.go
-package middleware
-
-import (
-    "log/slog"
-    "net/http"
-    "time"
+Nav(
+	NavLink(ctx, "/", Text("Home")),
+	NavLink(ctx, "/projects", Text("Projects")),
 )
-
-func Logging(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        start := time.Now()
-        
-        next.ServeHTTP(w, r)
-        
-        slog.Info("request",
-            "method", r.Method,
-            "path", r.URL.Path,
-            "duration", time.Since(start),
-        )
-    })
-}
 ```
 
-**Vango Route Middleware** (runs within Vango):
+#### Programmatic navigation
 
 ```go
-// routes/admin/middleware.go
-package admin
+Button(OnClick(func() {
+	ctx := vango.UseCtx()
+	ctx.Navigate("/projects/123")
+}), Text("Go"))
+```
 
-import (
-    "github.com/vango-go/vango"
-    "github.com/vango-go/vango/pkg/router"
-    "myapp/app/store"
-)
+For "replace" navigation (no history entry), the current guide shows using a replace option (exact option symbol may differ in final API; keep your codebase consistent with the implemented option). The intent is:
 
-func Middleware() []router.Middleware {
-    return []router.Middleware{
-        router.MiddlewareFunc(func(ctx vango.Ctx, next func() error) error {
-            user, _ := ctx.User().(*store.User)
-            if user == nil {
-                ctx.Navigate("/login?redirect="+ctx.Path(), vango.WithReplace())
-                return nil // short-circuit
-            }
-            return next()
-        }),
-    }
+* push: default
+* replace: no new entry
+
+### 12.6 Navigation Lifecycle & Unsaved Changes
+
+Vango provides navigation lifecycle hooks to intercept navigation events. These are essential for "unsaved changes" warnings and analytics.
+
+#### OnBeforeNavigate (Guard Navigation)
+
+`OnBeforeNavigate` runs **before** navigation occurs and can cancel it. This runs on the **client side** (in the thin client) because it must intercept the navigation before the server is contacted.
+
+```go
+func EditForm() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		isDirty := vango.NewSignal(false)
+
+		// Register navigation guard (client-side execution)
+		vango.OnBeforeNavigate(func(to string) bool {
+			if isDirty.Peek() {
+				// Return false to cancel navigation
+				// The thin client shows a browser confirm dialog
+				return false // Will prompt: "You have unsaved changes. Leave anyway?"
+			}
+			return true // Allow navigation
+		})
+
+		return Form(
+			OnInput(func() { isDirty.Set(true) }),
+			// ... form fields ...
+			Button(Type("submit"), OnClick(func() {
+				// Save and clear dirty flag
+				isDirty.Set(false)
+			}), Text("Save")),
+		)
+	})
 }
 ```
 
-**Middleware Stacking:**
+**Key constraints:**
+
+- `OnBeforeNavigate` registers a client-side callback; the function body is serialized and runs in the thin client
+- Use `signal.Peek()` (not `.Get()`) to read state without creating reactive dependencies
+- Return `false` to cancel navigation (thin client shows browser's "Leave site?" dialog)
+- Return `true` to allow navigation to proceed
+- The guard is scoped to the component's lifetime; it's automatically unregistered on unmount
+
+#### OnNavigate (After Navigation)
+
+`OnNavigate` runs **after** navigation completes. Use it for analytics, scroll restoration, or other post-navigation effects.
+
+```go
+func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
+	// Track page views
+	vango.OnNavigate(func(path string) {
+		analytics.TrackPageView(path)
+	})
+
+	return Html(
+		Body(children, VangoScripts()),
+	)
+}
+```
+
+**Key points:**
+
+- Runs on both SPA navigation (WebSocket) and initial page load
+- `path` includes query string (e.g., `/projects?filter=active`)
+- Registered in layouts to track all navigation within that layout's scope
+
+### 12.7 Connection Status UX
+
+The thin client maintains a WebSocket connection to the server. When this connection is interrupted, users need clear feedback. Vango provides primitives for building connection status UI.
+
+#### Connection Lifecycle
 
 ```
-Request: GET /admin/users
-
-1. HTTP Middleware (Logging, Recovery, etc.)
-   ↓
-2. Vango receives request
-   ↓
-3. Route matching → /admin/users
-   ↓
-4. routes/admin/middleware.go (auth check)
- ↓
-5. routes/layout.go (root layout)
- ↓
-6. routes/admin/layout.go (admin layout)
- ↓
-7. routes/admin/users.go (page handler)
+┌─────────────────────────────────────────────────────────────────┐
+│                    CONNECTION LIFECYCLE                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. Connected      →  Normal operation                          │
+│                                                                  │
+│  2. Disconnected   →  Within ResumeWindow: attempt reconnect    │
+│                       Thin client shows reconnecting indicator   │
+│                                                                  │
+│  3. Reconnected    →  Session state preserved                   │
+│                       Continue where left off                    │
+│                                                                  │
+│  4. Resume Failed  →  Full page reload (self-heal)              │
+│     (after window)    Fresh session, content from SSR           │
+│                                                                  │
+│  5. Patch Mismatch →  Full page reload (self-heal)              │
+│                       DOM re-syncs with server state            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**What Belongs Where:**
+#### ConnectionStatus Primitive
 
-| Concern | HTTP Middleware | Vango Middleware |
-|---------|-----------------|------------------|
-| Logging | ✓ | |
-| Recovery/Panic | ✓ | |
-| Request ID | ✓ | |
-| Rate Limiting | ✓ | |
-| Auth Check (redirect) | | ✓ |
-| Permission Check | | ✓ |
-| Feature Flags | | ✓ |
-| A/B Testing | | ✓ |
+`vango.ConnectionStatus()` returns the current connection state as a reactive value:
 
-### 7.6 API Routes
+```go
+func ConnectionBanner() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		// Returns: "connected" | "reconnecting" | "disconnected"
+		status := vango.ConnectionStatus()
 
-API routes use typed functions that return data, not raw HTTP handlers.
-Files are placed in `app/routes/api/` with descriptive names (e.g., `health.go`, `users.go`).
+		// Don't render anything when connected
+		if status == "connected" {
+			return nil
+		}
+
+		return Div(
+			Class("fixed top-0 inset-x-0 z-50 p-2 text-center text-white"),
+			vango.Switch(status,
+				vango.Case("reconnecting",
+					Div(Class("bg-yellow-500"),
+						Text("Reconnecting..."),
+					),
+				),
+				vango.Case("disconnected",
+					Div(Class("bg-red-500"),
+						Text("Connection lost. "),
+						Button(
+							Class("underline"),
+							OnClick(func() { vango.ForceReconnect() }),
+							Text("Retry"),
+						),
+					),
+				),
+			),
+		)
+	})
+}
+```
+
+#### Canonical Layout Pattern
+
+Include the connection banner in your root layout:
+
+```go
+func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
+	return Html(
+		Head(
+			Meta(Charset("utf-8")),
+			Meta(Name("viewport"), Content("width=device-width, initial-scale=1")),
+			TitleEl(Text("My App")),
+			LinkEl(Rel("stylesheet"), Href(ctx.Asset("styles.css"))),
+		),
+		Body(
+			ConnectionBanner(), // Always visible when disconnected
+			Header(/* nav */),
+			Main(children),
+			Footer(/* footer */),
+			VangoScripts(),
+		),
+	)
+}
+```
+
+#### Connection Status CSS
+
+Style the banner to be unobtrusive but visible:
+
+```css
+/* Reconnecting: yellow warning */
+.banner-reconnecting {
+	background: #f59e0b;
+	animation: pulse 2s infinite;
+}
+
+/* Disconnected: red error */
+.banner-disconnected {
+	background: #ef4444;
+}
+
+@keyframes pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.7; }
+}
+```
+
+#### Programmatic Reconnect
+
+```go
+// Force a reconnect attempt (useful for "Retry" buttons)
+vango.ForceReconnect()
+
+// Check if currently connected (non-reactive; use ConnectionStatus() for reactive)
+if vango.IsConnected() {
+	// ...
+}
+```
+
+**Key constraints:**
+
+- `ConnectionStatus()` is reactive and triggers re-renders when status changes
+- The thin client automatically attempts reconnection within `ResumeWindow`
+- After `ResumeWindow` expires, the thin client triggers a full page reload (self-heal)
+- `ForceReconnect()` is a hint; the thin client may debounce rapid retry attempts
+
+### 12.8 API Routes (Typed JSON Endpoints)
+
+API routes are typed functions that return data, not raw HTTP handlers. They are placed in `app/routes/api/` and registered via `app.API(...)`. This provides a clean separation between server-rendered pages and JSON endpoints for mobile apps, external integrations, or AJAX calls.
+
+#### Basic API Handler
 
 ```go
 // app/routes/api/health.go
@@ -3067,3126 +2467,528 @@ import "github.com/vango-go/vango"
 
 // HealthResponse is the JSON response for health checks.
 type HealthResponse struct {
-    Status  string `json:"status"`
-    Version string `json:"version"`
+	Status  string `json:"status"`
+	Version string `json:"version"`
 }
 
 // HealthGET handles GET /api/health.
 // Registered as: app.API("GET", "/api/health", api.HealthGET)
 func HealthGET(ctx vango.Ctx) (*HealthResponse, error) {
-    return &HealthResponse{
-        Status:  "ok",
-        Version: "1.0.0",
-    }, nil
+	return &HealthResponse{
+		Status:  "ok",
+		Version: "1.0.0",
+	}, nil
 }
 ```
 
-**Named function convention:** `{Resource}{METHOD}` - e.g., `UsersGET`, `UserGET`, `UsersPOST`.
+**Naming convention:** `{Resource}{METHOD}` — e.g., `UsersGET`, `UserGET`, `UsersPOST`, `UserDELETE`.
 
-**CRUD Example:**
+#### CRUD Example
 
 ```go
 // app/routes/api/users.go
 package api
 
-import (
-    "github.com/vango-go/vango"
-)
+import "github.com/vango-go/vango"
 
 // UsersGET handles GET /api/users - list all users
 func UsersGET(ctx vango.Ctx) ([]User, error) {
-    return db.Users.List(ctx.StdContext())
+	return db.Users.List(ctx.StdContext())
 }
 
 // UserGET handles GET /api/users/{id} - get single user
 type UserParams struct {
-    ID int `param:"id"`
+	ID int `param:"id"`
 }
 
 func UserGET(ctx vango.Ctx, p UserParams) (*User, error) {
-    user, err := db.Users.FindByID(ctx.StdContext(), p.ID)
-    if err != nil {
-        return nil, vango.NotFound("user not found")
-    }
-    return user, nil
+	user, err := db.Users.FindByID(ctx.StdContext(), p.ID)
+	if err != nil {
+		return nil, vango.NotFound("user not found")
+	}
+	return user, nil
 }
 
 // UsersPOST handles POST /api/users - create user
+type CreateUserInput struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
 func UsersPOST(ctx vango.Ctx, input CreateUserInput) (*User, error) {
-    return db.Users.Create(ctx.StdContext(), input)
+	return db.Users.Create(ctx.StdContext(), input)
 }
 
 // UserDELETE handles DELETE /api/users/{id} - delete user
 func UserDELETE(ctx vango.Ctx, p UserParams) (any, error) {
-    if err := db.Users.Delete(ctx.StdContext(), p.ID); err != nil {
-        return nil, err
-    }
-    return map[string]bool{"ok": true}, nil
+	if err := db.Users.Delete(ctx.StdContext(), p.ID); err != nil {
+		return nil, err
+	}
+	return map[string]bool{"ok": true}, nil
 }
 ```
 
-**Request bodies (JSON):**
-- If an API handler declares a body parameter (e.g. `func UsersPOST(ctx vango.Ctx, input CreateUserInput) ...`), Vango reads and JSON-decodes the HTTP request body into that type.
-- By default, missing `Content-Type` is accepted, but an explicit non-JSON `Content-Type` is rejected with `415 Unsupported Media Type`.
-- The default maximum body size is **1 MiB**; configure via `vango.Config{ API: vango.APIConfig{ MaxBodyBytes: ... } }`.
+#### Handler Signatures
 
-**Route registration (generated in routes_gen.go):**
+API handlers support several signatures:
+
+```go
+// No input, returns data
+func HealthGET(ctx vango.Ctx) (*Response, error)
+
+// URL params only
+func UserGET(ctx vango.Ctx, p Params) (*User, error)
+
+// JSON body only (for POST/PUT/PATCH)
+func UsersPOST(ctx vango.Ctx, input CreateInput) (*User, error)
+
+// Both URL params and JSON body
+func UserPATCH(ctx vango.Ctx, p Params, input UpdateInput) (*User, error)
+```
+
+#### Request Body Handling
+
+When an API handler declares a body parameter (e.g., `input CreateUserInput`), Vango automatically:
+
+1. Reads the HTTP request body
+2. JSON-decodes it into the specified type
+3. Passes it to your handler
+
+**Content-Type rules:**
+* Missing `Content-Type` header: accepted (assumes JSON)
+* `Content-Type: application/json`: accepted
+* Other `Content-Type` values: rejected with `415 Unsupported Media Type`
+
+**Body size limit:** Default is **1 MiB**. Configure via:
+
+```go
+vango.Config{
+	API: vango.APIConfig{
+		MaxBodyBytes: 5 * 1024 * 1024, // 5 MiB
+	},
+}
+```
+
+#### Error Handling and HTTP Status Codes
+
+Return typed errors to control the HTTP status code:
+
+```go
+// 404 Not Found
+return nil, vango.NotFound("user not found")
+
+// 400 Bad Request
+return nil, vango.BadRequest("invalid email format")
+
+// 401 Unauthorized
+return nil, vango.Unauthorized("authentication required")
+
+// 403 Forbidden
+return nil, vango.Forbidden("insufficient permissions")
+
+// 500 Internal Server Error (default for untyped errors)
+return nil, err
+
+// Custom status code
+return nil, vango.WithStatus(422, "validation failed")
+```
+
+**Error response format:**
+
+```json
+{
+  "error": "user not found"
+}
+```
+
+#### Route Registration (Generated)
+
+The CLI generates route registration in `routes_gen.go`:
 
 ```go
 // Code generated by vango. DO NOT EDIT.
 func Register(app *vango.App) {
-    app.API("GET", "/api/health", api.HealthGET)
-    app.API("GET", "/api/users", api.UsersGET)
-    app.API("GET", "/api/users/:id", api.UserGET)
-    app.API("POST", "/api/users", api.UsersPOST)
-    app.API("DELETE", "/api/users/:id", api.UserDELETE)
+	// Page routes
+	app.Page("/", routes.IndexPage)
+	app.Page("/projects", projects.IndexPage)
+
+	// API routes
+	app.API("GET", "/api/health", api.HealthGET)
+	app.API("GET", "/api/users", api.UsersGET)
+	app.API("GET", "/api/users/:id", api.UserGET)
+	app.API("POST", "/api/users", api.UsersPOST)
+	app.API("DELETE", "/api/users/:id", api.UserDELETE)
 }
 ```
 
-### 7.7 Programmatic Navigation
+#### API vs Page Routes
 
-Navigate between pages programmatically:
+| Aspect | Page Routes (`app.Page`) | API Routes (`app.API`) |
+|--------|--------------------------|------------------------|
+| Returns | `*vango.VNode` | Data + error (JSON-encoded) |
+| Use case | Server-rendered UI | JSON for mobile/external clients |
+| Response | HTML (SSR) or patches (WS) | JSON |
+| Auth | Session-based | Session or token-based |
 
-```go
-// Push (creates history entry)
-Button(OnClick(func() {
-    ctx := vango.UseCtx()
-    ctx.Navigate("/projects/123")
-}), Text("View Project"))
+**When to use API routes:**
+* Mobile app backends
+* External integrations
+* AJAX calls from islands/hooks
+* Webhooks from third-party services
 
-// Replace (no history entry)
-Button(OnClick(func() {
-    ctx := vango.UseCtx()
-    ctx.Navigate("/dashboard", server.WithReplace())
-}), Text("Go to Dashboard"))
+---
 
-// With query parameters
-Button(OnClick(func() {
-    ctx := vango.UseCtx()
-    ctx.Navigate("/search?q=golang&page=1")
-}), Text("Search"))
+## 13. Forms & Validation
 
-// External navigation
-Button(OnClick(func() {
-    ctx := vango.UseCtx()
-    ctx.NavigateExternal("https://docs.example.com")
-}), Text("View Docs"))
-```
+Forms in Vango follow a server-driven model with progressive enhancement: they should work as plain HTML forms, and become interactive when connected.
 
-### 7.8 Context Behavior in SSR vs WebSocket Renders
+### 13.1 Basic Forms with Signals + Action
 
-The `vango.Ctx` provides request information, but behavior differs between SSR and WebSocket renders. This is the **context bridge** pattern—SSR captures HTTP context, and session signals make it available during WS renders.
+A straightforward pattern:
 
-**During SSR (initial page load):**
-
-The context has access to the full HTTP request:
-
-| Method | SSR Behavior | Guaranteed |
-|--------|--------------|------------|
-| `ctx.Path()` | Current URL path | ✅ Yes |
-| `ctx.Query()` | Query parameters | ✅ Yes |
-| `ctx.Method()` | HTTP method (GET, POST, etc.) | ✅ Yes |
-| `ctx.Request()` | Full `*http.Request` with headers, cookies, host | ✅ Yes |
-
-**During WebSocket renders (reactive updates):**
-
-The context reflects the current route but uses a **synthetic request** (implementation detail). Only path and query are guaranteed:
-
-| Method | WS Behavior | Guaranteed |
-|--------|-------------|------------|
-| `ctx.Path()` | Current URL path (from `?path=` or navigation) | ✅ Yes |
-| `ctx.Query()` | Query parameters (from `?path=` or navigation) | ✅ Yes |
-| `ctx.Method()` | Returns `"GET"` | ❌ Synthetic default |
-| `ctx.Request()` | Synthetic—no real headers/cookies/host | ❌ Not meaningful |
-
-> **Key Point**: During WebSocket renders, `ctx.Request()` may exist but is not the original HTTP request—the original HTTP headers and cookies are not re-sent with every WebSocket message. Do not depend on `ctx.Request().Cookies()` or headers for auth decisions inside reactive components. Use session data populated at session start via the context bridge pattern below.
-
-**Context Bridge Pattern—Capturing HTTP Context for WS Access:**
-
-This is the standard pattern for making HTTP-only data (like authenticated user from cookies) available during WebSocket renders:
+* signals for field state
+* action for submit
+* `PreventDefault` for SPA-style submit (when connected)
 
 ```go
-// In layout during SSR, capture HTTP context into session signals
-func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    // During SSR, we have access to cookies via real HTTP request
-    if user := auth.UserFromRequest(ctx.Request()); user != nil {
-        store.CurrentUser.Set(user)  // Bridge to session-scoped signal
-    }
-    // ...
-}
-
-// During WS renders, access via signal (not ctx.Request())
-func ProfileButton() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        user := store.CurrentUser.Get()  // ✅ Works in both SSR and WS
-        // ❌ Don't: ctx.Request().Cookies()—not available during WS renders
-        // ...
-    })
-}
-```
-
-See §17 for the full authentication flow using this pattern.
-
-### 7.9 Routing Style Guide
-
-Follow these conventions for maintainable route structures:
-
-**Naming:**
-
-```go
-// ✅ Good: Lowercase, hyphenated for multi-word
-routes/user-settings.go          → /user-settings
-routes/api/project-members.go    → /api/project-members
-
-// ❌ Avoid: camelCase or underscores
-routes/userSettings.go           → /userSettings (inconsistent)
-routes/user_settings/index.go    → /user_settings (unconventional)
-```
-
-**Grouping:**
-
-```go
-// ✅ Good: Group related routes
-routes/
-├── projects/
-│   ├── index.go                // List
-│   ├── new.go                  // Create form
-│   └── [id:int]/
-│       ├── index.go            // Show
-│       ├── edit.go             // Edit form
-│       └── settings.go         // Settings
-
-// ❌ Avoid: flattening a route group into unrelated filenames
-routes/
-├── projects-index.go
-├── projects-new.go
-├── projects-[id].go
-```
-
-**API vs Pages:**
-
-```go
-// ✅ Good: Clear separation
-routes/
-├── api/                        // External HTTP APIs
-│   └── v1/
-│       └── projects/
-│           └── route.go
-└── projects/                   // Server-driven pages
-    └── index.go
-
-// ❌ Avoid: Mixing API and pages
-routes/
-├── projects/
-│   ├── index.go                // Page
-│   └── route.go                // API (confusing)
-```
-
-### 7.10 Common Routing Pitfalls
-
-**Typed Params (Use Constraints to Reject Bad URLs):**
-
-```go
-// ❌ Problem: Untyped params match anything (including unexpected values)
-routes/projects/[id].go         // /projects/:id
-// /projects/abc matches and flows into your handler
-
-// ✅ Solution: Use typed params to reject invalid matches
-routes/projects/[id:int].go     // /projects/:id (int only)
-// /projects/abc → 404
-```
-
-**Catch-All Gotchas:**
-
-```go
-// Catch-alls consume the rest of the path.
-// routes/docs/[...path].go matches /docs/* and receives the joined remainder.
-// You can't add segments after a catch-all (e.g., /docs/[...path]/edit.go).
-```
-
-**Trailing Slashes:**
-
-```go
-// Vango canonicalizes URLs by default
-// /projects/ redirects to /projects
-// /projects/123/ redirects to /projects/123
-
-// Links should use canonical form
-A(Href("/projects"), Text("Projects"))      // ✅
-A(Href("/projects/"), Text("Projects"))     // Works, but redirects
-```
-
-**Canonicalization & Security Notes:**
-
-- Non-canonical paths are redirected with `308 Permanent Redirect` before routing (pages + APIs).
-- Invalid paths (`\`, NUL, invalid percent-escapes, `..` escaping root) return `400 Bad Request`.
-- `%2F` in non-catch-all params is rejected (404) to prevent path smuggling.
-
-**Route Priority:**
-
-Routes are matched in this order (most specific first):
-
-1. Static segments (`/projects/new`)
-2. Typed parameters (`/projects/[id:int]`)
-3. String parameters (`/projects/[slug]`)
-4. Catch-all (`/docs/[...path]`)
-
-```go
-// All coexist correctly:
-routes/
-├── projects/
-│   ├── new.go                  // 1. /projects/new (static)
-│   ├── featured.go             // 1. /projects/featured (static)
-│   ├── [id:int].go             // 2. /projects/123 (typed)
-│   └── [slug].go               // 3. /projects/my-project (string)
-```
-
-### 7.11 Route Generation
-
-The `vango gen routes` command generates route registration:
-
-```go
-// app/routes/routes_gen.go (generated, do not edit)
-package routes
-
-import "github.com/vango-go/vango"
-
-func Register(app *vango.App) {
-    // Layouts (hierarchical)
-    app.Layout("/", Layout)
-    app.Layout("/projects", projects.Layout)
-
-    // Middleware (hierarchical)
-    app.Middleware("/admin", admin.Middleware()...)
-
-    // Pages (inherit layouts automatically)
-    app.Page("/", IndexPage)
-    app.Page("/about", AboutPage)
-    app.Page("/projects", projects.IndexPage)
-    app.Page("/projects/:id", projectsID.IndexPage)
-
-    // API routes
-    app.API("GET", "/api/health", api.HealthGET)
-}
-```
-
-**When Regeneration Happens:**
-
-- Automatically during `vango dev` when files change
-- Manually via `vango gen routes`
-- During `vango build`
-
-**Troubleshooting: `routes_gen.go` keeps “reverting”**
-
-- Make sure you’re running the `vango` binary you just built (`which vango`).
-- Stop any old `vango dev` processes; an older watcher can keep overwriting generated output.
-
-**Customizing Generation:**
-
-```json
-// vango.json
-{
-    "routes": {
-        "dir": "app/routes",
-        "output": "app/routes/routes_gen.go",
-        "package": "routes"
-    }
-}
-```
-
-## 8. Components and UI Composition
-
-This section turns the component model from the spec (§3) into application patterns:
-- Stateless vs stateful components and when to choose each.
-- Component boundaries and reusability (props, children, slots).
-- Render rules (purity, no I/O in render) and how to enforce them in your app.
-- Lists and keys (correctness + patch quality), and patterns for complex list UIs.
-- Context usage for dependency injection and app-wide configuration (theme, locale, current user, feature flags).
-
-It will include:
-- Recommended folder structure for UI components and “component API design” conventions.
-- How to write components that are stable under rerender (hook-order semantics).
-- Component testing patterns that assert behavior without coupling to internals.
-
-## 9. State Management in Real Apps
-
-This section is the practical guide to using signals, memos, effects, resources, and actions in production applications. It covers everything from basic patterns to advanced techniques for scaling state in large apps.
-
-### 9.1 State Primitives Overview
-
-Vango provides five core primitives for managing state:
-
-| Primitive | Purpose | When to Use |
-|-----------|---------|-------------|
-| **Signal** | Reactive container for mutable state | Local UI state, form inputs, toggles |
-| **Memo** | Derived state (cached computation) | Filtered lists, computed values, selectors |
-| **Effect** | Side effects triggered by state changes | Logging, analytics, external sync |
-| **Resource** | Async data loading with states | Fetching data, API calls |
-| **Action** | Async mutations with concurrency control | Form submissions, saves, deletes |
-
-```go
-// Quick reference
-count := vango.NewSignal(0)           // Reactive value
-doubled := vango.NewMemo(func() int { // Derived value
-    return count.Get() * 2
-})
-vango.Effect(func() vango.Cleanup {      // Side effect
-    log.Printf("Count is now: %d", count.Get())
-    return nil
-})
-data := vango.NewResource(fetchData)  // Async load
-save := vango.NewAction(saveData)     // Async mutation
-```
-
-### 9.2 Choosing State Scope
-
-State scope determines where state lives and who can access it:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        STATE SCOPES                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Component Scope     →  NewSignal() inside component             │
-│  (per-instance)         Destroyed when component unmounts        │
-│                                                                  │
-│  Session Scope       →  NewSharedSignal() at package level       │
-│  (per-browser-tab)      Persists across navigation               │
-│                                                                  │
-│  Global Scope        →  NewGlobalSignal() at package level       │
-│  (all users)            Shared in real-time across sessions      │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Component Scope (Default):**
-
-```go
-func Counter() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        // Component-scoped: each Counter instance has its own count
-        count := vango.NewSignal(0)
-        
-        return Div(
-            Button(OnClick(count.Dec), Text("-")),
-            Text(count.Get()),
-            Button(OnClick(count.Inc), Text("+")),
-        )
-    })
-}
-```
-
-**Session Scope (Shared Across Pages):**
-
-```go
-// store/cart.go
-package store
-
-import "github.com/vango-go/vango"
-
-// Session-scoped: each browser tab has its own cart
-var Cart = vango.NewSharedSignal([]CartItem{})
-var CartTotal = vango.NewSharedMemo(func() float64 {
-    total := 0.0
-    for _, item := range Cart.Get() {
-        total += item.Price * float64(item.Quantity)
-    }
-    return total
-})
-
-func AddToCart(item CartItem) {
-    Cart.Set(append(Cart.Get(), item))
-}
-
-func ClearCart() {
-    Cart.Set([]CartItem{})
-}
-```
-
-**Global Scope (Real-Time Across Users):**
-
-```go
-// store/presence.go
-package store
-
-import "github.com/vango-go/vango"
-
-// Global: all users see the same value
-var OnlineUsers = vango.NewGlobalSignal([]User{})
-
-func UserOnline(user User) {
-    OnlineUsers.Set(append(OnlineUsers.Get(), user))
-}
-
-func UserOffline(userID int) {
-    OnlineUsers.RemoveWhere(func(u User) bool {
-        return u.ID == userID
-    })
-}
-```
-
-**Scope Selection Guide:**
-
-| Question | If Yes → Scope |
-|----------|----------------|
-| Does this reset when I navigate away? | Component |
-| Does this persist across pages for one user? | Session (Shared) |
-| Should all users see updates in real-time? | Global |
-| Is this UI-only state (open/closed, hover)? | Component |
-| Is this user-specific data (cart, preferences)? | Session |
-| Is this collaborative data (cursors, chat)? | Global |
-
-### 9.3 Store Patterns for Large Apps
-
-For production apps, organize state into stores by domain:
-
-```go
-// store/projects.go
-package store
-
 import (
-    "github.com/vango-go/vango"
-    "myapp/internal/services"
+	"context"
+	"github.com/vango-go/vango"
+	. "github.com/vango-go/vango/el"
 )
 
-// ============ State ============
-
-// Current project being viewed (session-scoped)
-var CurrentProject = vango.NewSharedSignal[*Project](nil)
-
-// Filter state (session-scoped)
-var ProjectFilter = vango.NewSharedSignal(ProjectFilterState{
-    Status:  "all",
-    SortBy:  "updated_at",
-    SortDir: "desc",
-})
-
-// ============ Derived State (Selectors) ============
-
-var CurrentProjectID = vango.NewSharedMemo(func() int {
-    if p := CurrentProject.Get(); p != nil {
-        return p.ID
-    }
-    return 0
-})
-
-var IsProjectSelected = vango.NewSharedMemo(func() bool {
-    return CurrentProject.Get() != nil
-})
-
-// ============ Actions ============
-
-func SelectProject(id int) {
-    ctx := vango.UseCtx()
-    
-    project := vango.NewResource(func() (*Project, error) {
-        return services.Projects.GetByID(ctx.StdContext(), id)
-    })
-    
-    // When resource completes, update shared state
-    vango.Effect(func() vango.Cleanup {
-        if project.State() == vango.Ready {
-            CurrentProject.Set(project.Data())
-        }
-        return nil
-    })
-}
-
-func SetFilter(filter ProjectFilterState) {
-    ProjectFilter.Set(filter)
-}
-```
-
-**Store Module Pattern:**
-
-```
-store/
-├── auth.go           # CurrentUser, IsAuthenticated, Login(), Logout()
-├── projects.go       # CurrentProject, ProjectFilter, SelectProject()
-├── tasks.go          # TasksByProject, CreateTask(), ToggleTask()
-├── notifications.go  # Toasts, ShowToast(), DismissToast()
-└── preferences.go    # Theme, Locale, SetTheme(), SetLocale()
-```
-
-### 9.4 Derived State with Memos
-
-Memos compute derived state efficiently:
-
-```go
-// Simple derived value
-var filteredTasks = vango.NewMemo(func() []Task {
-    filter := taskFilter.Get()
-    tasks := allTasks.Get()
-    
-    result := make([]Task, 0)
-    for _, t := range tasks {
-        if filter.Status == "all" || t.Status == filter.Status {
-            result = append(result, t)
-        }
-    }
-    return result
-})
-
-// Layered selectors (selector → selector)
-var tasksByStatus = vango.NewMemo(func() map[string][]Task {
-    grouped := make(map[string][]Task)
-    for _, t := range filteredTasks.Get() {  // Depends on filteredTasks
-        grouped[t.Status] = append(grouped[t.Status], t)
-    }
-    return grouped
-})
-
-var taskCounts = vango.NewMemo(func() TaskCounts {
-    byStatus := tasksByStatus.Get()  // Depends on tasksByStatus
-    return TaskCounts{
-        Todo:       len(byStatus["todo"]),
-        InProgress: len(byStatus["in_progress"]),
-        Done:       len(byStatus["done"]),
-    }
-})
-```
-
-**Memo Best Practices:**
-
-```go
-// ✅ Good: Memo for expensive computation
-var expensiveResult = vango.NewMemo(func() []ProcessedItem {
-    items := rawItems.Get()
-    return expensiveProcessing(items)  // Only runs when rawItems changes
-})
-
-// ✅ Good: Memo for accessing nested data
-var currentUserName = vango.NewMemo(func() string {
-    if user := currentUser.Get(); user != nil {
-        return user.Name
-    }
-    return "Guest"
-})
-
-// ❌ Bad: Memo for trivial computation (overhead not worth it)
-var isPositive = vango.NewMemo(func() bool {
-    return count.Get() > 0  // Too simple, just inline this
-})
-```
-
-### 9.5 Transactions and Batching
-
-When updating multiple signals, use transactions to batch updates:
-
-```go
-// Without transaction: multiple rerenders
-func badUpdate() {
-    firstName.Set("John")   // Rerender 1
-    lastName.Set("Doe")     // Rerender 2
-    email.Set("j@d.com")    // Rerender 3
-}
-
-// With transaction: single rerender
-func goodUpdate() {
-    vango.TxNamed("UpdateUserProfile", func() {
-        firstName.Set("John")
-        lastName.Set("Doe")
-        email.Set("j@d.com")
-    })  // Single rerender after all updates
-}
-```
-
-**Named Transactions:**
-
-Transaction names appear in DevTools and logs:
-
-```go
-// Name describes the intent
-vango.TxNamed("AddItemToCart", func() {
-    cart.Set(append(cart.Get(), item))
-    cartCount.Inc()
-})
-
-vango.TxNamed("FilterProjectsByStatus", func() {
-    filterStatus.Set(status)
-    filterPage.Set(1)  // Reset page when filter changes
-})
-
-vango.TxNamed("ToggleTaskComplete", func() {
-    task := tasks.Get()[index]
-    task.Done = !task.Done
-    tasks.SetAt(index, task)
-})
-```
-
-**Automatic Naming:**
-
-Event handlers and effects are automatically named:
-
-```go
-// DevTools shows: "onClick@TaskRow:23" (component:line)
-Button(OnClick(func() {
-    task.Done.Toggle()
-}))
-```
-
-### 9.6 URL State with URLParam
-
-Use `URLParam` for state that should be shareable and back-button friendly:
-
-For query-state debouncing, use `vango.URLDebounce(d)` to coalesce URL updates. For debouncing event handlers, use the event modifier `vango.Debounce(d, handler)`.
-
-```go
-func ProjectList() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        // URL: /projects?status=active&page=2&sort=name
-        status := vango.URLParam("status", "all")
-        page := vango.URLParam[int]("page", 1)
-        sort := vango.URLParam("sort", "updated_at")
-        
-        // Setting updates URL without navigation
-        return Div(
-            // Filter buttons
-            FilterButtons(status),
-            
-            // Sort dropdown
-            Select(
-                OnChange(func(value string) {
-                    sort.Set(value)
-                }),
-                Option(Value("name"), Text("Name")),
-                Option(Value("updated_at"), Text("Last Updated")),
-            ),
-            
-            // Project list
-            ProjectListView(status.Get(), page.Get(), sort.Get()),
-            
-            // Pagination
-            Pagination(page, totalPages),
-        )
-    })
-}
-```
-
-**When to Use URLParam vs Signal:**
-
-| State | URLParam | Signal |
-|-------|----------|--------|
-| Filters | ✓ (shareable, back button) | |
-| Current page | ✓ (shareable) | |
-| Sort order | ✓ (shareable) | |
-| Search query | ✓ (shareable) | |
-| Modal open/closed | | ✓ (ephemeral) |
-| Form input values | | ✓ (ephemeral) |
-| Accordion expanded | | ✓ (ephemeral) |
-| Hover/focus state | | ✓ (ephemeral) |
-
-### 9.7 Session Durability and Persistence
-
-Understand what state survives and when:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    STATE DURABILITY                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Ephemeral          Survives             Survives                │
-│  (lost on refresh)  (ResumeWindow)       (persistent store)      │
-│                                                                  │
-│  Component signals  Shared signals       Shared signals with     │
-│  Local UI state     Session state        persistent store        │
-│                     within window        + server restarts       │
-│                                                                  │
-│       ← Less Durable                More Durable →              │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Configuring Durability:**
-
-```go
-// In-memory only (lost on server restart)
-vango.SessionConfig{
-    ResumeWindow: 30 * time.Second,
-    // No Store configured
-}
-
-// Persistent (survives server restarts)
-vango.SessionConfig{
-    ResumeWindow: 30 * time.Second,
-    Store: vango.RedisStore(redisClient),
-}
-```
-
-**Stable Persistence Keys:**
-
-When using persistent storage, signal names become storage keys:
-
-```go
-// ✅ Good: Stable key won't break existing sessions
-var Cart = vango.NewSharedSignal([]CartItem{}, 
-    vango.WithKey("user_cart"))
-
-// ❌ Bad: Anonymous signal, key based on creation order
-var Cart = vango.NewSharedSignal([]CartItem{})  // Key: "signal_5"
-```
-
-### 9.8 Immutable Data Patterns
-
-Keep state updates safe with immutable patterns:
-
-```go
-// ❌ Bad: Mutating in place
-func badToggle(index int) {
-    tasks := taskList.Get()
-    tasks[index].Done = !tasks[index].Done  // Mutating shared slice!
-    taskList.Set(tasks)  // Same slice, may not trigger update
-}
-
-// ✅ Good: Copy-on-write
-func goodToggle(index int) {
-    tasks := taskList.Get()
-    
-    // Create new slice
-    newTasks := make([]Task, len(tasks))
-    copy(newTasks, tasks)
-    
-    // Create new task with updated field
-    newTasks[index] = Task{
-        ID:   tasks[index].ID,
-        Name: tasks[index].Name,
-        Done: !tasks[index].Done,
-    }
-    
-    taskList.Set(newTasks)
-}
-
-// ✅ Better: Use signal helper methods
-func bestToggle(index int) {
-    taskList.UpdateAt(index, func(t Task) Task {
-        t.Done = !t.Done
-        return t
-    })
-}
-```
-
-**Slice Helpers:**
-
-```go
-// Append (creates new slice)
-items.Set(append(items.Get(), newItem))
-
-// Remove (creates new slice)
-items.RemoveAt(index)
-items.RemoveWhere(func(item Item) bool {
-    return item.ID == targetID
-})
-
-// Update (creates new slice with modified element)
-items.UpdateAt(index, func(item Item) Item {
-    item.Count++
-    return item
-})
-
-// Filter (creates new slice)
-items.Filter(func(item Item) bool {
-    return item.Active
-})
-```
-
-**Map Helpers:**
-
-```go
-// Create map signal
-users := vango.NewSignal(map[int]User{})
-
-// Set entry (creates new map)
-users.SetEntry(user.ID, user)
-
-// Delete entry (creates new map)
-users.DeleteEntry(userID)
-
-// Update entry (creates new map)
-users.UpdateEntry(userID, func(u User) User {
-    u.LastSeen = time.Now()
-    return u
-})
-```
-
-### 9.9 Avoiding Accidental Dependencies
-
-Be careful what signals your memos depend on:
-
-```go
-// ❌ Problem: Hidden dependency
-var filteredItems = vango.NewMemo(func() []Item {
-    items := allItems.Get()
-    filter := getCurrentFilter()  // Calling function, not reading signal!
-    // If getCurrentFilter() reads a signal internally,
-    // this memo won't track it properly
-    return filterItems(items, filter)
-})
-
-// ✅ Solution: Make dependencies explicit
-var filteredItems = vango.NewMemo(func() []Item {
-    items := allItems.Get()        // Tracked dependency
-    filter := filterSignal.Get()   // Tracked dependency
-    return filterItems(items, filter)
-})
-```
-
-**Conditional Dependencies:**
-
-```go
-// ❌ Problem: Conditional signal read
-var displayValue = vango.NewMemo(func() string {
-    if showDetails.Get() {
-        return detailedValue.Get()  // Only tracked when showDetails is true
-    }
-    return summary.Get()
-})
-
-// ✅ Solution: Read all dependencies unconditionally
-var displayValue = vango.NewMemo(func() string {
-    show := showDetails.Get()
-    detailed := detailedValue.Get()
-    sum := summary.Get()
-    
-    if show {
-        return detailed
-    }
-    return sum
-})
-```
-
-### 9.10 Debugging State
-
-**Signal Inspection:**
-
-```go
-// Log signal value on change
-vango.Effect(func() {
-    fmt.Printf("Cart items: %+v\n", cart.Get())
-})
-
-// In development, signals have debug names
-cart := vango.NewSignal([]Item{}, vango.WithDebugName("ShoppingCart"))
-```
-
-**DevTools Integration:**
-
-In development mode, Vango DevTools shows:
-- All active signals and their values
-- Dependency graph between signals and memos
-- Transaction history with names
-- "Why did this render?" analysis
-
-**Common Debugging Questions:**
-
-| Question | How to Debug |
-|----------|--------------|
-| "Why isn't my UI updating?" | Check if signal write is inside handler or Dispatch |
-| "Why is this re-rendering too much?" | Check memo dependencies, use transaction batching |
-| "Why is state lost on navigation?" | Use SharedSignal instead of Signal |
-| "Why did my selector fire?" | Check DevTools dependency graph |
-
-### 9.11 State Management Anti-Patterns
-
-**Understanding Hook Order and Signal Creation:**
-
-The real rule is: **Don't create signals conditionally or with variable counts.** Creating signals inside `vango.Func` (and therefore inside page handlers) is correct and required—the prohibition is about conditional/variable hook order, not "signals in render."
-
-```go
-// ❌ WRONG: Creating signal outside vango.Func (no render tracking)
-func BadComponent() *vango.VNode {
-    count := vango.NewSignal(0)  // WRONG: not wrapped in vango.Func
-    return Div(Text(count.Get()))
-}
-
-// ✅ CORRECT: Creating signal inside vango.Func
-func GoodComponent() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        count := vango.NewSignal(0)  // Created once, tracked by framework
-        return Div(Text(count.Get()))
-    })
-}
-
-// ✅ CORRECT: Creating signal inside a page handler (page handlers are reactive)
-func IndexPage(ctx vango.Ctx) *vango.VNode {
-    count := vango.NewSignal(0)  // This is correct—page handlers are wrapped in vango.Func
-    return Div(Text(count.Get()))
-}
-
-// ❌ WRONG: Conditional signal creation (violates hook-order rule)
-func BadConditional(showExtra bool) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        count := vango.NewSignal(0)
-        if showExtra {
-            extra := vango.NewSignal("")  // WRONG: conditionally created!
-            return Div(Text(count.Get()), Text(extra.Get()))
-        }
-        return Div(Text(count.Get()))
-    })
-}
-
-// ✅ CORRECT: Always create the same hooks, conditionally use them
-func GoodConditional(showExtra bool) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        count := vango.NewSignal(0)
-        extra := vango.NewSignal("")  // Always created
-        if showExtra {
-            return Div(Text(count.Get()), Text(extra.Get()))
-        }
-        return Div(Text(count.Get()))  // extra exists but not rendered
-    })
-}
-
-// ❌ WRONG: Variable-count hooks in a loop
-func BadLoop(items []string) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        // WRONG: Number of signals varies with items length!
-        for _, item := range items {
-            signal := vango.NewSignal(item)  // Hook count changes!
-            _ = signal
-        }
-        return Div()
-    })
-}
-
-// ✅ CORRECT: Use a single signal containing the collection
-func GoodLoop(items []string) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        itemsSignal := vango.NewSignal(items)  // One hook, stable count
-        return Ul(
-            Range(itemsSignal.Get(), func(item string, i int) *vango.VNode {
-                return Li(Key(i), Text(item))
-            }),
-        )
-    })
-}
-```
-
-**Don't: Read signals outside reactive context:**
-
-```go
-// ❌ This read won't trigger re-render
-func handleClick() {
-    value := mySignal.Get()  // Not in component render
-    fmt.Println(value)       // OK for logging
-    // Don't use this value to compute UI
-}
-```
-
-**Don't: Forget Dispatch from goroutines:**
-
-```go
-// ❌ Will cause undefined behavior
-go func() {
-    result := fetchData()
-    resultSignal.Set(result)  // WRONG: not on session loop
-}()
-
-// ✅ Use Dispatch with captured context
-ctx := vango.UseCtx()
-go func() {
-    result := fetchData()
-    ctx.Dispatch(func() {
-        resultSignal.Set(result)  // Correct: on session loop
-    })
-}()
-```
-
-### 9.12 State Management Checklist
-
-Before shipping, verify:
-
-- [ ] **Component state** doesn't accidentally use shared signals
-- [ ] **Session state** uses `NewSharedSignal` for cross-page persistence
-- [ ] **Transactions** are named meaningfully for debugging
-- [ ] **Memos** don't have hidden dependencies
-- [ ] **Goroutines** use `ctx.Dispatch` for signal writes
-- [ ] **Persistent state** has stable keys with `WithKey()`
-- [ ] **Immutable patterns** are used for slice/map updates
-- [ ] **URL state** uses `URLParam` where appropriate
-
-## 10. Data Loading and Caching
-
-This section explains how to load and cache data correctly in a server-driven app.
-
-### 10.1 When to Load Data
-
-> **IMPORTANT**: Page handlers MUST be render-pure (no blocking I/O). Page handlers execute during the render cycle—blocking database or HTTP calls will stall the session loop.
-
-**Where to do blocking I/O:**
-- **`Resource`** — Default for most data loading (non-blocking, shows loading states)
-- **`Action`** — For user-initiated mutations
-- **Route-level prefetch/navigation** — Advanced pattern for nav-blocking data (future feature)
-
-| Pattern | Where | When | Use Case |
-|---------|-------|------|----------|
-| **Resource** | Inside page handler or component | During render | Default for data loading—shows loading/error/ready states |
-| **Action** | Inside component | On user action | Mutations that return data |
-| **Route prefetch** | Routing layer | Before navigation | Nav-blocking critical data (advanced) |
-
-```go
-// ❌ WRONG: Blocking I/O in page handler (violates render purity!)
-func ShowPage(ctx vango.Ctx, p Params) *vango.VNode {
-    // DON'T DO THIS—page handlers are in the reactive render path
-    project, err := services.Projects.GetByID(ctx.StdContext(), p.ID)
-    if err != nil {
-        return ErrorPage(err)
-    }
-    return ProjectView(project)
-}
-
-// ✅ CORRECT: Use Resource for data loading (default pattern)
-func ShowPage(ctx vango.Ctx, p Params) *vango.VNode {
-    return ProjectPage(p.ID)
-}
-```
-
-```go
-func ProjectPage(id int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        // Capture StdContext() for async work—this is safe for cancellation/I/O
-        stdCtx := ctx.StdContext()
-
-        project := vango.NewResource(func() (*Project, error) {
-            // Safe: Using standard context for I/O cancellation
-            // Never call ctx methods (Navigate/Dispatch/Session) from here
-            return services.Projects.GetByID(stdCtx, id)
-        })
-        
-        return project.Match(
-            vango.OnLoading(ProjectSkeleton),
-            vango.OnError(ErrorCard),
-            vango.OnReady(ProjectView),
-        )
-    })
-}
-```
-
-> **Context Safety in Async Work**: Use `ctx.StdContext()` for cancellation and I/O in Resource/Action loaders. Never call `vango.Ctx` methods (`Navigate`, `Dispatch`, session access, etc.) from async work—these are not thread-safe. Vango dispatches Resource results back onto the session loop automatically, so signal updates in `OnReady`/`OnError` handlers are safe.
-
-**Resource is the default for data loading in the render path:**
-
-| Question | Recommendation |
-|----------|----------------|
-| Want skeleton/loading UI? | Use `Resource` with `OnLoading` matcher |
-| Multiple independent data sources? | Use multiple `Resource` instances |
-| SEO-critical content? | Use `Resource`—SSR waits for initial data |
-| Need data before anything renders? | Use `Resource` with loading state, or route-level prefetch (advanced) |
-| Want data cached across re-renders? | Use keyed `Resource` |
-
-> **Note**: Sometimes you want navigation to block until data is ready. This is valid—but that blocking I/O must not happen in the reactive render path. Use the appropriate structured primitive (`Resource`, `Action`) or route-level mechanisms for the kind of work you need.
-
-### 10.2 Resource States
-
-Resources have four states (use `State()` method or matchers):
-
-```go
-data := vango.NewResource(fetchData)
-
-// State checks
-data.State() == vango.Pending  // Not started
-data.State() == vango.Loading  // In progress  
-data.State() == vango.Ready    // Success
-data.State() == vango.Error    // Failed
-
-// Accessing values
-data.Data()       // The loaded value (only valid when Ready)
-data.Error()      // The error (only valid when Error)
-
-// Pattern matching (recommended)
-switch data.State() {
-case vango.Loading:
-    return Skeleton()
-case vango.Error:
-    return ErrorCard(data.Error())
-case vango.Ready:
-    projects := data.Data()
-    if len(projects) == 0 {
-        return EmptyState("No projects found")
-    }
-    return ProjectList(projects)
-}
-```
-
-**Note:** The spec defines four states (`Pending`, `Loading`, `Ready`, `Error`). Empty-result
-handling is application logic (check `len(data.Data()) == 0` when `Ready`).
-
-### 10.3 Keyed Resources
-
-When resource identity depends on a reactive parameter, use `NewResourceKeyed`. The key must come from a **reactive source** (URLParam, signal from parent, or derived memo) to trigger refetches when it changes.
-
-**Pattern 1: Key from URLParam (most common)**
-
-```go
-// Route: /projects/:id
-func ProjectPage(ctx vango.Ctx, p struct{ ID int }) *vango.VNode {
-    // URLParam syncs with the route param and is reactive
-    projectID := vango.URLParam[int]("id", p.ID)
-    return ProjectView(projectID)
-}
-
-func ProjectView(projectID *vango.URLParam[int]) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        stdCtx := ctx.StdContext()
-
-        // NewResourceKeyed re-fetches when URLParam changes
-        project := vango.NewResourceKeyed(projectID, func(id int) (*Project, error) {
-            return services.Projects.GetByID(stdCtx, id)
-        })
-
-        return project.Match(
-            vango.OnLoading(ProjectSkeleton),
-            vango.OnError(ErrorCard),
-            vango.OnReady(ProjectCard),
-        )
-    })
-}
-```
-
-**Pattern 2: Key from parent signal**
-
-```go
-// Parent component owns the selection state
-func ProjectList(selectedID *vango.Signal[int]) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        stdCtx := ctx.StdContext()
-
-        // Key is the signal itself—changes trigger refetch
-        project := vango.NewResourceKeyed(selectedID, func(id int) (*Project, error) {
-            if id == 0 {
-                return nil, nil // No selection
-            }
-            return services.Projects.GetByID(stdCtx, id)
-        })
-
-        return project.Match(/* ... */)
-    })
-}
-```
-
-> **Important**: Do NOT use `vango.NewSignal(id)` inside a render function where `id` is a static prop. Each render creates a new signal with the same initial value—it won't react to changes. If the prop changes, pass it as a signal from the parent or derive it from URLParam.
-
-**Key Behaviors:**
-
-| Key Change | Behavior |
-|------------|----------|
-| Same key | Reuse cached result |
-| Different key | Cancel stale work, start new fetch, transition to Loading |
-| Unmount | Cancel any in-flight work |
-
-### 10.4 Dependent Queries
-
-Load data that depends on other data:
-
-```go
-func TeamProjectsPage(teamID int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        // First query: load team
-        team := vango.NewResource(func() (*Team, error) {
-            return services.Teams.GetByID(ctx.StdContext(), teamID)
-        })
-        
-        // Second query: depends on team state
-        projects := vango.NewResource(func() ([]Project, error) {
-            if team.State() != vango.Ready {
-                return nil, nil // Still waiting for parent
-            }
-            return services.Projects.ListByTeam(ctx.StdContext(), team.Data().ID)
-        })
-        
-        return Div(
-            team.Match(
-                vango.OnLoading(TeamHeaderSkeleton),
-                vango.OnReady(TeamHeader),
-            ),
-            projects.Match(
-                vango.OnLoading(ProjectListSkeleton),
-                vango.OnReady(ProjectList),
-            ),
-        )
-    })
-}
-```
-
-### 10.5 Search-As-You-Type with GoLatest
-
-For debounced search that cancels stale requests, use `GoLatest` inside an Effect:
-
-```go
-func SearchPage() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        query := vango.NewSignal("")
-        results := vango.NewSignal[[]SearchResult](nil)
-        loading := vango.NewSignal(false)
-        err := vango.NewSignal[error](nil)
-        
-        // GoLatest must be called inside an Effect
-        vango.Effect(func() vango.Cleanup {
-            q := query.Get()  // Reading query subscribes to changes
-            
-            if q == "" {
-                results.Set(nil)
-                return nil
-            }
-            
-            // GoLatest: key coalescing + cancellation
-            return vango.GoLatest(
-                q,  // Key: same key = cancel previous
-                func(ctx context.Context, key string) ([]SearchResult, error) {
-                    // Debounce
-                    select {
-                    case <-time.After(300 * time.Millisecond):
-                    case <-ctx.Done():
-                        return nil, ctx.Err()
-                    }
-                    return services.Search.Query(ctx, key)
-                },
-                func(r []SearchResult, e error) {
-                    // Apply callback runs on session loop
-                    if e != nil {
-                        err.Set(e)
-                    } else {
-                        results.Set(r)
-                        err.Set(nil)
-                    }
-                    loading.Set(false)
-                },
-            )
-        })
-        
-        return Div(
-            Input(
-                Type("search"),
-                Placeholder("Search..."),
-                Value(query.Get()),
-                OnInput(func(value string) {
-                    query.Set(value)
-                    loading.Set(true)
-                }),
-            ),
-            loading.Get() && SearchResultsSkeleton(),
-            err.Get() != nil && ErrorMessage(err.Get().Error()),
-            len(results.Get()) == 0 && !loading.Get() && Text("No results"),
-            len(results.Get()) > 0 && SearchResultsList(results.Get()),
-        )
-    })
-}
-```
-
-**Key GoLatest properties:**
-- Returns `Cleanup` (call to cancel)
-- Key-based coalescing: new call with same key cancels previous
-- Work function receives `context.Context` for cancellation
-- Apply callback runs on session loop (safe for signal writes)
-
-### 10.6 Pagination Pattern
-
-```go
-func PaginatedList() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        page := vango.URLParam[int]("page", 1)
-        perPage := 20
-        
-        // Keyed resources re-load automatically when the key signal changes
-        data := vango.NewResourceKeyed(page, func(p int) (*PaginatedResponse, error) {
-            return services.Items.List(vango.UseCtx().StdContext(), p, perPage)
-        })
-        
-        return Div(
-            data.Match(
-                vango.OnLoading(ListSkeleton),
-                vango.OnReady(func(resp *PaginatedResponse) *vdom.VNode {
-                    return Div(
-                        ItemList(resp.Items),
-                        Pagination(
-                            page,
-                            resp.TotalPages,
-                            func(newPage int) { page.Set(newPage) },
-                        ),
-                    )
-                }),
-            ),
-        )
-    })
-}
-```
-
-### 10.7 Caching Layers
-
-Cache at the appropriate layer:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      CACHING LAYERS                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Browser Cache      →  Static assets (CSS, JS, images)           │
-│  (HTTP headers)        Controlled by Cache-Control headers       │
-│                                                                  │
-│  Resource Cache     →  Per-component resource results            │
-│  (keyed resources)     Automatic with same key                   │
-│                                                                  │
-│  Session Cache      →  Shared across pages for one user          │
-│  (SharedSignal)        ShoppingCart, UserPreferences             │
-│                                                                  │
-│  Application Cache  →  Shared across all users                   │
-│  (in-memory/Redis)     Config, static content, rate limits       │
-│                                                                  │
-│  Database Cache     →  Query result caching                      │
-│  (ORM/query layer)     Frequently accessed data                  │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Application-Level Caching:**
-
-```go
-// Simple in-memory cache with TTL
-var configCache = cache.New(5 * time.Minute)
-
-func getConfig(ctx context.Context) (*Config, error) {
-    if cached, ok := configCache.Get("app_config"); ok {
-        return cached.(*Config), nil
-    }
-    
-    config, err := db.LoadConfig(ctx)
-    if err != nil {
-        return nil, err
-    }
-    
-    configCache.Set("app_config", config)
-    return config, nil
-}
-```
-
-### 10.8 Preventing Stampedes
-
-When many users request the same data simultaneously:
-
-```go
-import "golang.org/x/sync/singleflight"
-
-var group singleflight.Group
-
-func getPopularItem(ctx context.Context, id int) (*Item, error) {
-    key := fmt.Sprintf("item:%d", id)
-    
-    result, err, _ := group.Do(key, func() (interface{}, error) {
-        return db.Items.FindByID(ctx, id)
-    })
-    
-    if err != nil {
-        return nil, err
-    }
-    return result.(*Item), nil
-}
-```
-
-### 10.9 Context and Cancellation
-
-Always respect context cancellation:
-
-```go
-type Params struct {
-    ID int `param:"id"`
-}
-
-func Page(ctx vango.Ctx, p Params) *vango.VNode {
-    return ProjectPage(ctx.StdContext(), p.ID)
-}
-
-func ProjectPage(ctx context.Context, id int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        project := vango.NewResource(func() (*Project, error) {
-            // Use the context for cancellation
-            return services.Projects.GetByID(ctx, id)
-        })
-        // ...
-    })
-}
-
-// In services
-func (s *ProjectService) GetByID(ctx context.Context, id int) (*Project, error) {
-    // Database query respects context
-    return s.db.QueryRowContext(ctx, "SELECT ... WHERE id = $1", id).Scan(...)
-}
-```
-
-### 10.10 Data Loading Checklist
-
-- [ ] Essential data uses route handlers (blocks navigation)
-- [ ] Secondary data uses Resources (shows loading states)
-- [ ] Resources have appropriate keys for refetching
-- [ ] All four states (loading, error, empty, ready) are handled
-- [ ] Context is passed for cancellation
-- [ ] Expensive queries use caching
-- [ ] Hot paths use singleflight for stampede prevention
-
----
-
-## 11. Mutations, Background Work, and Side Effects
-
-This section covers changing data and handling asynchronous work.
-
-### 11.1 Actions for Mutations
-
-Use `Action` for user-initiated mutations. The work function receives a `context.Context`
-for cancellation; it runs **off the session loop** (in a goroutine), and state transitions
-are dispatched back automatically.
-
-```go
-func TaskRow(task Task) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        // Task List signal
-        localDone := vango.NewSignal(task.Done)
-
-        // Action[A, R] takes work func(ctx context.Context, a A) (R, error)
-        toggleComplete := vango.NewAction(
-            func(ctx context.Context, done bool) (bool, error) {
-                return done, services.Tasks.SetDone(ctx, task.ID, done)
-            },
-        )
-
-        // Handle success to update local state
-        vango.Effect(func() vango.Cleanup {
-            if toggleComplete.State() == vango.ActionSuccess {
-                if res, ok := toggleComplete.Result(); ok {
-                    localDone.Set(res)
-                }
-            }
-            return nil
-        })
-        
-        return Tr(
-            Td(
-                Checkbox(
-                    Checked(localDone.Get()),
-                    OnChange(func() { toggleComplete.Run(!localDone.Get()) }),
-                    Disabled(toggleComplete.State() == vango.ActionRunning),
-                ),
-            ),
-            Td(Text(task.Title)),
-            Td(
-                // Show spinner while saving
-                toggleComplete.State() == vango.ActionRunning && Spinner(),
-            ),
-        )
-    })
-}
-```
-
-**Note:** `Action[A, R]` is generic. For mutations that don't need arguments or results,
-use `struct{}` as the type.
-
-### 11.2 Action States
-
-Actions expose their execution state via `State()`:
-
-```go
-action := vango.NewAction(doSomething)
-
-// State returns ActionState enum
-action.State()  // ActionIdle, ActionRunning, ActionSuccess, ActionError
-
-// Check specific states
-action.State() == vango.ActionIdle     // Not started
-action.State() == vango.ActionRunning  // Currently running
-action.State() == vango.ActionSuccess  // Last run succeeded
-action.State() == vango.ActionError    // Last run failed
-
-// Result and Error accessors
-result, ok := action.Result()  // (R, true) if Success, (zero, false) otherwise
-err := action.Error()          // Error if Error state, nil otherwise
-
-// Run the action (returns true if accepted, false if rejected)
-accepted := action.Run(arg)
-
-// Reset clears state back to Idle
-action.Reset()
-
-// Pattern: Show different UI based on state
-switch action.State() {
-case vango.ActionRunning:
-    return Button(Disabled(), Spinner(), Text("Saving..."))
-case vango.ActionError:
-    return Div(Button(OnClick(func() { action.Run(arg) }), Text("Retry")), ErrorText(action.Error()))
-default:
-    return Button(OnClick(func() { action.Run(arg) }), Text("Save"))
-}
-```
-
-### 11.3 Concurrency Policies
-
-Control what happens when an action is triggered while already running:
-
-```go
-// Default: CancelLatest - Cancel prior in-flight on new Run
-vango.NewAction(search)
-
-// Explicitly set CancelLatest (same as default)
-vango.NewAction(search, vango.CancelLatest())
-
-// Ignore new calls while running (good for saves)
-vango.NewAction(save, vango.DropWhileRunning())
-
-// Queue up to N calls, run sequentially
-vango.NewAction(process, vango.Queue(10))
-```
-
-**Note:** Options are functions (with parentheses): `CancelLatest()`, `DropWhileRunning()`, `Queue(max)`.
-
-**Policy Selection Guide:**
-
-| Scenario | Policy |
-|----------|--------|
-| Search/filter | `CancelLatest` |
-| Save button | `DropWhileRunning` |
-| Add to queue | `Queue` |
-| Navigation | `CancelLatest` |
-| Delete | `DropWhileRunning` |
-
-### 11.4 The Single-Writer Rule
-
-All signal writes must happen on the session loop. Use `ctx.Dispatch` for goroutines:
-
-```go
-// ❌ WRONG: Writing from goroutine
-func badExample() {
-    go func() {
-        result := expensiveFetch()
-        resultSignal.Set(result)  // Race condition!
-    }()
-}
-
-// ✅ CORRECT: Use Dispatch
-func goodExample() {
-    ctx := vango.UseCtx()
-    go func() {
-        result := expensiveFetch()
-        ctx.Dispatch(func() {
-            resultSignal.Set(result)  // Safe: runs on session loop
-        })
-    }()
-}
-
-// ✅ BETTER: Use Action (handles this automatically)
-func bestExample() {
-    action := vango.NewAction(func() error {
-        result := expensiveFetch()
-        resultSignal.Set(result)  // Action runs on session loop
-        return nil
-    })
-}
-```
-
-### 11.5 Optimistic Updates
-
-Update UI immediately, rollback on failure:
-
-```go
-func TaskItem(task Task) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        localDone := vango.NewSignal(task.Done)
-        
-        toggle := vango.NewAction(func(ctx context.Context, done bool) (bool, error) {
-            // Server call
-            err := services.Tasks.ToggleComplete(ctx, task.ID, done)
-            return done, err
-        })
-
-        // Optimized state
-        vango.Effect(func() vango.Cleanup {
-            if toggle.State() == vango.ActionSuccess {
-                if res, ok := toggle.Result(); ok {
-                    localDone.Set(res)
-                }
-            }
-            return nil
-        })
-        
-        return Div(
-            Checkbox(
-                Checked(localDone.Get()),
-                OnChange(func() { toggle.Run(!localDone.Get()) }),
-                DataOptimistic(toggle.State() == vango.ActionRunning),  // Visual hint
-            ),
-            Text(task.Title),
-        )
-    })
-}
-```
-
-### 11.6 Structured Effect Helpers
-
-Use structured helpers instead of ad-hoc goroutines:
-
-```go
-// Interval: Runs periodically
-vango.Interval(5*time.Second, func() {
-    notifications := fetchNotifications()
-    notificationCount.Set(len(notifications))
-})
-
-// Subscribe: External event source (returns Cleanup)
-vango.Effect(func() vango.Cleanup {
-    return vango.Subscribe(websocketMessages, func(msg Message) {
-        messages.Set(append(messages.Get(), msg))
-    })
-})
-
-// GoLatest: inside Effect, key-based coalescing
-vango.Effect(func() vango.Cleanup {
-    return vango.GoLatest(
-        query.Get(),  // Key
-        func(ctx context.Context, key string) ([]Item, error) {
-            return search(ctx, key)
-        },
-        func(items []Item, err error) {
-            if err != nil {
-                searchError.Set(err)
-            } else {
-                results.Set(items)
-            }
-        },
-    )
-})
-```
-
-### 11.7 Effect Cleanup
-
-Effects **return** cleanup functions (not using `vango.OnCleanup`):
-
-```go
-vango.Effect(func() vango.Cleanup {
-    // Setup: subscribe to external source
-    cancel := externalService.Subscribe(handleMessage)
-    
-    // Return cleanup function - called on unmount or re-run
-    return cancel
-})
-```
-
-**Note:** `vango.Cleanup` is `func()`. Return `nil` if no cleanup needed.
-```
-
-### 11.8 Background Jobs
-
-For work that outlives a session:
-
-```go
-// Enqueue job (fast, returns immediately)
-func Page(ctx vango.Ctx) *vango.VNode {
-    enqueueExport := vango.NewAction(func() error {
-        jobID, err := jobs.Enqueue("export", ExportParams{...})
-        if err != nil {
-            return err
-        }
-        pendingJobID.Set(jobID)
-        return nil
-    })
-    
-    return Button(OnClick(enqueueExport.Run), Text("Export Data"))
-}
-
-// Poll for job status
-func JobProgress(jobID string) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        status := vango.NewResource(func() (*JobStatus, error) {
-            return jobs.GetStatus(vango.UseCtx().StdContext(), jobID)
-        })
-        
-        // Poll every 2 seconds while pending
-        vango.Effect(func() {
-            if status.State() == vango.Ready && status.Data().State() == vango.ActionRunning {
-                vango.Interval(2*time.Second, func() {
-                    status.Refetch()
-                })
-            }
-        })
-        
-        return status.Match(
-            vango.OnLoading(Spinner),
-            vango.OnReady(func(s *JobStatus) *vango.VNode {
-                if s.IsComplete() {
-                    return A(Href(s.DownloadURL), Text("Download"))
-                }
-                return ProgressBar(s.Progress)
-            }),
-        )
-    })
-}
-```
-
-### 11.9 External System Integration
-
-Handle external systems with clear boundaries:
-
-```go
-// Payment processing with Action
-func CheckoutButton(amount int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        processPayment := vango.NewAction(func() error {
-            // 1. Create local record
-            orderID, err := services.Orders.Create(ctx.StdContext(), amount)
-            if err != nil {
-                return fmt.Errorf("failed to create order: %w", err)
-            }
-            
-            // 2. Call payment provider
-            paymentResult, err := payments.Charge(ctx.StdContext(), amount)
-            if err != nil {
-                // Mark order as failed
-                services.Orders.MarkFailed(ctx.StdContext(), orderID, err.Error())
-                return fmt.Errorf("payment failed: %w", err)
-            }
-            
-            // 3. Update local record
-            err = services.Orders.MarkPaid(ctx.StdContext(), orderID, paymentResult.TransactionID)
-            if err != nil {
-                // Log but don't fail - reconcile later
-                log.Error("failed to mark order paid", "order", orderID, "error", err)
-            }
-            
-            // 4. Navigate to success
-            ctx.Navigate(fmt.Sprintf("/orders/%d/success", orderID))
-            return nil
-        }, vango.DropWhileRunning)
-        
-        return Button(
-            OnClick(processPayment.Run),
-            Disabled(processPayment.State() == vango.ActionRunning),
-            processPayment.State() == vango.ActionRunning && Spinner(),
-            Text("Pay Now"),
-        )
-    })
-}
-```
-
----
-
-## 12. Forms, Validation, and UX
-
-This section covers form handling patterns for production apps.
-
-### 12.1 Basic Form with Signals
-
-```go
 func ContactForm() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        name := vango.NewSignal("")
-        email := vango.NewSignal("")
-        message := vango.NewSignal("")
-        
-        submit := vango.NewAction(func() error {
-            return services.Contact.Submit(ctx.StdContext(), ContactInput{
-                Name:    name.Get(),
-                Email:   email.Get(),
-                Message: message.Get(),
-            })
-        })
-        
-        return Form(
-            OnSubmit(vango.PreventDefault(func() {
-                submit.Run()
-            })),
-            
-            Field("Name",
-                Input(Type("text"), Value(name.Get()), 
-                    OnInput(name.Set)),
-            ),
-            Field("Email",
-                Input(Type("email"), Value(email.Get()), 
-                    OnInput(email.Set)),
-            ),
-            Field("Message",
-                Textarea(Value(message.Get()), 
-                    OnInput(message.Set)),
-            ),
-            
-            Button(
-                Type("submit"),
-                Disabled(submit.State() == vango.ActionRunning),
-                submit.State() == vango.ActionRunning && Text("Sending..."),
-                !submit.State() == vango.ActionRunning && Text("Send"),
-            ),
-            
-            submit.Error() != nil && ErrorMessage(submit.Error()),
-        )
-    })
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		name := vango.NewSignal("")
+		email := vango.NewSignal("")
+		message := vango.NewSignal("")
+
+		submit := vango.NewAction(
+			func(std context.Context, _ struct{}) (struct{}, error) {
+				return struct{}{}, submitContact(std, name.Get(), email.Get(), message.Get())
+			},
+			vango.DropWhileRunning(),
+		)
+
+		return Form(
+			OnSubmit(vango.PreventDefault(func() {
+				submit.Run(struct{}{})
+			})),
+
+			Label(Text("Name")),
+			Input(Type("text"), Value(name.Get()), OnInput(name.Set)),
+
+			Label(Text("Email")),
+			Input(Type("email"), Value(email.Get()), OnInput(email.Set)),
+
+			Label(Text("Message")),
+			Textarea(Value(message.Get()), OnInput(message.Set)),
+
+			Button(Type("submit"), Disabled(submit.State() == vango.ActionRunning), Text("Send")),
+			submit.State() == vango.ActionRunning && Div(Text("Sending…")),
+			submit.State() == vango.ActionError && Div(Class("text-red-600"), Text(submit.Error().Error())),
+			submit.State() == vango.ActionSuccess && Div(Class("text-green-700"), Text("Sent")),
+		)
+	})
 }
 ```
 
-### 12.2 UseForm Helper
+### 13.2 Validation (Server-Side Source of Truth)
 
-For complex forms, use the `UseForm` helper:
+All validation must be server-side (even if you add client hints). Typical pattern:
+
+* validate in service/action
+* return structured field errors
+* render them near fields
+
+One workable approach is to keep a signal of validation errors keyed by field name:
 
 ```go
-func ProjectForm(project *Project) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        form := vango.UseForm(ProjectInput{
-            Name:        project.Name,
-            Description: project.Description,
-            Status:      project.Status,
-        })
-        
-        save := vango.NewAction(func() error {
-            if !form.Validate() {
-                return nil  // Validation errors shown
-            }
-            return services.Projects.Update(ctx.StdContext(), project.ID, form.Values())
-        })
-        
-        return Form(
-            OnSubmit(form.HandleSubmit(save.Run)),
-            
-            form.Field("Name", Input(
-                Type("text"),
-                Value(form.Get("Name")),
-                OnInput(form.Set("Name")),
-            )),
-            form.FieldError("Name"),
-            
-            form.Field("Description", Textarea(
-                Value(form.Get("Description")),
-                OnInput(form.Set("Description")),
-            )),
-            
-            form.Field("Status", Select(
-                Value(form.Get("Status")),
-                OnChange(form.Set("Status")),
-                Option(Value("active"), Text("Active")),
-                Option(Value("archived"), Text("Archived")),
-            )),
-            
-            FormActions(
-                Button(Type("button"), OnClick(form.Reset), Text("Reset")),
-                Button(Type("submit"), Disabled(save.State() == vango.ActionRunning || !form.IsDirty()),
-                    Text("Save")),
-            ),
-        )
-    })
+type FieldError struct {
+	Field   string
+	Message string
+}
+
+func errorFor(errs []FieldError, field string) string {
+	for _, e := range errs {
+		if e.Field == field {
+			return e.Message
+		}
+	}
+	return ""
 }
 ```
 
-### 12.3 Validation Strategy
+Then in the component, set `errsSignal.Set(errs)` on validation failure and render `errorFor(...)` under each input. Keep the UI side minimal and let the server define correctness.
 
-Server-side validation is the source of truth:
+### 13.3 Progressive Enhancement
+
+Forms and links should work without WebSocket:
+
+* Without WS: normal POST navigation
+* With WS: Vango intercepts/enhances for SPA-style UX
+
+In practice, that means:
+
+* always set proper `Method(...)`, `Action(...)`, and `Name(...)` attributes when you intend a form to be usable without WS
+* use `PreventDefault` + Action when you want in-place submits
+
+Keep "enhanced" behavior additive rather than required.
+
+### 13.4 File Uploads
+
+> **Important:** File uploads use **plain HTTP handlers**, not typed API endpoints. Multipart form data requires direct access to `http.Request` which the typed API abstraction doesn't expose. Mount upload handlers separately on your router.
+
+Vango provides the `upload` package for secure file upload handling with a two-phase pattern:
+
+1. **Phase 1 (HTTP):** Client uploads file → server stores temporarily → returns `temp_id`
+2. **Phase 2 (WebSocket):** Client submits form with `temp_id` → server claims file and processes
+
+#### Setting Up the Upload Handler
 
 ```go
-type ProjectInput struct {
-    Name        string `validate:"required,min=1,max=100"`
-    Description string `validate:"max=1000"`
-    Status      string `validate:"required,oneof=active archived"`
-}
+// main.go
+import "github.com/vango-go/vango/pkg/upload"
 
-func (p ProjectInput) Validate() []ValidationError {
-    var errors []ValidationError
-    
-    if p.Name == "" {
-        errors = append(errors, ValidationError{
-            Field:   "Name",
-            Message: "Name is required",
-        })
-    } else if len(p.Name) > 100 {
-        errors = append(errors, ValidationError{
-            Field:   "Name",
-            Message: "Name must be 100 characters or less",
-        })
+func main() {
+    // Create a disk-based upload store (dir, maxSize)
+    store, err := upload.NewDiskStore("/tmp/uploads", 10*1024*1024)
+    if err != nil {
+        log.Fatal(err)
     }
-    
-    if len(p.Description) > 1000 {
-        errors = append(errors, ValidationError{
-            Field:   "Description",
-            Message: "Description must be 1000 characters or less",
-        })
-    }
-    
-    return errors
+
+    // Mount the upload handler (plain HTTP, not typed API)
+    mux.Handle("POST /api/upload", upload.Handler(store))
+
+    // Or with custom config
+    mux.Handle("POST /api/upload", upload.HandlerWithConfig(store, &upload.Config{
+        MaxFileSize:       10 * 1024 * 1024, // 10MB
+        AllowedTypes:      []string{"image/png", "image/jpeg", "application/pdf"},
+        AllowedExtensions: []string{".png", ".jpg", ".jpeg", ".pdf"},
+        TempExpiry:        time.Hour,
+    }))
 }
 ```
 
-**Client hints for better UX:**
+The handler returns JSON: `{"temp_id": "abc123"}`
 
-```go
-func NameField(form *vango.Form) *vango.VNode {
-    value := form.Get("Name")
-    
-    // Instant feedback (client-side hint)
-    var hint string
-    if len(value) > 100 {
-        hint = fmt.Sprintf("%d/100 characters (too long)", len(value))
-    } else if len(value) > 0 {
-        hint = fmt.Sprintf("%d/100 characters", len(value))
-    }
-    
-    return Div(
-        Label(For("name"), Text("Name *")),
-        Input(
-            ID("name"),
-            Type("text"),
-            Value(value),
-            OnInput(form.Set("Name")),
-            MaxLength(100),  // Hard limit
-            AriaDescribedby("name-hint"),
-        ),
-        Span(ID("name-hint"), Class("hint"), Text(hint)),
-        form.FieldError("Name"),  // Server validation error
-    )
-}
-```
-
-### 12.4 Error Display and Accessibility
-
-```go
-func Field(label string, input *vango.VNode, err string) *vango.VNode {
-    fieldID := slugify(label)
-    errorID := fieldID + "-error"
-    
-    return Div(Class("field"),
-        Label(For(fieldID), Text(label)),
-        // Clone input to add accessibility attributes
-        input.With(
-            ID(fieldID),
-            AriaInvalid(err != ""),
-            AriaDescribedby(err != "" && errorID),
-        ),
-        err != "" && Span(
-            ID(errorID),
-            Role("alert"),
-            Class("error"),
-            Text(err),
-        ),
-    )
-}
-
-// Focus management on error
-func FormWithFocus() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        form := vango.UseForm(...)
-        
-        submit := vango.NewAction(func() error {
-            if !form.Validate() {
-                // Focus first error field
-                vango.UseCtx().FocusElement(form.FirstErrorField())
-                return nil
-            }
-            return doSubmit(form.Values())
-        })
-        
-        return Form(...)
-    })
-}
-```
-
-### 12.5 Preventing Double Submits
-
-```go
-func SafeSubmitButton(action *vango.Action, label string) *vango.VNode {
-    return Button(
-        Type("submit"),
-        Disabled(action.State() == vango.ActionRunning),  // Disable while pending
-        Class("submit-button"),
-        DataLoading(action.State() == vango.ActionRunning),
-        
-        action.State() == vango.ActionRunning && Span(
-            Class("spinner"),
-            AriaHidden(true),
-        ),
-        Span(
-            Class(action.State() == vango.ActionRunning && "sr-only"),  // Screen reader only when loading
-            Text(label),
-        ),
-    )
-}
-
-// CSS for visual feedback
-// .submit-button[data-loading="true"] {
-//     opacity: 0.7;
-//     cursor: wait;
-// }
-```
-
-### 12.6 File Uploads
-
-Files use hybrid HTTP + WebSocket:
+#### Client-Side Form
 
 ```go
 func FileUploadForm() vango.Component {
     return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        uploadProgress := vango.NewSignal(0)
-        uploadedFile := vango.NewSignal[*UploadedFile](nil)
-        
+        tempID := vango.NewSignal("")
+        uploading := vango.NewSignal(false)
+
         return Div(
-            // Standard file input with form action
+            // Phase 1: Upload form (standard HTTP POST)
             Form(
                 Method("POST"),
                 Action("/api/upload"),
                 EncType("multipart/form-data"),
-                DataVangoEnhance("upload"),  // Vango intercepts for progress
-                
-                OnUploadProgress(func(percent int) {
-                    uploadProgress.Set(percent)
-                }),
-                OnUploadComplete(func(file *UploadedFile) {
-                    uploadedFile.Set(file)
-                }),
-                
+                Target("upload-frame"), // Use hidden iframe for no-reload upload
+
                 Input(Type("file"), Name("file"), Accept("image/*")),
                 Button(Type("submit"), Text("Upload")),
             ),
-            
-            // Progress bar
-            uploadProgress.Get() > 0 && uploadProgress.Get() < 100 && (
-                ProgressBar(uploadProgress.Get())
-            ),
-            
-            // Show uploaded file
-            uploadedFile.Get() != nil && (
-                Img(Src(uploadedFile.Get().URL), Alt("Uploaded image"))
+
+            // Hidden iframe to capture upload response
+            IFrame(ID("upload-frame"), Name("upload-frame"), Style("display:none")),
+
+            // Phase 2: Process form (once we have temp_id)
+            tempID.Get() != "" && Form(
+                OnSubmit(vango.PreventDefault(func() {
+                    // Server action claims the file using temp_id
+                })),
+                Input(Type("hidden"), Name("temp_id"), Value(tempID.Get())),
+                Button(Type("submit"), Text("Save")),
             ),
         )
     })
 }
 ```
 
-### 12.7 Array Inputs
-
-Handle dynamic lists of fields:
+#### Claiming Files in Your Handler
 
 ```go
-func TagsInput() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        tags := vango.NewSignal([]string{""})
-        
-        addTag := func() {
-            tags.Set(append(tags.Get(), ""))
-        }
-        
-        removeTag := func(index int) {
-            tags.RemoveAt(index)
-        }
-        
-        updateTag := func(index int, value string) {
-            tags.SetAt(index, value)
-        }
-        
-        return Div(
-            vango.ForEach(tags.Get(), func(tag string, i int) *vango.VNode {
-                return Div(Key(i), Class("tag-input"),
-                    Input(
-                        Type("text"),
-                        Value(tag),
-                        OnInput(func(value string) {
-                            updateTag(i, value)
-                        }),
-                        Placeholder("Enter tag"),
-                    ),
-                    Button(
-                        Type("button"),
-                        OnClick(func() { removeTag(i) }),
-                        Text("×"),
-                    ),
-                )
-            }),
-            Button(Type("button"), OnClick(addTag), Text("+ Add Tag")),
-        )
-    })
-}
-```
-
-### 12.8 Progressive Enhancement
-
-Forms work without JavaScript:
-
-```go
-func EnhancedForm() *vango.VNode {
-    return Form(
-        Method("POST"),
-        Action("/contact"),  // Works without JS
-        DataVangoEnhance("form"),  // Enhanced when connected
-        
-        Input(Name("name"), Type("text")),
-        Input(Name("email"), Type("email")),
-        Textarea(Name("message")),
-        
-        Button(Type("submit"), Text("Send")),
-    )
-}
-```
-
-**How it works:**
-
-1. Without WebSocket: Standard form POST to `/contact`
-2. With WebSocket: Vango intercepts, sends via WS, updates UI
-
-### 12.9 Toast/Flash Messages
-
-Show feedback after actions:
-
-```go
-// store/notifications.go
-var Toasts = vango.NewSharedSignal([]Toast{})
-
-func ShowToast(typ, message string) {
-    id := uuid.NewString()
-    Toasts.Append(Toast{ID: id, Type: typ, Message: message})
-    
-    // Auto-dismiss
-    go func() {
-        time.Sleep(5 * time.Second)
-        vango.UseCtx().Dispatch(func() {
-            Toasts.RemoveWhere(func(t Toast) bool {
-                return t.ID == id
-            })
-        })
-    }()
-}
-
-// Usage in action
-submit := vango.NewAction(func() error {
-    err := services.Contact.Submit(...)
+func ProcessUpload(ctx vango.Ctx, input struct{ TempID string }) error {
+    // Claim the file from temporary storage
+    file, err := upload.Claim(store, input.TempID)
     if err != nil {
-        store.ShowToast("error", "Failed to send message")
+        if errors.Is(err, upload.ErrNotFound) {
+            return vango.BadRequest("upload expired or invalid")
+        }
         return err
     }
-    store.ShowToast("success", "Message sent!")
+    defer file.Close()
+
+    // file.Filename - original filename
+    // file.ContentType - detected MIME type (sniffed, not trusted from client)
+    // file.Size - file size in bytes
+    // file.Path - local path (for DiskStore)
+    // file.Reader - io.ReadCloser for the content
+
+    // Move to permanent storage, save to database, etc.
     return nil
-})
-
-// Toast container in layout
-func ToastContainer() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        return Div(Class("toast-container"),
-            vango.ForEach(store.Toasts.Get(), func(toast Toast, i int) *vango.VNode {
-                return Div(Key(toast.ID), Class("toast", "toast-"+toast.Type),
-                    Text(toast.Message),
-                    Button(OnClick(func() {
-                        store.Toasts.RemoveAt(i)
-                    }), Text("×")),
-                )
-            }),
-        )
-    })
 }
 ```
 
-### 12.10 Form Checklist
+#### Storage Backends
 
-- [ ] Server-side validation is the source of truth
-- [ ] All fields have labels (accessibility)
-- [ ] Error messages are associated with fields (aria-describedby)
-- [ ] Focus is managed on error
-- [ ] Submit button is disabled while pending
-- [ ] Double-submit is prevented
-- [ ] Forms work without JavaScript (progressive enhancement)
-- [ ] Success/error feedback is shown (toasts or inline)
-
-## 13. Navigation, URL State, and Progressive Enhancement
-
-This section covers navigation patterns and building apps that work for everyone.
-
-### 13.1 Link Types
-
-Vango provides link helpers for SPA navigation:
+The `upload.Store` interface supports custom backends:
 
 ```go
-// Native navigation (no interception) - use raw A element
-A(Href("/about"), Text("About"))
-
-// SPA navigation (intercepted when WS healthy) - use Link helper
-Link("/about", Text("About"))
-
-// SPA navigation with hover prefetch
-LinkPrefetch("/about", Text("About"))
-
-// Navigation menu with active state
-Nav(
-    NavLink(ctx, "/", Text("Home")),       // Adds "active" class when on /
-    NavLink(ctx, "/about", Text("About")), // Adds "active" class when on /about
-)
-
-// For sub-route matching (e.g., admin section)
-NavLinkPrefix(ctx, "/admin", Text("Admin"))  // Active on /admin, /admin/users, etc.
-
-// HTML <link> element (stylesheets, icons) - not navigation
-LinkEl(Rel("stylesheet"), Href("/styles.css"))
-```
-
-**Note:** `Link`, `LinkPrefetch`, `NavLink`, `NavLinkPrefix` are helpers in `vango/el/helpers.go`.
-They add `data-vango-link` automatically for interception.
-
-### 13.2 Programmatic Navigation
-
-Navigate from event handlers:
-
-```go
-// Basic navigation (push - adds history entry)
-Button(OnClick(func() {
-    ctx := vango.UseCtx()
-    ctx.Navigate("/projects/123")
-}), Text("View"))
-
-// Replace (no history entry) - use server.WithReplace()
-ctx.Navigate("/dashboard", server.WithReplace())
-
-// With query parameters
-ctx.Navigate("/search?q=golang&page=1")
-
-// Reload current page
-ctx.Navigate(ctx.Path(), server.WithReplace())
-```
-
-**Note:** External navigation to other origins causes a full page reload.
-Use standard `A(Href("https://external.com"), Text("Link"))` for external links.
-
-### 13.3 Query-Only Updates with URLParam
-
-Update URL without navigation:
-
-```go
-func FilteredList() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        // These sync with URL: /items?status=active&sort=name
-        status := vango.URLParam("status", "all")
-        sort := vango.URLParam("sort", "created_at")
-        
-        return Div(
-            // Filter tabs
-            Div(Class("tabs"),
-                Tab(status, "all", "All"),
-                Tab(status, "active", "Active"),
-                Tab(status, "archived", "Archived"),
-            ),
-            
-            // Sort dropdown
-            Select(
-                Value(sort.Get()),
-                OnChange(func(value string) {
-                    sort.Set(value)  // Updates URL, no navigation
-                }),
-                Option(Value("created_at"), Text("Newest")),
-                Option(Value("name"), Text("Name")),
-            ),
-            
-            // List (re-renders when URL params change)
-            ItemList(status.Get(), sort.Get()),
-        )
-    })
-}
-
-func Tab(param *vango.URLParam, value, label string) *vango.VNode {
-    isActive := param.Get() == value
-    return Button(
-        Class("tab", isActive && "active"),
-        OnClick(func() { param.Set(value) }),
-        Text(label),
-    )
+type Store interface {
+    Save(filename, contentType string, size int64, r io.Reader) (tempID string, err error)
+    Claim(tempID string) (*File, error)
+    Cleanup(maxAge time.Duration) error
 }
 ```
 
-**URL State Benefits:**
+Vango provides `DiskStore` out of the box. For S3/GCS, implement the interface or use community packages.
 
-- **Shareable**: Copy URL shares exact view state
-- **Back button**: Browser history works naturally
-- **Bookmarkable**: Save filter combinations
-- **Refresh-safe**: State survives refresh
+#### Security Considerations
 
-### 13.4 Navigation Events
+- **MIME type sniffing**: The handler detects content type from file bytes, never trusting client headers
+- **Size limits**: Applied at HTTP level via `MaxBytesReader` before parsing
+- **Extension validation**: Optional `AllowedExtensions` and `RequireExtensionMatch` for defense-in-depth
+- **Temp file cleanup**: Call `store.Cleanup(maxAge)` periodically (e.g., cron job every 5 minutes)
 
-Handle navigation lifecycle:
-
-```go
-// Before navigation (can cancel)
-vango.OnBeforeNavigate(func(to string) bool {
-    if form.IsDirty() {
-        return confirm("Discard changes?")
-    }
-    return true  // Allow navigation
-})
-
-// After navigation
-vango.OnNavigate(func(path string) {
-    analytics.TrackPageView(path)
-})
-```
-
-### 13.5 Self-Heal and Reconnect
-
-When connection is lost or patches fail:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    CONNECTION LIFECYCLE                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  1. Connected      →  Normal operation                          │
-│                                                                  │
-│  2. Disconnected   →  In ResumeWindow: attempt reconnect         │
-│                       Thin client shows reconnecting indicator   │
-│                                                                  │
-│  3. Reconnected    →  Session state preserved                    │
-│                       Continue where left off                    │
-│                                                                  │
-│  4. Resume Failed  →  Full page reload                          │
-│     (after window)   Fresh session, content from SSR             │
-│                                                                  │
-│  5. Patch Mismatch →  Full page reload                          │
-│                       Self-heal: DOM re-syncs from server        │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**User Experience During Disconnection:**
-
-```go
-// Layout shows connection status
-func Layout(ctx vango.Ctx, children *vango.VNode) *vango.VNode {
-    return Html(
-        Body(
-            ConnectionStatus(),  // Built-in or custom indicator
-            children,
-        ),
-    )
-}
-
-// Custom connection status
-func ConnectionStatus() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        status := vango.ConnectionStatus()  // "connected" | "reconnecting" | "disconnected"
-        
-        if status == "connected" {
-            return nil  // No indicator when connected
-        }
-        
-        return Div(Class("connection-banner", "banner-"+status),
-            status == "reconnecting" && Text("Reconnecting..."),
-            status == "disconnected" && Text("Connection lost. Refresh to continue."),
-        )
-    })
-}
-```
-
-### 13.6 Progressive Enhancement
-
-Links and forms work without JavaScript:
-
-```go
-// Links: Work as standard <a> tags
-A(Href("/projects"), Text("Projects"))
-// Without WS: Full page navigation
-// With WS: SPA navigation
-
-// Forms: Work as standard POST
-Form(
-    Method("POST"),
-    Action("/contact"),
-    DataVangoEnhance("form"),
-    
-    Input(Name("email"), Type("email")),
-    Button(Type("submit"), Text("Send")),
-)
-// Without WS: Standard form POST
-// With WS: Intercepted, sent via WebSocket
-```
-
-**Why Progressive Enhancement Matters:**
-
-- Initial load works before WebSocket connects
-- Works in no-JS environments (rare but possible)
-- SEO: Search engines see functional pages
-- Accessibility: Screen readers get HTML forms/links
-
-### 13.7 Prefetching
-
-Prefetch pages before navigation:
-
-```go
-// Prefetch on hover
-LinkPrefetch("/projects", Text("Projects"))
-
-// Prefetch when in viewport (handled by intersection observer)
-LinkPrefetch("/projects/1", Text("Project 1"))
-
-// Manual prefetch
-Button(OnMouseEnter(func() {
-    // Framework handles prefetch via LinkPrefetch or internal mechanisms
-}), OnClick(func() {
-    ctx.Navigate("/projects/123")  // Instant if prefetched
-}), Text("Hover to Prefetch"))
-```
-
-**Prefetch Safety Rules:**
-
-| Rule | Rationale |
-|------|-----------|
-| Only GET routes | Prefetch must not cause side effects |
-| Rate limited | Max N prefetches per second |
-| Timeout after 5s | Don't hold stale prefetch data |
-| Cancel on navigate | Don't waste work |
-
-### 13.8 Navigation Checklist
-
-- [ ] Internal links use SPA navigation by default
-- [ ] External links navigate away properly
-- [ ] Filters/sorts use URLParam for shareability
-- [ ] Unsaved changes warn before navigation
-- [ ] Connection status is visible when disconnected
-- [ ] Forms work as standard POST without WebSocket
-- [ ] Critical pages work in SSR-only mode
+**Key point:** Because uploads are plain HTTP handlers, they don't participate in Vango's typed API system. This is intentional—multipart parsing requires raw request access. Document your upload endpoints separately from your typed API routes.
 
 ---
 
-## 14. Styling and Design Systems
+## 14. The Client Boundary (Escape Hatches)
 
-This section covers styling patterns for Vango apps.
+Vango is optimized for server-driven UI, but it supports client-side extensions for cases where network roundtrips or DOM ownership constraints make server-driven insufficient.
 
-### 14.1 Tailwind CSS (Default)
+### 14.1 When to Leave Go (Guidelines)
 
-The default template uses Tailwind CSS:
+Use client-side code only when needed:
+
+* **60fps interactions**: dragging, resizing, drawing, complex focus/selection behavior
+* **third-party widgets**: editors, maps, visualization libraries that require full DOM ownership
+* **compute-heavy client work**: image processing, physics, offline computation (WASM)
+
+Otherwise, keep logic in Go for simplicity and security.
+
+### 14.2 Hooks (Client-side behavior attached to DOM elements)
+
+Hooks run on the client for specific elements and can send events back to the server. Vango includes common hooks (e.g., Sortable, Tooltip, Dialog, ThemeToggle) and supports custom hooks.
+
+**Server-side wiring pattern:**
 
 ```go
-// Inline classes
-Button(
-    Class("px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"),
-    Text("Click me"),
-)
-
-// Dynamic classes based on state
-Button(
-    Class(
-        "px-4 py-2 rounded transition-colors",
-        isActive && "bg-blue-500 text-white",
-        !isActive && "bg-gray-200 text-gray-700",
-    ),
-    Text("Toggle"),
+Div(
+	Hook("Sortable", map[string]any{
+		"handle": ".drag-handle",
+	}),
+	OnEvent("reorder", func(e vango.HookEvent) {
+		from := e.Int("fromIndex")
+		to := e.Int("toIndex")
+		// update state + persist
+	}),
 )
 ```
 
-**Tailwind Configuration:**
+#### Standard Hooks Library
+
+The thin client includes these built-in hooks—no registration or additional JS required:
+
+| Hook | Purpose | Common Config | Events |
+|------|---------|---------------|--------|
+| `Sortable` | Drag-to-reorder lists | `handle`, `group`, `animation`, `ghostClass` | `reorder` (fromIndex, toIndex) |
+| `Draggable` | Make elements draggable | `axis`, `bounds`, `handle` | `dragstart`, `dragend`, `drag` |
+| `Droppable` | Drop targets for draggables | `accept`, `hoverClass` | `drop`, `dragenter`, `dragleave` |
+| `Resizable` | Resize elements | `handles`, `minWidth`, `minHeight` | `resize`, `resizeend` |
+| `Tooltip` | Hover tooltips | `content`, `placement`, `delay` | — |
+| `Dropdown` | Dropdown menus | `trigger`, `placement`, `closeOnClick` | `open`, `close` |
+| `Collapsible` | Expand/collapse content | `open`, `duration` | `toggle` |
+| `FocusTrap` | Trap focus within element (modals) | `initialFocus`, `returnFocus` | — |
+| `Portal` | Render content elsewhere in DOM | `target` | — |
+| `Dialog` | Modal dialogs | `open`, `closeOnEscape`, `closeOnOverlay` | `close` |
+| `Popover` | Popovers (anchored to trigger) | `trigger`, `placement`, `offset` | `open`, `close` |
+| `ThemeToggle` | Light/dark theme switching | `storageKey`, `defaultTheme` | `change` |
+
+**Go-side helpers** (optional typed wrappers):
+
+```go
+import "github.com/vango-go/vango/pkg/features/hooks/standard"
+
+// Using typed helper (provides autocomplete for config)
+Div(standard.Sortable(standard.SortableConfig{Handle: ".drag-handle", Animation: 150}))
+
+// Or use generic Hook() with map
+Div(Hook("Sortable", map[string]any{"handle": ".drag-handle"}))
+```
+
+#### Hook Registration Contract
+
+**How the thin client discovers hooks:**
+
+1. **Built-in hooks** (listed above) ship with the Vango thin client—just use `Hook("Name", config)`
+2. **Custom hooks** must be registered before first use via:
+   ```javascript
+   // public/js/hooks/my_hook.js
+   import { MySortableHook } from './my_sortable.js';
+
+   // Register when Vango client is ready
+   window.__vango__?.registerHook('MySortable', MySortableHook);
+   ```
+3. **Bundle location**: custom hooks live in `public/js/hooks/` and are loaded via `<script>` tags or bundled with your app's JS
+
+**Hook interface (JavaScript):**
 
 ```javascript
-// tailwind.config.js
-module.exports = {
-    content: ['./app/**/*.go'],  // Scan Go files
-    theme: {
-        extend: {
-            colors: {
-                primary: {
-                    50: '#eff6ff',
-                    500: '#3b82f6',
-                    600: '#2563eb',
-                    700: '#1d4ed8',
-                },
-            },
-        },
-    },
-}
-```
-
-### 14.2 Pure CSS Workflow
-
-If you prefer no Node.js/Tailwind:
-
-```css
-/* public/css/app.css */
-
-/* Design tokens */
-:root {
-    --color-primary: #3b82f6;
-    --color-primary-hover: #2563eb;
-    --color-text: #1f2937;
-    --color-text-muted: #6b7280;
-    --color-bg: #ffffff;
-    --color-bg-alt: #f3f4f6;
-    
-    --spacing-1: 0.25rem;
-    --spacing-2: 0.5rem;
-    --spacing-4: 1rem;
-    --spacing-8: 2rem;
-    
-    --radius-sm: 0.25rem;
-    --radius-md: 0.375rem;
-    --radius-lg: 0.5rem;
-}
-
-/* Component classes */
-.btn {
-    padding: var(--spacing-2) var(--spacing-4);
-    border-radius: var(--radius-md);
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.15s;
-}
-
-.btn-primary {
-    background: var(--color-primary);
-    color: white;
-}
-
-.btn-primary:hover {
-    background: var(--color-primary-hover);
-}
-```
-
-```go
-// Use classes in Go
-Button(Class("btn btn-primary"), Text("Click me"))
-```
-
-### 14.3 Dark Mode
-
-Support system preference and manual toggle.
-
-Vango apps frequently use **class-based dark mode** (e.g. Tailwind’s `dark:` variant), where the `dark` class is applied to the `<html>` element.
-
-```css
-/* CSS approach (class-based) */
-:root {
-    --color-bg: #ffffff;
-    --color-text: #1f2937;
-}
-
-/* Dark mode override (enabled by `html.dark`) */
-html.dark {
-    --color-bg: #111827;
-    --color-text: #f9fafb;
-}
-```
-
-```go
-// app/routes/layout.go
-//
-// Theme initialization: run BEFORE paint to avoid a flash of incorrect theme.
-// This is safe to keep as an inline script because it doesn't rely on wiring
-// DOM event listeners (which won't re-run under SPA patching).
-func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    return Html(
-        Head(
-            Script(Raw(`(function(){var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}})();`)),
-        ),
-        Body(children),
-    )
-}
-```
-
-```go
-// app/components/shared/navbar.go
-//
-// Theme toggle: use a client hook so it survives SPA navigation and DOM patching.
-// The built-in hook persists to localStorage and toggles the `dark` class on <html>.
-import "github.com/vango-go/vango/pkg/features/hooks"
-
-func ThemeToggleButton() *vango.VNode {
-    return Button(
-        hooks.Hook("ThemeToggle", map[string]any{"storageKey": "theme"}),
-        AriaLabel("Toggle theme"),
-        Text("Toggle theme"),
-    )
-}
-```
-
-### 14.4 Dynamic Styling
-
-Apply styles based on reactive state:
-
-```go
-// Class-based (preferred)
-Div(
-    Class(
-        "card",
-        isSelected && "card-selected",
-        isDisabled && "card-disabled",
-    ),
-)
-
-// Style attribute (for truly dynamic values)
-Div(
-    Style(fmt.Sprintf("--progress: %d%%", progress)),
-    Class("progress-bar"),
-)
-
-// With CSS
-// .progress-bar::after {
-//     width: var(--progress);
-// }
-```
-
-### 14.5 Component Styling Patterns
-
-Encapsulate styles in components:
-
-```go
-// Base + variant pattern
-type ButtonVariant string
-const (
-    ButtonPrimary   ButtonVariant = "primary"
-    ButtonSecondary ButtonVariant = "secondary"
-    ButtonDanger    ButtonVariant = "danger"
-)
-
-type ButtonSize string
-const (
-    ButtonSm ButtonSize = "sm"
-    ButtonMd ButtonSize = "md"
-    ButtonLg ButtonSize = "lg"
-)
-
-func Button(variant ButtonVariant, size ButtonSize, children ...any) func(...any) *vango.VNode {
-    sizeClasses := map[ButtonSize]string{
-        ButtonSm: "px-2 py-1 text-sm",
-        ButtonMd: "px-4 py-2",
-        ButtonLg: "px-6 py-3 text-lg",
-    }
-    
-    variantClasses := map[ButtonVariant]string{
-        ButtonPrimary:   "bg-blue-500 text-white hover:bg-blue-600",
-        ButtonSecondary: "bg-gray-200 text-gray-800 hover:bg-gray-300",
-        ButtonDanger:    "bg-red-500 text-white hover:bg-red-600",
-    }
-    
-    return func(attrs ...any) *vango.VNode {
-        return ButtonEl(
-            Class("rounded font-medium transition-colors", 
-                sizeClasses[size], 
-                variantClasses[variant]),
-            Group(attrs...),
-            Group(children...),
-        )
-    }
-}
-
-// Usage
-Button(ButtonPrimary, ButtonMd, Text("Save"))(OnClick(save))
-```
-
-### 14.6 Accessibility Checklist
-
-Ensure your design system is accessible:
-
-| Requirement | Implementation |
-|-------------|----------------|
-| Focus visible | `focus:ring-2 focus:ring-blue-500 focus:outline-none` |
-| Color contrast | 4.5:1 for normal text, 3:1 for large text |
-| Reduced motion | `motion-reduce:transition-none` |
-| Touch targets | Min 44x44px for mobile |
-| Focus order | Logical tab order |
-
-```css
-/* Reduced motion support */
-@media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-        animation-duration: 0.01ms !important;
-        transition-duration: 0.01ms !important;
-    }
-}
-```
-
----
-
-## 15. Static Assets, Bundles, and the Thin Client
-
-This section covers asset management in Vango apps.
-
-### 15.1 Static File Serving
-
-Files in `public/` are served directly:
-
-```
-public/
-├── css/
-│   └── app.css           →  /css/app.css
-├── js/
-│   └── hooks/
-│       └── sortable.js   →  /js/hooks/sortable.js
-├── images/
-│   └── logo.svg          →  /images/logo.svg
-└── favicon.ico           →  /favicon.ico
-```
-
-**Configuration:**
-
-```go
-vango.New(vango.Config{
-    Static: vango.StaticConfig{
-        Dir:    "public",    // Directory to serve
-        Prefix: "/",         // URL prefix
-    },
-})
-```
-
-**Security note:** Vango rejects static paths that attempt to escape the static root (e.g., `..` segments or absolute paths) and does not serve directories (no directory listings).
-
-### 15.2 The Thin Client
-
-Vango provides a thin JavaScript client (~12KB) that handles the browser-side of the server-driven architecture.
-
-**Script Injection:**
-
-You should include `VangoScripts()` explicitly in your layout (recommended), and the framework also injects the script tag when rendering full HTML pages via SSR. Both approaches work:
-
-```go
-// Explicit (recommended for clarity)
-func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    return Html(
-        Head(/* ... */),
-        Body(
-            children,
-            VangoScripts(),  // Explicitly include thin client
-        ),
-    )
-}
-
-// Implicit (framework injects if VangoScripts() not present)
-func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    return Html(
-        Head(/* ... */),
-        Body(children),
-        // VangoScripts() auto-injected before </body>
-    )
-}
-```
-
-**What the thin client does:**
-
-1. Establishes WebSocket connection to `/_vango/live?path=<current-path>`
-2. Captures DOM events, sends to server via binary protocol
-3. Receives patches, applies to DOM
-4. Handles reconnection and self-heal
-5. Progressive enhancement for forms/links
-
-**WebSocket URL and Path Parameter:**
-
-The thin client connects to `/_vango/live?path=<pathname+search>` where `path` contains the current browser URL path and query string. This allows the server to immediately mount the correct route and render the component tree when the WebSocket connects—ensuring event handlers exist and patches can be sent.
-
-> **Implementation Detail**: The `?path=` query parameter is required for immediate interactivity after SSR. If `?path=` is absent or invalid, Vango defaults to `/` or triggers a hard-reload per self-heal rules.
->
-> **Custom WS URL overrides** (via `data-ws-url` or similar) **must preserve** the `?path=` parameter unless you provide an equivalent initial-route mechanism. Without it, the server won't know which route to mount, resulting in "handler not found" errors.
-
-**Client Bundles:**
-
-The `client/dist/` directory contains the compiled thin client:
-- `vango.js` — Development build (readable, with source maps)
-- `vango.min.js` — Production build (minified)
-
-> **Warning**: These files are **build output** and must not be edited manually. Both bundles must be generated from the same `client/src/` source and should behave identically aside from minification. If you see behavioral differences between dev and prod, rebuild both from the same source.
-
-### 15.3 Cache Headers
-
-Production cache strategy:
-
-| Asset Type | Cache-Control | Reason |
-|------------|---------------|--------|
-| HTML pages | `no-cache` | Must always be fresh |
-| Thin client | `max-age=31536000, immutable` | Versioned in URL |
-| CSS/JS (hashed) | `max-age=31536000, immutable` | Content-addressed |
-| CSS/JS (unhashed) | `max-age=3600, must-revalidate` | Shorter cache |
-| Images | `max-age=86400` | Medium cache |
-
-**Configuration:**
-
-```go
-vango.StaticConfig{
-    CacheControl: vango.CacheControlProduction,
-    // Adds appropriate headers based on file type and hash presence
-}
-```
-
-### 15.4 Asset Fingerprinting
-
-For long-term caching, use hashed filenames. Vango provides a context-aware asset resolver that maps source paths to fingerprinted paths via a manifest.
-
-```go
-// Layout example
-func Layout(ctx vango.Ctx, children vango.Slot) *vango.VNode {
-    return Html(
-        Head(
-            // Use ctx.Asset() for automatic hashing
-            LinkEl(Rel("stylesheet"), Href(ctx.Asset("styles.css"))),
-        ),
-        Body(
-            Img(Src(ctx.Asset("images/logo.svg")), Alt("Logo")),
-            children,
-        ),
-    )
-}
-```
-
-**Production Configuration:**
-
-In production, you load the `manifest.json` generated by `vango build` and pass it to the server.
-
-```go
-func main() {
-    // Load manifest
-    manifest, _ := vango.LoadAssetManifest("dist/manifest.json")
-    
-    // Create resolver
-    // Prefix should match how your static files are served (often "/").
-    resolver := vango.NewAssetResolver(manifest, "/")
-    
-    app := vango.New(vango.Config{
-        AssetResolver: resolver,
-        // ...
-    })
-}
-```
-
-**Development Configuration:**
-
-In development, use a passthrough resolver that just adds the prefix without hashing.
-
-```go
-resolver := vango.NewPassthroughResolver("/")
-```
-
-**How it works:**
-1. `ctx.Asset("styles.css")` is called.
-2. The resolver looks up `"styles.css"` in the manifest.
-3. If found, it returns something like `"/styles.a1b2c3d4.css"`.
-4. If not found, it returns `"/styles.css"`.
-
-### 15.5 Hook and Island Bundles
-
-Client-side code for hooks and islands:
-
-```
-public/
-├── js/
-│   ├── hooks/                # Optional: custom hooks you add
-│   │   └── custom_hook.js
-│   └── islands/              # Optional: custom islands you add
-│       ├── rich-editor.js
-│       └── map.js
-```
-
-**Loading Strategy:**
-
-```go
-// Built-in hooks ship inside the Vango thin client.
-// Hooks initialize when an element with `data-hook="..."` appears in the DOM.
-Div(
-    vango.Hook("Sortable", map[string]any{
-        "handle":    ".drag-handle",
-        "animation": 150,
-    }),
-    vango.OnEvent("reorder", func(e vango.HookEvent) {
-        from := e.Int("fromIndex")
-        to := e.Int("toIndex")
-        db.Tasks.Reorder(from, to)
-    }),
-)
-```
-
-For custom hooks, load your JS and register it with the client before first use:
-
-```js
-import { MyHook } from '/js/hooks/custom_hook.js';
-window.__vango__?.registerHook('MyHook', MyHook);
-```
-
-### 15.6 WASM Assets
-
-WebAssembly islands have their own assets:
-
-```
-public/
-└── wasm/
-    ├── physics.wasm         # Compiled WASM module
-    └── physics.js           # JS glue code
-```
-
-```go
-// WASM island
-WASMWidget("physics", map[string]any{
-    "gravity":  9.8,
-    "friction": 0.1,
-})
-```
-
-### 15.7 Content Security Policy
-
-Secure script loading:
-
-```go
-vango.SecurityConfig{
-    CSP: vango.CSPConfig{
-        DefaultSrc: []string{"'self'"},
-        ScriptSrc:  []string{"'self'"},  // Only own scripts
-        StyleSrc:   []string{"'self'", "'unsafe-inline'"},  // Tailwind needs inline
-        ImgSrc:     []string{"'self'", "data:", "https:"},
-        ConnectSrc: []string{"'self'", "wss:"},  // WebSocket
-    },
-}
-```
-
-### 15.8 Asset Checklist
-
-- [ ] CSS is fingerprinted for cache-busting
-- [ ] Static assets have appropriate cache headers
-- [ ] Thin client is versioned (automatic)
-- [ ] Hooks/islands are lazy-loaded
-- [ ] CSP is configured appropriately
-- [ ] Assets are compressed (gzip/brotli)
-
----
-
-## 16. Client Hooks, JavaScript Islands, and WASM
-
-This section covers client extensions for when you need direct browser control.
-
-### 16.1 When to Use Client Extensions
-
-The decision tree:
-
-```
-Need client-side behavior?
-│
-├─ No → Server-driven (default)
-│
-└─ Yes → What kind?
-    │
-    ├─ 60fps interaction (drag, resize) → Client Hook
-    │
-    ├─ Third-party JS library → JavaScript Island
-    │
-    └─ Compute-heavy client work → WASM Island
-```
-
-### 16.2 Client Hooks
-
-Hooks run client-side JavaScript for specific DOM elements:
-
-```go
-// Sortable list with drag-and-drop
-Ul(
-    DataVangoHook("sortable", map[string]any{
-        "handle":   ".drag-handle",
-        "animation": 150,
-    }),
-    vango.ForEach(items, func(item Item, i int) *vango.VNode {
-        return Li(Key(item.ID),
-            Span(Class("drag-handle"), Text("⋮")),
-            Text(item.Name),
-        )
-    }),
-)
-```
-
-**Hook Definition (JavaScript):**
-
-```javascript
-// public/js/hooks/sortable.js
-export default {
-    mounted(el, config, send) {
-        // Initialize Sortable
-        this.sortable = new Sortable(el, {
+// public/js/hooks/my_sortable.js
+export class MySortableHook {
+    mounted(el, config, pushEvent) {
+        // Called when element enters DOM
+        // el: the DOM element with the hook
+        // config: the map[string]any from Go (parsed from data-hook-config)
+        // pushEvent: function to send events to server → pushEvent('eventName', {data}, revertFn?)
+        this.el = el;
+        this.instance = new Sortable(el, {
             handle: config.handle,
-            animation: config.animation,
             onEnd: (evt) => {
-                // Send reorder event to server
-                send('reorder', {
-                    from: evt.oldIndex,
-                    to: evt.newIndex,
-                });
+                // Optional third arg: revert function called if server rejects
+                pushEvent('reorder', {
+                    fromIndex: evt.oldIndex,
+                    toIndex: evt.newIndex,
+                }, () => { /* revert DOM changes */ });
             },
         });
-    },
-    
-    updated(el, config) {
-        // Called when server updates the element
-        // Usually no-op for sortable
-    },
-    
-    destroyed() {
-        // Cleanup
-        this.sortable.destroy();
-    },
-};
-```
+    }
 
-**Handle Hook Events Server-Side:**
+    updated(el, config, pushEvent) {
+        // Called when server patches the element (config may have changed)
+        // pushEvent is provided here too for hooks that send events on update
+        this.config = config;
+    }
 
-```go
-func TaskList(tasks []Task) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        taskList := vango.NewSignal(tasks)
-        
-        return Ul(
-            // Hook handles all drag animation at 60fps
-            Hook("Sortable", map[string]any{"handle": ".handle"}),
-            
-            // Only fires when drag completes
-            OnEvent("reorder", func(e vango.HookEvent) {
-                from := e.Int("fromIndex")
-                to := e.Int("toIndex")
-                
-                // Reorder locally
-                items := taskList.Get()
-                item := items[from]
-                items = append(items[:from], items[from+1:]...)
-                items = append(items[:to], append([]Task{item}, items[to:]...)...)
-                taskList.Set(items)
-                
-                // Persist to server
-                services.Tasks.Reorder(from, to)
-            }),
-            
-            vango.ForEach(taskList.Get(), renderTask),
-        )
-    })
+    destroyed(el) {
+        // Called when element leaves DOM; cleanup resources
+        this.instance.destroy();
+    }
 }
 ```
 
-### 16.3 Standard Hooks
+**Rendered HTML attributes:** The `Hook()` function renders `data-hook="Name"` and `data-hook-config='{"key":"value"}'` attributes. The thin client queries `[data-hook]` to discover and initialize hooks.
 
-Vango includes common hooks:
+**Naming convention:** Hook names are PascalCase (e.g., `"Sortable"`, `"ThemeToggle"`). The thin client looks up `window.__vango__.hooks["HookName"]` at mount time.
 
-| Hook | Purpose |
-|------|---------|
-| `Sortable` | Drag-and-drop reordering |
-| `Draggable` | Drag source behavior |
-| `Droppable` | Drop target behavior |
-| `Resizable` | Resize handles and resizing |
-| `Tooltip` | Tooltips with positioning |
-| `Dropdown` | Dropdown menus |
-| `Collapsible` | Collapsible sections / accordions |
-| `Dialog` | Dialog/modal behavior |
-| `Popover` | Popovers anchored to elements |
-| `Portal` | Render content into the portal root |
-| `FocusTrap` | Trap focus within a subtree (e.g. modal) |
-| `ThemeToggle` | App-shell theme toggle (localStorage + `html.dark`) |
+**Key constraint:** hooks should treat their DOM subtree as Vango-managed; they should avoid directly mutating structure unless the hook is designed to do so safely and communicate results back to the server.
 
-```go
-// Tooltip example
-Button(
-    vango.Hook("Tooltip", map[string]any{
-        "content":   "Click to save",
-        "placement": "top",
-    }),
-    Text("Save"),
-)
-```
+### 14.3 JS Islands (Opaque DOM subtrees)
 
-### 16.4 JavaScript Islands
+Use islands when a third-party library needs to own a subtree completely. Vango will not patch inside the island boundary; updates occur via island message passing.
 
-For third-party libraries that manage their own DOM (opaque subtree):
+**Server-side usage pattern:**
 
 ```go
 // Rich text editor island
-func RichEditor(content string, onChange func(string)) *vango.VNode {
+func RichEditor(content string) *vango.VNode {
     return Div(
         ID("editor"),
         JSIsland("rich-editor", map[string]any{
@@ -6197,7 +2999,7 @@ func RichEditor(content string, onChange func(string)) *vango.VNode {
 }
 ```
 
-**Island Definition:**
+**Island definition (JavaScript):**
 
 ```javascript
 // public/js/islands/rich-editor.js
@@ -6212,21 +3014,21 @@ export default {
             },
         });
     },
-    
+
     update(config) {
         // Receive updates from server
         if (config.content !== this.editor.getContent()) {
             this.editor.setContent(config.content);
         }
     },
-    
+
     destroy() {
         this.editor.destroy();
     },
 };
 ```
 
-**Handle Island Messages:**
+**Handle island messages server-side:**
 
 ```go
 vango.OnIslandMessage("rich-editor", func(event string, data map[string]any) {
@@ -6237,1522 +3039,1142 @@ vango.OnIslandMessage("rich-editor", func(event string, data map[string]any) {
 })
 ```
 
-### 16.5 WASM Islands
+**Key constraint:** treat island events as untrusted input. Validate all data sent from islands before using it. This boundary prevents patch mismatch issues by separating DOM ownership.
 
-For compute-heavy client-side work:
+### 14.4 WASM (Client compute / offline-first)
+
+WASM compiles your Go components to WebAssembly, running them entirely in the browser. This is a fundamentally different execution model from server-driven rendering.
+
+#### When to Use WASM: Decision Matrix
+
+| Use Case | Server-Driven | WASM |
+|----------|:-------------:|:----:|
+| CRUD apps, dashboards, admin panels | ✓ | |
+| Forms, wizards, multi-step workflows | ✓ | |
+| Real-time collaboration (cursors, presence) | ✓ | |
+| Image/video processing in browser | | ✓ |
+| Complex canvas graphics (drawing apps) | | ✓ |
+| Offline-first with local persistence | | ✓ |
+| Physics simulations, games | | ✓ |
+| Latency-critical interactions (<16ms) | | ✓ |
+| Low-bandwidth environments | ✓ | |
+| SEO-critical content | ✓ | |
+| Simple drag-drop, tooltips, animations | Hooks | |
+
+**Default to server-driven.** For 95% of web applications, server-driven mode provides the best balance of simplicity, security, and performance. WASM adds significant complexity (larger bundles ~300KB+, client-side state management, offline sync logic) and should only be chosen when you have a specific requirement that server-driven cannot meet.
+
+#### Tradeoffs Summary
+
+| Aspect | Server-Driven | WASM |
+|--------|---------------|------|
+| Bundle size | ~12KB | ~300KB+ |
+| State location | Server (secure) | Browser (requires validation) |
+| Offline support | Requires connection | Works fully offline |
+| Interaction latency | ~50-100ms (network) | <1ms (local) |
+| Security model | Server-authoritative | Must validate everything |
+| Complexity | Lower | Higher |
+
+#### Pattern
 
 ```go
-// Physics simulation
 Div(
-    ID("physics-canvas"),
-    WASMWidget("physics", map[string]any{
-        "gravity":  9.8,
-        "friction": 0.1,
-    }),
+	ID("physics"),
+	WASMWidget("physics", map[string]any{"gravity": 9.8}),
 )
 ```
 
-**When to Use WASM:**
+As with islands, validate any messages that come back to the server and keep authoritative state/permissions server-side when applicable. WASM components should treat server state as authoritative for anything security-sensitive.
 
-| Use Case | WASM Appropriate? |
-|----------|-------------------|
-| Image processing | Yes |
-| Complex canvas graphics | Yes |
-| Realtime physics | Yes |
-| Form validation | No (server-side) |
-| Simple animations | No (CSS/JS hook) |
-| Data display | No (server-driven) |
+---
 
-### 16.6 Island Isolation
+## 15. CLI & Tooling
 
-Islands are isolated from Vango's DOM management:
+The CLI provides scaffolding, dev server, route generation, and production builds. This workflow is what enables file-based routing and the "pit of success" defaults.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      VANGO-MANAGED DOM                          │
-│                                                                  │
-│  ┌──────────────────────┐    ┌──────────────────────┐          │
-│  │   ISLAND BOUNDARY    │    │   ISLAND BOUNDARY    │          │
-│  │                      │    │                      │          │
-│  │   Managed by JS/WASM │    │   Managed by JS/WASM │          │
-│  │   Vango won't patch  │    │   Vango won't patch  │          │
-│  │                      │    │                      │          │
-│  └──────────────────────┘    └──────────────────────┘          │
-│                                                                  │
-│  Rest of DOM managed by Vango patches                           │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+### 15.1 Development Server: `vango dev`
+
+The development server provides:
+
+- **Hot reload**: Go file changes trigger recompile and browser refresh
+- **Tailwind watch**: CSS rebuilds on class name changes (if using Tailwind)
+- **Route regeneration**: New pages automatically register routes
+- **DevTools integration**: Browser extension support for debugging
+
+```bash
+# Start dev server
+vango dev
+
+# With options
+vango dev --port 3000        # Custom port (default: 8080)
+vango dev --host 0.0.0.0     # Listen on all interfaces
+vango dev --no-browser       # Don't auto-open browser
 ```
 
-### 16.7 Security Considerations
+**What `vango dev` does internally:**
 
-Island messages require validation:
+```
+1. Generates route glue (app/routes/routes_gen.go)
+2. Starts Tailwind watcher (if configured)
+3. Compiles and runs your app
+4. Watches for file changes
+5. On change: regenerate routes → recompile → restart → notify browser
+```
+
+**Development Mode Behavior:**
+
+During development (`DevMode: true`), Vango enables:
+
+- Detailed error pages with stack traces and source locations
+- Effect strictness warnings (warns on effect-time writes)
+- DevTools transaction names include source file:line references
+- Longer timeouts for step-through debugging
+
+### 15.2 Development vs Production Mode
+
+| Behavior | Development | Production |
+|----------|-------------|------------|
+| Error pages | Detailed with stack traces | Generic error messages |
+| Effect strictness | Warn on effect-time writes | Off (unless configured) |
+| DevTools | Full transaction names with source locations | Component-level names only |
+| Session store | In-memory (lost on restart) | Redis or database |
+| Static caching | No caching (reload on every request) | Long-lived with fingerprinting |
+
+### 15.3 Scaffolding: `vango create`
+
+`vango create` scaffolds a new project with templates:
+
+```bash
+# Create with default template (Tailwind + example pages)
+vango create myapp
+
+# Create in current directory
+vango create .
+
+# Create with minimal template (bare bones)
+vango create myapp --minimal
+
+# Create with all features (Tailwind, database, auth)
+vango create myapp --full
+```
+
+**Available Templates:**
+
+| Template | Description |
+|----------|-------------|
+| **(default)** | Standard starter with home, about, health API, navbar, footer, and Tailwind CSS |
+| `--minimal` | Bare bones: single page, no Tailwind |
+| `--with-tailwind` | Explicitly include Tailwind CSS (managed via standalone binary) |
+| `--with-db=sqlite` | Include database setup (sqlite, postgres) |
+| `--with-auth` | Include session-based authentication scaffolding |
+| `--full` | All features: Tailwind, database (sqlite), auth |
+
+### 15.4 Code Generators
+
+The CLI provides generators for common patterns:
+
+```bash
+# Regenerate route glue (required after adding/removing route files)
+vango gen routes
+
+# Generate a new component
+vango gen component UserCard
+
+# Generate a new route with registration
+vango gen route projects/[id]
+```
+
+Route generation is **deterministic** and treated as build output. The generated `routes_gen.go` file should be committed to version control.
+
+### 15.5 Build: `vango build`
+
+For production, you need a single binary with fingerprinted assets:
+
+```bash
+vango build
+```
+
+**Build Output:**
+
+```
+dist/
+├── server              # Go binary
+├── public/             # Fingerprinted static assets
+│   ├── styles.a1b2c3.css
+│   └── ...
+└── manifest.json       # Asset name → fingerprinted name mapping
+```
+
+Your app loads the manifest in production so `ctx.Asset("styles.css")` resolves to `styles.a1b2c3.css`.
+
+### 15.6 Testing Workflow
+
+```bash
+# Run all tests
+go test ./...
+
+# Run with verbose output
+go test -v ./...
+
+# Run specific package
+go test ./app/routes/...
+
+# Run with coverage
+go test -cover ./...
+
+# Run with race detector (recommended in CI)
+go test -race ./...
+```
+
+### 15.7 CI/CD Setup
+
+**GitHub Actions Example:**
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install Vango CLI
+        run: go install github.com/vango-go/vango/cmd/vango@latest
+
+      - name: Generate routes
+        run: vango gen routes
+
+      - name: Build project (includes Tailwind)
+        run: vango build
+
+      - name: Run tests
+        run: go test -race -v ./...
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      # ... build and deploy steps
+```
+
+**CI/CD Checklist:**
+
+- [ ] `vango gen routes` runs before build (or verify `routes_gen.go` is committed)
+- [ ] `vango build` produces the binary and fingerprinted assets
+- [ ] `go test -race ./...` runs with race detector
+- [ ] Asset manifest is included in deployment artifacts
+
+**Reproducible Builds:**
+
+```bash
+# Pin Vango CLI version for reproducible CI
+go install github.com/vango-go/vango/cmd/vango@v1.2.3
+
+# Or use Go's tool directive in go.mod (Go 1.22+)
+```
+
+# Part V: Production & Operations
+
+This part covers “Day 2” concerns: authentication, security, observability, persistence, scaling, and deployment. It integrates the operational constraints implied by Vango’s server-driven, session-based architecture: per-tab sessions, WebSocket upgrades, session resume windows, and strict render purity.
+
+All examples assume:
 
 ```go
-vango.OnIslandMessage("editor", func(event string, data map[string]any) {
-    // Validate event type
-    if event != "change" && event != "save" {
-        return  // Ignore unknown events
-    }
-    
-    // Validate data
-    content, ok := data["content"].(string)
-    if !ok || len(content) > 100000 {
-        return  // Invalid or too large
-    }
-    
-    // Authorization check
-    user := store.CurrentUser.Get()
-    if user == nil || !user.CanEdit {
-        return  // Not authorized
-    }
-    
-    // Process
-    contentSignal.Set(content)
-})
+import "github.com/vango-go/vango"
+import . "github.com/vango-go/vango/el"
 ```
 
-### 16.8 Client Extension Checklist
+(Plus standard library imports where needed.)
 
-- [ ] Only use hooks/islands when server-driven won't work
-- [ ] Hook bundles are lazy-loaded
-- [ ] Islands are properly isolated
-- [ ] Island messages are validated server-side
-- [ ] WASM only for compute-heavy client work
-- [ ] Bundle sizes are budgeted and monitored
+---
 
-## 17. Authentication, Authorization, and Sessions
+## 16. Auth & Middleware
 
-This section covers identity and access control in Vango apps.
+Authentication in Vango is an **HTTP → Session** problem. Credentials and cookies exist in the HTTP request pipeline, while interactive rendering occurs over a long-lived WebSocket session. You must bridge identity from HTTP into the session so it remains available during WebSocket renders.
 
-### 17.1 Authentication Flow
+### 16.1 The Context Bridge (HTTP Identity → Session Identity)
 
-Typical authentication in Vango:
+**Key fact:** during WebSocket renders, `ctx.Request()` is not a full real HTTP request (the original headers/cookies are not present). Therefore:
+
+* do not depend on headers/cookies during reactive renders
+* capture identity during SSR / session start and store it in session-scoped state
+
+There are two complementary bridge points described in the current guide:
+
+1. **HTTP middleware** attaches identity to the `context.Context` of the request.
+2. **Vango session start/resume hooks** copy that identity into the session.
+
+#### HTTP middleware attaches user to request context
+
+This is standard Go middleware:
+
+```go
+import (
+	"net/http"
+	"context"
+	"github.com/vango-go/vango"
+)
+
+type User struct {
+	ID   int
+	Role string
+}
+
+func withUser(ctx context.Context, u *User) context.Context {
+	return vango.WithUser(ctx, u)
+}
+
+func AuthHTTPMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, err := validateFromCookie(r) // your auth
+		if err == nil && u != nil {
+			r = r.WithContext(withUser(r.Context(), u))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+#### Session start/resume copies the user into session storage
+
+Use `vango.Config{ OnSessionStart, OnSessionResume }` to ensure the session has identity even after reconnect/refresh within the resume window:
+
+```go
+import (
+	"context"
+	"github.com/vango-go/vango"
+)
+
+func NewApp() *vango.App {
+	app := vango.New(vango.Config{
+		OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
+			if u, ok := vango.UserFromContext(httpCtx).(*User); ok && u != nil {
+				// Store user in the session for WS renders
+				s.Set("user", u)
+			}
+		},
+
+		OnSessionResume: func(httpCtx context.Context, s *vango.Session) error {
+			// Revalidate from the HTTP request context during resume.
+			// If it fails, reject resume and force a new session.
+			u, err := validateFromRequestContext(httpCtx)
+			if err != nil {
+				return err
+			}
+			s.Set("user", u)
+			return nil
+		},
+	})
+	return app
+}
+```
+
+Then in any render (SSR or WS), read identity from the session:
+
+```go
+func CurrentUser() *User {
+	ctx := vango.UseCtx()
+	if sess := ctx.Session(); sess != nil {
+		if u, ok := sess.Get("user").(*User); ok {
+			return u
+		}
+	}
+	// SSR fallback: ctx.User() may exist during SSR if middleware attached it
+	if u, ok := ctx.User().(*User); ok {
+		return u
+	}
+	return nil
+}
+```
+
+This pattern makes identity stable across SSR, WS renders, and session resume.
+
+### 16.2 Route Guards (Middleware for Protection)
+
+Vango supports directory-level middleware that runs inside Vango’s routing pipeline (distinct from HTTP middleware). Use it for route protection (redirects, authorization decisions that depend on session identity).
+
+Example: `app/routes/admin/middleware.go`
+
+```go
+import "github.com/vango-go/vango"
+
+func Middleware() []any {
+	// Exact middleware type depends on your router integration; the current guide
+	// expresses it as Vango route middleware that can short-circuit with Navigate.
+	return []any{
+		func(ctx vango.Ctx, next func() error) error {
+			u := CurrentUser()
+			if u == nil {
+				ctx.Navigate("/login?redirect="+ctx.Path(), vango.WithReplace())
+				return nil
+			}
+			if u.Role != "admin" {
+				ctx.Navigate("/forbidden", vango.WithReplace())
+				return nil
+			}
+			return next()
+		},
+	}
+}
+```
+
+**Operational principle:** enforce authorization both at the route boundary (guards) and at mutation boundaries (actions). Never rely solely on UI to hide privileged controls.
+
+### 16.3 Session Durability and Secure Resume
+
+Vango sessions are per-tab. Durability tiers:
+
+* **No resume:** `ResumeWindow: 0`
+* **In-memory resume:** `ResumeWindow > 0`, sessions can reattach within the window after refresh/reconnect
+* **Persistent sessions:** configure a session store (e.g., Redis) to survive process restarts and support non-sticky deployments
+
+Important security integration:
+
+* authenticated sessions should not silently resume with stale identity
+* if a session was authenticated before disconnect, rehydration on resume must occur; otherwise resume should be rejected and the client will reload into the HTTP pipeline
+
+Practically:
+
+* set a resume window appropriate for your UX (e.g., 30s)
+* for production, use a store when you need restart resilience or horizontal scaling
+* always implement `OnSessionResume` to revalidate credentials for authenticated apps
+
+### 16.4 Auth Freshness in Long-Lived Sessions
+
+Traditional web frameworks validate auth on every HTTP request. Vango breaks this model:
+
+```
+Traditional HTTP:
+Request → Middleware validates → Handler → Response (can set cookies)
+Request → Middleware validates → Handler → Response
+...repeats for every interaction...
+
+Vango WebSocket:
+HTTP Request → Middleware validates → SSR → Response
+    ↓
+WebSocket connects (cookies sent ONCE during upgrade)
+    ↓
+Event → Handler → Patch (NO cookies, NO middleware)
+Event → Handler → Patch
+...continues for hours without HTTP validation...
+```
+
+**Real-world impact:**
+
+| Scenario | Risk Without Freshness Checks |
+|----------|-------------------------------|
+| User terminated from company | Continues accessing internal tools for hours |
+| Account compromised, password changed | Attacker's session stays active |
+| Subscription expires | User continues using premium features |
+| Token naturally expires | Silent failures or undefined behavior |
+
+Vango addresses this with a **Passive + Active** auth freshness model.
+
+### 16.5 The Passive + Active Model
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    AUTHENTICATION FLOW                           │
+│                    AUTH FRESHNESS MODEL                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  1. User visits page     →  SSR renders (user from HTTP ctx)    │
+│  PASSIVE CHECK (Every Event)                                    │
+│  ────────────────────────────                                   │
+│  Cost: ~1μs (local timestamp comparison)                        │
+│  Logic: if time.Now() > session expiry timestamp                │
+│  Purpose: Catch naturally expired tokens/sessions               │
+│  Implementation: Automatic if SessionKeyExpiryUnixMs is set     │
 │                                                                  │
-│  2. User clicks login    →  Redirect to /login or OAuth         │
-│                                                                  │
-│  3. Auth completes       →  Set HTTP-only cookie                │
-│                             Redirect to app                      │
-│                                                                  │
-│  4. Page load (SSR)      →  HTTP middleware reads cookie        │
-│                             Attaches user to request context     │
-│                                                                  │
-│  5. WebSocket upgrade    →  Cookie sent automatically           │
-│                             Session inherits user context        │
-│                                                                  │
-│  6. Subsequent events    →  User available via ctx.User()       │
+│  ACTIVE CHECK (Periodic / On-Demand)                            │
+│  ───────────────────────────────────                            │
+│  Cost: Network round-trip (Redis, provider API, or database)    │
+│  Logic: Call configured Check function                          │
+│  Purpose: Catch revoked sessions, auth version bumps            │
+│  Implementation: Session-loop-native timer (async, bounded)     │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-External redirects (OAuth/OIDC providers) must be explicit and allowlisted:
+**Passive checks** are automatic and nearly free. **Active checks** require configuration but catch revocations that passive checks cannot detect.
+
+### 16.6 Configuring Active Revalidation (`AuthCheckConfig`)
 
 ```go
+import (
+	"context"
+	"time"
+
+	"github.com/vango-go/vango"
+	"github.com/vango-go/vango/pkg/auth"
+)
+
 app := vango.New(vango.Config{
-    Security: vango.SecurityConfig{
-        AllowedRedirectHosts: []string{"accounts.example.com"},
-    },
-})
+	Session: vango.SessionConfig{
+		// ... other session config ...
 
-// Explicit external redirect (absolute URL).
-ctx.RedirectExternal("https://accounts.example.com/login", http.StatusFound)
+		AuthCheck: &vango.AuthCheckConfig{
+			// How often to run active checks (e.g., every 5 minutes)
+			Interval: 5 * time.Minute,
+
+			// Timeout for each check (default: 5s)
+			Timeout: 5 * time.Second,
+
+			// What to do on transient failures (timeouts, network errors)
+			// FailOpenWithGrace: keep session alive but expire after MaxStale
+			// FailClosed: expire immediately on any failure
+			FailureMode: vango.FailOpenWithGrace,
+
+			// Max time since last successful check before forced expiry
+			// Only applies when FailureMode is FailOpenWithGrace
+			MaxStale: 15 * time.Minute,
+
+			// The check function (runs in goroutine, MUST NOT access session directly)
+			Check: func(ctx context.Context, p auth.Principal) error {
+				// Verify session is still valid with your auth backend
+				return sessionStore.Validate(ctx, p.SessionID)
+			},
+
+			// What to do when auth expires
+			OnExpired: vango.AuthExpiredConfig{
+				Action: vango.ForceReload, // or NavigateTo, Custom
+				Path:   "/login",          // for NavigateTo
+			},
+		},
+	},
+})
 ```
 
-`ctx.Redirect` remains relative-only and rejects absolute URLs by default.
+**AuthExpiredAction options:**
 
-### 17.2 Context Bridge
+| Action | Behavior | Use Case |
+|--------|----------|----------|
+| `ForceReload` | `location.reload()` (re-enters HTTP pipeline) | Default; works with all providers |
+| `NavigateTo` | `location.assign(path)` (hard navigation) | Custom login page |
+| `Custom` | Call your handler function | Complex logout flows |
 
-Move identity from HTTP middleware to Vango session:
+**Failure modes:**
+
+| Mode | Behavior | When to Use |
+|------|----------|-------------|
+| `FailOpenWithGrace` | Keep session alive on transient failures; expire after `MaxStale` | Most apps (availability-first) |
+| `FailClosed` | Expire immediately on any check failure | High-security apps |
+
+**Key constraints:**
+
+- The `Check` function runs in a goroutine (safe for network I/O)
+- It receives a `Principal` snapshot and MUST NOT access session state directly
+- Results are dispatched back to the session loop (single-writer safe)
+- Maximum one in-flight check per session (no goroutine pileup)
+- Hard failures (`auth.ErrSessionRevoked`, `auth.ErrSessionExpired`) always expire immediately
+
+### 16.7 On-Demand Revalidation for High-Value Actions
+
+For sensitive operations (transfers, deletions, permission changes), revalidate immediately before execution:
 
 ```go
-// HTTP middleware extracts user from cookie
-func AuthMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        cookie, err := r.Cookie("session")
-        if err == nil {
-            user, err := auth.ValidateSession(r.Context(), cookie.Value)
-            if err == nil {
-                // Attach to request context (available to SSR via ctx.User()).
-                r = r.WithContext(vango.WithUser(r.Context(), user))
-            }
-        }
-        next.ServeHTTP(w, r)
-    })
-}
+func TransferAction(ctx vango.Ctx, amount int, toAccount string) error {
+	// Revalidate auth before high-value operation
+	if err := ctx.RevalidateAuth(); err != nil {
+		// Session will transition to expired state; abort the operation
+		return err
+	}
 
-// WebSocket session bridge copies user from HTTP context to the Vango session.
-vango.New(vango.Config{
-    OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
-        if user, ok := vango.UserFromContext(httpCtx).(*User); ok && user != nil {
-            auth.Set(s, user) // stores under auth.SessionKey (session-scoped)
-        }
-    },
-    
-    // Revalidate auth when session resumes after disconnect
-    OnSessionResume: func(httpCtx context.Context, s *vango.Session) error {
-        user, err := myauth.ValidateFromRequest(httpCtx)
-        if err != nil {
-            return err  // Rejects resume
-        }
-        auth.Set(s, user)  // Rehydrate user
-        return nil
-    },
-})
-
-// Access in components
-func Page(ctx vango.Ctx) *vango.VNode {
-    user := ctx.User().(*User)  // Type assertion
-    if user == nil {
-        ctx.Navigate("/login", vango.WithReplace())
-        return nil
-    }
-    return Dashboard(user)
+	// Auth is fresh; proceed with transfer
+	return billing.Transfer(ctx.StdContext(), amount, toAccount)
 }
 ```
 
-### 17.3 Type-Safe User Access
+**Key points:**
 
-Built-in helpers:
+- `ctx.RevalidateAuth()` runs the configured `Check` function synchronously
+- On failure, the session transitions to expired behavior (reload/navigate)
+- For non-blocking flows, run revalidation in a goroutine and use `ctx.Dispatch()` to update state
+
+### 16.8 Runtime-Only Session Keys (Important)
+
+Vango supports session persistence (for server restarts, non-sticky deploys). However, auth state should **not** be persisted—it must be rehydrated from the source of truth on every session start/resume.
+
+**Contract:**
+
+- `vango:auth:principal` and `vango:auth:expiry_unix_ms` are **runtime-only** session keys
+- They **MUST NOT** be serialized into the session persistence blob
+- They **MUST** be rehydrated in `OnSessionStart` and `OnSessionResume` from HTTP context + your auth backend
 
 ```go
 import "github.com/vango-go/vango/pkg/auth"
 
-user, ok := auth.Get[*User](ctx)
-if !ok {
-    // guest
-}
-
-user, err := auth.Require[*User](ctx)
-if err != nil {
-    return err
-}
-
-if auth.IsAuthenticated(ctx) {
-    // logged in
-}
-```
-
-Define a typed helper:
-
-```go
-// store/auth.go
-package store
-
-import "github.com/vango-go/vango"
-
-type User struct {
-    ID       int
-    Email    string
-    Name     string
-    Role     string
-    TenantID int
-}
-
-func CurrentUser() *User {
-    ctx := vango.UseCtx()
-    if u := ctx.User(); u != nil {
-        return u.(*User)
-    }
-    return nil
-}
-
-func IsAuthenticated() bool {
-    return CurrentUser() != nil
-}
-
-func IsAdmin() bool {
-    user := CurrentUser()
-    return user != nil && user.Role == "admin"
-}
-
-func RequireAuth() bool {
-    if !IsAuthenticated() {
-        ctx := vango.UseCtx()
-        ctx.Navigate("/login?redirect="+ctx.Path(), vango.WithReplace())
-        return false
-    }
-    return true
-}
-```
-
-### 17.4 Route Guards
-
-Protect routes with middleware:
-
-```go
-// routes/admin/middleware.go
-package admin
-
-import (
-    "github.com/vango-go/vango/pkg/authmw"
-    "github.com/vango-go/vango/pkg/router"
-    "myapp/app/store"
-)
-
-func Middleware() []router.Middleware {
-    return []router.Middleware{
-        authmw.RequireAuth,
-        authmw.RequireRole(func(u *store.User) bool {
-            return u.Role == "admin"
-        }),
-    }
-}
-```
-
-Additional helpers:
-- `authmw.RequirePermission`
-- `authmw.RequireAny`
-- `authmw.RequireAll`
-
-Custom guards (advanced):
-
-```go
-// routes/admin/middleware.go
-package admin
-
-import (
-    "github.com/vango-go/vango"
-    "github.com/vango-go/vango/pkg/router"
-    "myapp/app/store"
-)
-
-func Middleware() []router.Middleware {
-    return []router.Middleware{
-        router.MiddlewareFunc(func(ctx vango.Ctx, next func() error) error {
-            user, _ := ctx.User().(*store.User)
-            if user == nil {
-                ctx.Navigate("/login?redirect="+ctx.Path(), vango.WithReplace())
-                return nil // short-circuit
-            }
-            if user.Role != "admin" {
-                ctx.Navigate("/forbidden", vango.WithReplace())
-                return nil // short-circuit
-            }
-            return next()
-        }),
-    }
-}
-```
-
-### 17.2.1 Auth Freshness (Passive + Active)
-
-To enable auth freshness in long-lived WebSocket sessions, set a principal with an expiry and configure active checks:
-
-```go
 OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
-    if principal, ok := myProvider.Principal(httpCtx); ok {
-        auth.SetPrincipal(s, principal)
-    }
-}
+	principal, ok := provider.Principal(httpCtx)
+	if !ok {
+		return // Guest user
+	}
 
-Session: vango.SessionConfig{
-    AuthCheck: &vango.AuthCheckConfig{
-        Interval: 2 * time.Minute,
-        Check:    myProvider.Verify,
-        OnExpired: vango.AuthExpiredConfig{
-            Action: vango.ForceReload,
-        },
-    },
+	// Store runtime-only auth state (never persisted)
+	s.Set(auth.SessionKeyPrincipal, principal)
+	s.Set(auth.SessionKeyExpiryUnixMs, principal.ExpiresAtUnixMs)
+	s.Set(auth.SessionKeyHadAuth, true) // This boolean MAY be persisted
+},
+
+OnSessionResume: func(httpCtx context.Context, s *vango.Session) error {
+	wasAuth, _ := s.Get(auth.SessionKeyHadAuth).(bool)
+
+	principal, ok := provider.Principal(httpCtx)
+	if !ok || principal.ID == "" {
+		if wasAuth {
+			// Was authenticated but can't rehydrate → reject resume
+			return auth.ErrSessionRevoked
+		}
+		return nil // Guest session
+	}
+
+	// Rehydrate runtime-only keys
+	s.Set(auth.SessionKeyPrincipal, principal)
+	s.Set(auth.SessionKeyExpiryUnixMs, principal.ExpiresAtUnixMs)
+
+	// Optional: run active check on resume
+	return provider.Verify(httpCtx, principal)
 },
 ```
 
-Runtime-only keys (`auth.SessionKeyPrincipal`, `auth.SessionKeyExpiryUnixMs`) are never persisted; always rehydrate them on start/resume.
-`auth.SetPrincipal` also sets `auth.SessionKeyHadAuth` and the legacy presence marker used to enforce resume rehydration.
-If `principal.ExpiresAtUnixMs` is zero, `auth.SetPrincipal` will not set the expiry key, so passive checks remain disabled unless you set it explicitly.
+**Why runtime-only?**
 
-For high-value actions, use `ctx.RevalidateAuth()` to force an immediate active check (fail-closed).
+- Prevents "stale principal after restart" bugs
+- Avoids reliance on JSON type fidelity (time.Time, structs become maps)
+- Aligns with session-first auth: source of truth is your session store, not a Vango snapshot
 
-Defaults when `AuthCheck` is set:
-- `Timeout`: 5 seconds
-- `FailureMode`: `FailOpenWithGrace` (bounded by `MaxStale`)
-- `MaxStale`: 15 minutes
+### 16.9 Auth Expiry UX (Multi-Tab Coordination)
 
-If you use custom session persistence, skip runtime-only keys explicitly:
-`auth.RuntimeOnlySessionKeys` or `auth.SessionKeyPrincipal` + `auth.SessionKeyExpiryUnixMs`.
-
-### 17.2.2 Auth Expiry UX (Multi-Tab + Polling Fallback)
-
-When auth expires during a live WebSocket session, the server sends an auth control
-command to the thin client. The client:
-- broadcasts `{type, reason}` over `BroadcastChannel` (if available)
-- falls back to `storage` events when `BroadcastChannel` is unavailable
-- reloads or hard-navigates to re-enter the HTTP pipeline
-
-If the WebSocket handshake is rejected as “not authorized”, the client clears its
-resume info and hard reloads automatically to re-authenticate. Handshake errors
-may include an auth-expired reason code (for resume rehydrate failures) for logging
-and metrics.
-
-Optional polling fallback (only if both BroadcastChannel and storage are unavailable):
-
-```js
-import VangoClient from '@vango/client';
-
-const client = new VangoClient({
-  authPollUrl: '/auth/status',      // 200 = ok, 401 = expired
-  authPollInterval: 30000,
-});
-```
-
-### 17.2.3 Provider Adapters
-
-Session-first (recommended) lives in core:
-
-```go
-import "github.com/vango-go/vango/pkg/auth/sessionauth"
-
-provider := sessionauth.New(store, sessionauth.WithCookieName("session"))
-```
-
-Provider modules:
-- `github.com/vango-go/vango-clerk` (Go 1.24+)
-- `github.com/vango-go/vango-auth0` (Go 1.22+)
-
-Both modules implement `auth.Provider` and plug into the same `AuthCheck` flow.
-
-### 17.5 Per-Action Authorization
-
-Check permissions before mutations:
-
-```go
-func DeleteProject(projectID int) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        user := store.CurrentUser()
-        
-        deleteAction := vango.NewAction(func() error {
-            // Authorization check
-            project, err := services.Projects.GetByID(ctx.StdContext(), projectID)
-            if err != nil {
-                return err
-            }
-            if project.OwnerID != user.ID && user.Role != "admin" {
-                return errors.New("not authorized to delete this project")
-            }
-            
-            return services.Projects.Delete(ctx.StdContext(), projectID)
-        })
-        
-        return Button(
-            OnClick(deleteAction.Run),
-            Disabled(deleteAction.State() == vango.ActionRunning),
-            Text("Delete"),
-        )
-    })
-}
-```
-
-### 17.6 Login Flow
-
-```go
-// routes/login.go
-func Page(ctx vango.Ctx) *vango.VNode {
-    return LoginPage()
-}
-
-func LoginPage() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        email := vango.NewSignal("")
-        password := vango.NewSignal("")
-        
-        login := vango.NewAction(func() error {
-            // Validate credentials against your auth service
-            session, err := myauth.ValidateCredentials(ctx.StdContext(), email.Get(), password.Get())
-            if err != nil {
-                return err
-            }
-            
-            // Store user in Vango session (sets presence flag for resume)
-            auth.Login(ctx, session.User)
-            
-            // Set cookie for subsequent requests
-            ctx.SetCookie(&http.Cookie{
-                Name:     "session",
-                Value:    session.Token,
-                Path:     "/",
-                HttpOnly: true,
-                Secure:   true,
-                SameSite: http.SameSiteLaxMode,
-                MaxAge:   86400 * 7,  // 7 days
-            })
-            
-            // Redirect to original destination or home
-            redirect := ctx.Request().URL.Query().Get("redirect")
-            if redirect == "" {
-                redirect = "/"
-            }
-            ctx.Navigate(redirect, vango.Replace)
-            return nil
-        })
-        
-        return Form(
-            OnSubmit(form.HandleSubmit(login.Run)),
-            
-            Input(Type("email"), Value(email.Get()), OnInput(email.Set)),
-            Input(Type("password"), Value(password.Get()), OnInput(password.Set)),
-            
-            Button(Type("submit"), Disabled(login.State() == vango.ActionRunning), Text("Log In")),
-            
-            login.Error() != nil && ErrorMessage("Invalid email or password"),
-        )
-    })
-}
-```
-
-Note: `ctx.SetCookie` applies `CookieSecure`, `CookieHttpOnly`, `CookieSameSite`, and
-`CookieDomain` defaults from config. Use `ctx.SetCookieStrict` if you want to handle
-insecure requests explicitly.
-
-### 17.7 Logout
-
-**Option A: Full page reload (clears cookies)**
-```go
-func LogoutButton() *vango.VNode {
-    return A(
-        Href("/logout"),
-        DataVangoLink("external"),  // Full page reload
-        Text("Log Out"),
-    )
-}
-
-// routes/logout/route.go
-func GET(w http.ResponseWriter, r *http.Request) {
-    // Clear session cookie
-    http.SetCookie(w, &http.Cookie{
-        Name:     "session",
-        Value:    "",
-        Path:     "/",
-        HttpOnly: true,
-        Secure:   true,
-        MaxAge:   -1,  // Delete
-    })
-    
-    http.Redirect(w, r, "/", http.StatusFound)
-}
-```
-
-**Option B: In-session logout (SPA-style)**
-```go
-func LogoutButton() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        
-        handleLogout := func() {
-            auth.Logout(ctx)  // Clears user from session
-            ctx.Navigate("/")
-        }
-        
-        return Button(OnClick(handleLogout), Text("Log Out"))
-    })
-}
-```
-
-### 17.8 Session Durability
-
-Understand session persistence:
-
-| Scenario | Behavior |
-|----------|----------|
-| Page refresh | Session preserved (within ResumeWindow, via thin-client resume using `sessionStorage`) |
-| Tab close + reopen | Session lost (new session on connect) |
-| Auth cookie expired | User becomes nil, redirect to login |
-| Server restart | Session lost (unless using store) |
-
-**How refresh resume works (in-memory):**
-
-- The thin client stores the current `sessionId` in `sessionStorage` (per-tab).
-- On reload, the next WS handshake includes that `sessionId`, and the server resumes the detached session if it's still within `ResumeWindow`.
-- On the server you'll see `session detached` (refresh/disconnect) followed by `session resumed` when the handshake reattaches.
-
-**Auth and Resume:**
-
-User objects are **not serialized** during session persistence (for security). If you have authenticated sessions, configure `OnSessionResume` to rehydrate the user:
-
-```go
-vango.Config{
-    OnSessionResume: func(httpCtx context.Context, s *vango.Session) error {
-        // Revalidate from cookie/token in the HTTP request
-        user, err := myauth.ValidateFromRequest(httpCtx)
-        if err != nil {
-            return err  // Rejects resume, forces new session
-        }
-        auth.Set(s, user)
-        return nil
-    },
-}
-```
-
-If a session was previously authenticated but `OnSessionResume` doesn't rehydrate the user, resume is rejected to prevent "ghost authenticated" state.
-
-**Persistent Sessions:**
-
-```go
-vango.SessionConfig{
-    ResumeWindow: 30 * time.Second,
-    Store: vango.RedisStore(redisClient),  // Survives restarts
-}
-```
-
-### 17.9 Multi-Tenant Apps
-
-Scope data by tenant:
-
-```go
-vango.Config{
-    OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
-        if user, ok := vango.UserFromContext(httpCtx).(*User); ok && user != nil {
-            auth.Set(s, user)
-            s.Set("tenantID", user.TenantID)
-        }
-    },
-}
-
-// Access tenant in services
-func (s *ProjectService) List(ctx vango.Ctx) ([]Project, error) {
-    tenantID := 0
-    if sess := ctx.Session(); sess != nil {
-        tenantID, _ = sess.Get("tenantID").(int)
-    } else if user, ok := ctx.User().(*User); ok && user != nil {
-        tenantID = user.TenantID
-    }
-    return s.db.ListProjectsByTenant(ctx.StdContext(), tenantID)
-}
-
-// Global state must be tenant-scoped
-var OnlineUsersByTenant = vango.NewGlobalSignal(map[int][]User{})
-// NOT: var OnlineUsers = vango.NewGlobalSignal([]User{})
-```
-
-### 17.10 Auth Checklist
-
-- [ ] Cookies are HttpOnly, Secure, SameSite
-- [ ] Session tokens are cryptographically random
-- [ ] Route guards protect sensitive pages
-- [ ] Actions check authorization before mutations
-- [ ] Logout clears all session state
-- [ ] Multi-tenant data is properly scoped
-
----
-
-## 18. Security Checklist
-
-This section is a production security reference.
-
-### 18.1 CSRF Protection
-
-Vango provides built-in CSRF protection:
-
-```go
-vango.SecurityConfig{
-    CSRFSecret:     []byte("your-32-byte-secret-key-here!!"),
-    CookieSecure:   true,
-    CookieHttpOnly: true,
-    CookieSameSite: http.SameSiteLaxMode,
-    CookieDomain:   "",
-    // TrustedProxies: []string{"10.0.0.1"},
-}
-```
+When auth expires, all tabs for the same user should be notified. Vango uses `BroadcastChannel` (with `localStorage` fallback) for cross-tab coordination.
 
 **How it works:**
 
-1. Server generates CSRF token, sets in cookie
-2. WebSocket handshake includes token
-3. Server validates token matches cookie
-4. All subsequent events are trusted
+1. Server sends auth expiry command to the affected session
+2. Thin client broadcasts `{type: 'expired'}` to `BroadcastChannel('vango:auth')`
+3. Other tabs receive the broadcast and reload into the HTTP pipeline
+4. All tabs re-enter the auth flow together
 
-### 18.2 Origin Validation
+**Client-side (built into thin client):**
 
-Restrict WebSocket connections:
+```javascript
+// Simplified from Vango thin client
+class AuthCoordinator {
+	constructor() {
+		this.channel = 'vango:auth';
 
-```go
-vango.SecurityConfig{
-    AllowedOrigins: []string{
-        "https://myapp.com",
-        "https://www.myapp.com",
-    },
-    // Or for same-origin only:
-    AllowSameOrigin: true,
+		if (typeof BroadcastChannel !== 'undefined') {
+			this.bc = new BroadcastChannel(this.channel);
+			this.bc.onmessage = (e) => this.handleMessage(e.data);
+			return;
+		}
+
+		// Fallback: localStorage events (works cross-tab, same origin)
+		window.addEventListener('storage', (e) => {
+			if (e.key === `__vango_auth_${this.channel}` && e.newValue) {
+				this.handleMessage(JSON.parse(e.newValue).payload);
+			}
+		});
+	}
+
+	handleMessage(payload) {
+		if (payload?.type === 'expired' || payload?.type === 'logout') {
+			window.location.reload();
+		}
+	}
+
+	broadcast(type, reason) {
+		if (this.bc) {
+			this.bc.postMessage({ type, reason });
+			return;
+		}
+		// localStorage fallback
+		const key = `__vango_auth_${this.channel}`;
+		localStorage.setItem(key, JSON.stringify({ payload: { type, reason }, ts: Date.now() }));
+		localStorage.removeItem(key);
+	}
 }
 ```
 
-### 18.3 HTTP Server Timeouts
+**Server-side expiry triggers broadcast automatically:**
 
-Protect the pre-upgrade HTTP listener (SSR, API, and WebSocket upgrade) from slowloris-style header drips and connection exhaustion. These are **HTTP** timeouts; WebSocket/session timeouts are configured separately in `vango.SessionConfig`.
+When `triggerAuthExpired()` is called (passive expiry, active check failure, or on-demand failure), Vango sends a broadcast command before terminating the session.
 
-- `app.Run()` uses defaults: `ReadHeaderTimeout=5s`, `ReadTimeout=30s`, `WriteTimeout=30s`, `IdleTimeout=60s`.
-- If you run your own `http.Server`, set the same timeouts explicitly.
+### 16.10 Session-First Auth (Recommended Pattern)
 
-### 18.4 XSS Prevention
+For most Vango apps, **session-first auth** is recommended over JWT-first:
 
-Vango escapes content by default:
+| Aspect | JWT-First | Session-First |
+|--------|-----------|---------------|
+| Token expiry | Problem (mid-session failure) | Non-issue (you control TTL) |
+| Revocation | Hard (need denylist/introspection) | Easy (delete from store) |
+| Token refresh | Complex over WebSocket | N/A (server extends session) |
+| State location | Split (token + server) | Unified (server) |
+
+**The session-first flow:**
+
+1. User logs in with OAuth/OIDC provider (Clerk, Auth0, etc.)
+2. Server exchanges code for tokens, gets user info
+3. Server creates a **first-party session** in Redis/Postgres
+4. Server sets an HttpOnly session cookie
+5. On each HTTP request, middleware validates the session
+6. `OnSessionStart`/`OnSessionResume` bridges identity into Vango session
+7. Active checks verify the session is still valid (auth version, expiry)
+
+**Revocation strategies:**
+
+| Strategy | Implementation | Use Case |
+|----------|---------------|----------|
+| Delete session | `DELETE FROM sessions WHERE id = ?` | Single session logout |
+| Delete all user sessions | `DELETE FROM sessions WHERE user_id = ?` | "Log out everywhere" |
+| Bump auth version | `UPDATE users SET auth_version = auth_version + 1` | Password change, security event |
+
+The auth version strategy stores a version in both the session and user record. Active checks compare them—if the session version is less than the current user version, the session is revoked.
+
+### 16.11 Provider Adapters
+
+Vango provides adapter interfaces for common auth providers. The core `auth.Provider` interface:
 
 ```go
-// Safe: text is escaped
-Text(userInput)  // <script> becomes &lt;script&gt;
+package auth
 
-// Safe: attributes are escaped
-Href(userProvidedURL)  // Validates scheme
+type Provider interface {
+	// Middleware validates HTTP requests and populates context
+	Middleware() func(http.Handler) http.Handler
 
-// DANGEROUS: opt-in to raw HTML
-DangerouslySetInnerHTML(sanitizedHTML)  // Only with sanitized input!
-```
+	// Principal extracts identity from validated request context
+	Principal(ctx context.Context) (Principal, bool)
 
-**Sanitizing User HTML:**
-
-```go
-import "github.com/microcosm-cc/bluemonday"
-
-var policy = bluemonday.UGCPolicy()
-
-func SafeHTML(input string) *vango.VNode {
-    sanitized := policy.Sanitize(input)
-    return DangerouslySetInnerHTML(sanitized)
+	// Verify checks if session is still valid (for active revalidation)
+	Verify(ctx context.Context, p Principal) error
 }
 ```
 
-### 18.5 Input Validation
+**Available adapters:**
 
-Always validate on the server:
+| Adapter | Module | Go Version | Notes |
+|---------|--------|------------|-------|
+| `sessionauth` | `vango/pkg/auth/sessionauth` | 1.22+ | Recommended; works with any session store |
+| `clerk` | `github.com/vango-go/vango-clerk` | 1.24+ | Separate module (Clerk SDK requirement) |
+| `auth0` | `github.com/vango-go/vango-auth0` | 1.22+ | JWT-first with auth version support |
 
-```go
-// Request limits
-vango.Config{
-    Limits: vango.LimitsConfig{
-        MaxEventPayloadBytes: 64 * 1024,      // 64KB
-        MaxFormBytes:         10 * 1024 * 1024, // 10MB
-        MaxQueryParams:       50,
-        MaxHeaderBytes:       8 * 1024,
-    },
-}
-
-// Validate in actions
-func CreateProject(input ProjectInput) error {
-    // Validate length
-    if len(input.Name) > 100 {
-        return errors.New("name too long")
-    }
-    
-    // Validate format
-    if !isValidSlug(input.Slug) {
-        return errors.New("invalid slug format")
-    }
-    
-    // Validate authorization
-    if !canCreateProjects(currentUser) {
-        return errors.New("not authorized")
-    }
-    
-    return db.Projects.Create(input)
-}
-```
-
-### 18.6 Rate Limiting
-
-Protect against abuse:
+**Example: Session-first with Redis**
 
 ```go
-// HTTP-level rate limiting (middleware)
-func RateLimitMiddleware(next http.Handler) http.Handler {
-    limiter := rate.NewLimiter(rate.Limit(100), 200)  // 100 req/s, burst 200
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        if !limiter.Allow() {
-            http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-            return
-        }
-        next.ServeHTTP(w, r)
-    })
-}
-
-// Session-level storm budgets
-vango.SessionConfig{
-    StormBudget: vango.StormBudgetConfig{
-        MaxResourceStartsPerSecond: 100,
-        MaxActionStartsPerSecond:   50,
-        MaxEffectRunsPerTick:       50,
-    },
-}
-```
-
-### 18.7 Cookie Security
-
-```go
-http.Cookie{
-    Name:     "session",
-    Value:    token,
-    Path:     "/",
-    HttpOnly: true,         // No JavaScript access
-    Secure:   true,         // HTTPS only
-    SameSite: http.SameSiteLaxMode,  // CSRF protection
-    MaxAge:   86400 * 7,    // 7 days
-}
-```
-
-### 18.8 Secure Headers
-
-```go
-func SecurityHeaders(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("X-Content-Type-Options", "nosniff")
-        w.Header().Set("X-Frame-Options", "DENY")
-        w.Header().Set("X-XSS-Protection", "1; mode=block")
-        w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-        next.ServeHTTP(w, r)
-    })
-}
-```
-
-### 18.9 Security Checklist
-
-| Category | Requirement | Default |
-|----------|-------------|---------|
-| **CSRF** | Token validation | ✓ Enabled |
-| **Origin** | WebSocket origin check | Configure explicitly |
-| **XSS** | Content escaping | ✓ Enabled |
-| **HTTP Timeouts** | ReadHeader/Read/Write/Idle set | Defaults via app.Run |
-| **Cookies** | HttpOnly, Secure, SameSite | Configure explicitly |
-| **Headers** | Security headers | Add middleware |
-| **Rate Limit** | HTTP and session limits | Configure explicitly |
-| **Input** | Server-side validation | Implement in app |
-| **Auth** | Proper session management | Implement in app |
-
----
-
-## 19. Performance and Scaling
-
-This section covers making Vango apps fast and scalable.
-
-### 19.1 Memory Budgeting
-
-Each session consumes memory. Budget accordingly:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    MEMORY PER SESSION                            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Base session overhead     ~50KB                                │
-│  VDOM tree (typical)       10-100KB                              │
-│  Signal state              1-50KB                                │
-│  Resources (cached data)   0-500KB                               │
-│                                                                  │
-│  Total typical:            100-500KB per session                │
-│                                                                  │
-│  10,000 sessions ≈ 1-5GB RAM                                    │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Reducing Memory:**
-
-```go
-// Don't cache large lists in signals
-// ❌ Bad: Entire list in memory
-var allProducts = vango.NewSignal([]Product{})  // 10,000 items!
-
-// ✅ Good: Paginated, loaded on demand
-func ProductList() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        page := vango.URLParam[int]("page", 1)
-        products := vango.NewResourceKeyed(page, func(p int) ([]Product, error) {
-            return db.Products.ListPage(p, 20)  // 20 items
-        })
-        // ...
-    })
-}
-```
-
-### 19.2 Patch Efficiency
-
-Minimize DOM updates:
-
-```go
-// ✅ Use keys for lists
-vango.ForEach(items, func(item Item, i int) *vango.VNode {
-    return Li(Key(item.ID), Text(item.Name))  // Stable identity
-})
-
-// ✅ Use memos for expensive computations
-expensiveResult := vango.NewMemo(func() Result {
-    return computeExpensive(data.Get())  // Cached
-})
-
-// ✅ Batch updates with transactions
-vango.TxNamed("UpdateDashboard", func() {
-    count.Set(newCount)
-    status.Set(newStatus)
-    lastUpdated.Set(time.Now())
-})  // Single patch instead of three
-
-// ❌ Avoid: Large inline structures that change often
-Div(
-    Style(fmt.Sprintf("transform: translate(%dpx, %dpx)", x, y)),
-    // Every position change = full style attribute update
+import (
+	"github.com/vango-go/vango/pkg/auth/sessionauth"
+	"myapp/internal/sessions"
 )
+
+// Create session store
+sessionStore := sessions.NewRedisStore(redisClient)
+
+// Create provider
+provider := sessionauth.New(sessionStore)
+
+// Use in config
+app := vango.New(vango.Config{
+	Session: vango.SessionConfig{
+		OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
+			principal, ok := provider.Principal(httpCtx)
+			if !ok {
+				return
+			}
+			s.Set(auth.SessionKeyPrincipal, principal)
+			s.Set(auth.SessionKeyExpiryUnixMs, principal.ExpiresAtUnixMs)
+		},
+		OnSessionResume: func(httpCtx context.Context, s *vango.Session) error {
+			principal, ok := provider.Principal(httpCtx)
+			if !ok {
+				return auth.ErrSessionRevoked
+			}
+			s.Set(auth.SessionKeyPrincipal, principal)
+			s.Set(auth.SessionKeyExpiryUnixMs, principal.ExpiresAtUnixMs)
+			return provider.Verify(httpCtx, principal)
+		},
+		AuthCheck: &vango.AuthCheckConfig{
+			Interval: 5 * time.Minute,
+			Check: func(ctx context.Context, p auth.Principal) error {
+				return provider.Verify(ctx, p)
+			},
+		},
+	},
+})
+
+// Wrap with HTTP middleware
+handler := provider.Middleware()(app)
 ```
-
-### 19.3 Data Access Performance
-
-```go
-// ✅ Cache at the right layer
-var configCache = cache.New(5 * time.Minute)
-
-func GetConfig(ctx context.Context) (*Config, error) {
-    if cached, ok := configCache.Get("config"); ok {
-        return cached.(*Config), nil
-    }
-    // ...
-}
-
-// ✅ Use singleflight for hot paths
-var group singleflight.Group
-
-func GetPopularItem(ctx context.Context, id int) (*Item, error) {
-    key := fmt.Sprintf("item:%d", id)
-    result, err, _ := group.Do(key, func() (any, error) {
-        return db.Items.FindByID(ctx, id)
-    })
-    // ...
-}
-
-// ❌ Avoid: Query per keystroke
-func SearchHandler() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        query := vango.NewSignal("")
-        
-        // ❌ Fires on every character
-        results := vango.NewResource(func() ([]Item, error) {
-            return db.Search(query.Get())  // N queries for N chars!
-        })
-        
-        // ✅ Use GoLatest with debounce
-        results := vango.GoLatest(func() ([]Item, error) {
-            q := query.Get()
-            time.Sleep(300 * time.Millisecond)  // Debounce
-            return db.Search(q)
-        })
-    })
-}
-```
-
-### 19.4 Horizontal Scaling
-
-Options for multiple servers:
-
-| Approach | Sessions | Global State | Complexity |
-|----------|----------|--------------|------------|
-| Single server | In-memory | Works | Low |
-| Sticky sessions | In-memory | Pub/sub needed | Medium |
-| Session store | Redis/DB | Pub/sub needed | Higher |
-
-**With Session Store:**
-
-```go
-vango.SessionConfig{
-    Store: vango.RedisStore(redisClient),
-}
-
-// Global signals need pub/sub
-vango.Config{
-    GlobalSignalBroadcast: vango.RedisBroadcast(redisClient),
-}
-```
-
-### 19.5 Storm Budget Configuration
-
-Prevent runaway effects:
-
-```go
-vango.SessionConfig{
-    StormBudget: vango.StormBudgetConfig{
-        MaxResourceStartsPerSecond: 100,
-        MaxActionStartsPerSecond:   50,
-        MaxGoLatestStartsPerSecond: 100,
-        MaxEffectRunsPerTick:       50,
-        WindowDuration:             time.Second,
-        OnExceeded:                 vango.BudgetThrottle,
-    },
-}
-```
-
-### 19.6 Performance Checklist
-
-- [ ] Session memory is budgeted (~100-500KB typical)
-- [ ] Lists use stable keys
-- [ ] Expensive computations use memos
-- [ ] Multi-update operations use transactions
-- [ ] Search/filter uses debouncing
-- [ ] Hot queries use caching/singleflight
-- [ ] Storm budgets are configured
-- [ ] Load testing validates capacity
 
 ---
 
-## 20. Observability: Logging, Metrics, Tracing
+## 17. Observability
 
-This section covers monitoring and debugging Vango apps.
+You need visibility into a server-driven UI runtime: sessions, events, patches, resource/action activity, and failures (patch mismatch reloads, auth expiry, etc.).
 
-### 20.1 Structured Logging
+### 17.1 Structured Logging (`slog` integration)
 
-Use structured logging for production:
+Vango supports injecting a logger via config (current guide references `Logger: slog.Default()`).
 
 ```go
 import "log/slog"
 
-// Configure logger
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
-
-vango.New(vango.Config{
-    Logger: logger,
+app := vango.New(vango.Config{
+	Logger: slog.Default(),
+	DevMode: false,
 })
 ```
 
-**What Vango Logs:**
-
-| Event | Level | Fields |
-|-------|-------|--------|
-| Session created | Info | session_id, remote_addr |
-| Session destroyed | Info | session_id, reason |
-| Navigation | Debug | session_id, from, to |
-| Event handled | Debug | session_id, event_type, hid |
-| Error | Error | session_id, error, stack |
-| Patch sent | Debug | session_id, patch_size |
-
-### 20.2 Application Logging
-
-Log application events:
+At the application layer, log intent around mutations and security decisions. Avoid logging secrets/PII.
 
 ```go
-func CreateProject(input ProjectInput) error {
-    ctx := vango.UseCtx()
-    user := store.CurrentUser()
-    
-    project, err := services.Projects.Create(ctx.StdContext(), input)
-    if err != nil {
-        slog.Error("failed to create project",
-            "user_id", user.ID,
-            "error", err,
-        )
-        return err
-    }
-    
-    slog.Info("project created",
-        "project_id", project.ID,
-        "user_id", user.ID,
-    )
-    return nil
+func DeleteProject(projectID int) vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		u := CurrentUser()
+
+		del := vango.NewAction(func(std context.Context, _ struct{}) (struct{}, error) {
+			slog.Info("delete_project_attempt", "user_id", u.ID, "project_id", projectID)
+			err := deleteProject(std, u, projectID)
+			if err != nil {
+				slog.Error("delete_project_failed", "user_id", u.ID, "project_id", projectID, "error", err)
+				return struct{}{}, err
+			}
+			slog.Info("delete_project_succeeded", "user_id", u.ID, "project_id", projectID)
+			return struct{}{}, nil
+		}, vango.DropWhileRunning())
+
+		return Button(OnClick(func() { del.Run(struct{}{}) }), Text("Delete"))
+	})
 }
 ```
 
-**Avoid Logging Sensitive Data:**
+### 17.2 Metrics (Sessions, Patch Sizes, Latency)
 
-```go
-// ❌ Don't log passwords, tokens, PII
-slog.Info("login", "email", email, "password", password)
+Even if you don’t adopt a full metrics stack on day one, there are specific signals you should track because they correspond to operational failure modes:
 
-// ✅ Redact or omit
-slog.Info("login", "email", redactEmail(email))
-```
+* active sessions
+* detached sessions (waiting in resume window)
+* event rate
+* patch sizes (p95/p99)
+* render/handler durations
+* resource/action error rates
+* storm-budget exceeded counts (see below)
 
-### 20.3 Metrics
+These metrics let you answer:
 
-Expose key metrics:
+* “Are we CPU-bound due to too many renders?”
+* “Are patches huge because keys are unstable or we’re re-rendering too much?”
+* “Are we leaking detached sessions?”
 
-```go
-import "github.com/prometheus/client_golang/prometheus"
+### 17.3 Tracing (OpenTelemetry)
 
-var (
-    sessionsActive = prometheus.NewGauge(prometheus.GaugeOpts{
-        Name: "vango_sessions_active",
-        Help: "Current number of active sessions",
-    })
-    
-    eventsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-        Name: "vango_events_total",
-        Help: "Total events processed",
-    }, []string{"type"})
-    
-    patchSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
-        Name:    "vango_patch_size_bytes",
-        Help:    "Size of patches sent to clients",
-        Buckets: []float64{100, 500, 1000, 5000, 10000, 50000},
-    })
-)
-```
+The current guide describes using `ctx.StdContext()` for I/O, which is exactly where trace propagation belongs: service/database calls should accept `context.Context` and start spans inside those functions.
 
-**Key Metrics to Track:**
+Operationally:
 
-| Metric | Type | Alert When |
-|--------|------|------------|
-| `sessions_active` | Gauge | Unusual spikes |
-| `sessions_detached` | Gauge | Growing continuously |
-| `events_total` | Counter | Error rate high |
-| `patch_size_bytes` | Histogram | p99 > 50KB |
-| `event_duration_ms` | Histogram | p99 > 500ms |
-| `resource_errors_total` | Counter | Increasing |
+* trace “event → handler → service calls → patches sent”
+* trace “resource load → DB/HTTP”
+* trace “action run → side effects → navigation”
 
-### 20.4 Distributed Tracing
-
-Propagate trace context:
-
-```go
-import "go.opentelemetry.io/otel"
-
-func (s *ProjectService) GetByID(ctx context.Context, id int) (*Project, error) {
-    // Create span
-    ctx, span := otel.Tracer("projects").Start(ctx, "GetByID")
-    defer span.End()
-    
-    span.SetAttributes(attribute.Int("project_id", id))
-    
-    // Database query inherits trace context
-    return s.db.QueryRowContext(ctx, "SELECT ...")
-}
-
-// In route handler
-type Params struct {
-    ID int `param:"id"`
-}
-
-func Page(ctx vango.Ctx, p Params) *vango.VNode {
-    // ctx.StdContext() has trace context from request
-    project, err := services.Projects.GetByID(ctx.StdContext(), p.ID)
-    // ...
-}
-```
-
-### 20.5 DevTools
-
-In development, Vango DevTools provide:
-
-- Signal values and dependency graph
-- Transaction history with names
-- Event flow (click → handler → patch)
-- Patch contents
-- "Why did this render?" analysis
-
-**Enable in development:**
-
-```go
-vango.Config{
-    DevMode: true,  // Enables DevTools
-}
-```
-
-### 20.6 Debugging Common Issues
-
-| Symptom | Diagnosis | Tool |
-|---------|-----------|------|
-| Slow renders | Check memo dependencies | DevTools |
-| High memory | Profile per-session state | `pprof` |
-| Patch too large | Inspect patch contents | DevTools |
-| Events not firing | Check HID assignment | Browser DevTools |
-| Stale UI | Signal not updating | DevTools signals |
-
-### 20.7 Incident Runbooks
-
-**Sessions Spiking:**
-
-1. Check if legitimate traffic or attack
-2. Verify rate limiting is active
-3. Check for session leak (not cleaning up)
-4. Scale horizontally if needed
-
-**Patch Mismatch Storms:**
-
-1. Check for unstable keys in lists
-2. Look for direct DOM manipulation
-3. Check island boundaries
-4. Review recent deploys
-
-**CPU Spikes on Effects:**
-
-1. Check storm budget logs
-2. Look for infinite effect loops
-3. Profile with `pprof`
-4. Review recent effect changes
-
-### 20.8 Observability Checklist
-
-- [ ] Structured logging configured
-- [ ] Sensitive data redacted
-- [ ] Key metrics exposed
-- [ ] Tracing propagated to dependencies
-- [ ] DevTools available in development
-- [ ] Alerts configured for key metrics
-- [ ] Incident runbooks documented
-
-## 21. Testing Strategy
-
-This section defines testing patterns for Vango apps.
-
-### 21.1 Testing Pyramid
-
-```
-                    ┌─────────┐
-                    │  E2E    │  ← Few, critical paths
-                    │ (slow)  │
-                ┌───┴─────────┴───┐
-                │  Integration    │  ← Routes, auth, layouts
-                │   (medium)      │
-            ┌───┴─────────────────┴───┐
-            │     Component Tests      │  ← Render + events
-            │        (fast)            │
-        ┌───┴─────────────────────────┴───┐
-        │          Unit Tests              │  ← Pure logic
-        │           (fast)                 │
-        └──────────────────────────────────┘
-```
-
-### 21.2 Unit Tests
-
-Test pure functions and domain logic:
-
-```go
-// internal/services/order_test.go
-func TestCalculateTotal(t *testing.T) {
-    items := []OrderItem{
-        {Price: 1000, Quantity: 2},  // $10 x 2
-        {Price: 500, Quantity: 1},   // $5 x 1
-    }
-    
-    total := CalculateTotal(items, 0.10)  // 10% tax
-    
-    assert.Equal(t, 2750, total)  // $27.50
-}
-
-func TestValidateEmail(t *testing.T) {
-    tests := []struct {
-        email string
-        valid bool
-    }{
-        {"test@example.com", true},
-        {"invalid", false},
-        {"@example.com", false},
-        {"test@", false},
-    }
-    
-    for _, tt := range tests {
-        t.Run(tt.email, func(t *testing.T) {
-            assert.Equal(t, tt.valid, ValidateEmail(tt.email))
-        })
-    }
-}
-```
-
-### 21.3 Component Tests
-
-Test components without a browser:
-
-```go
-// app/components/counter_test.go
-func TestCounter(t *testing.T) {
-    // Mount component
-    c := vango.Mount(Counter())
-    
-    // Query for elements
-    button := c.Query("button")
-    display := c.Query("[data-count]")
-    
-    // Assert initial state
-    assert.Equal(t, "0", display.Text())
-    
-    // Simulate event
-    button.Click()
-    c.Flush()  // Process updates
-    
-    // Assert updated state
-    assert.Equal(t, "1", display.Text())
-}
-
-func TestLoginForm(t *testing.T) {
-    c := vango.Mount(LoginForm())
-    
-    // Fill form
-    c.Query("input[type=email]").SetValue("test@example.com")
-    c.Query("input[type=password]").SetValue("password123")
-    c.Flush()
-    
-    // Submit
-    c.Query("form").Submit()
-    c.Flush()
-    
-    // Assert action was triggered
-    assert.True(t, c.ActionCalled("login"))
-}
-```
-
-**What to Test:**
-
-| Test | Assertion |
-|------|-----------|
-| Initial render | Key elements present |
-| State changes | UI updates correctly |
-| Event handlers | Correct behavior triggered |
-| Loading states | Skeleton/spinner shown |
-| Error states | Error message displayed |
-| Edge cases | Empty lists, long text |
-
-### 21.4 Integration Tests
-
-Test routes, layouts, and auth:
-
-```go
-// app/routes/projects/page_test.go
-func TestProjectsPage(t *testing.T) {
-    // Setup test server with mock services
-    app := vango.NewTestApp(vango.Config{})
-    app.MockService("projects", &MockProjectService{
-        List: func() []Project {
-            return []Project{{ID: 1, Name: "Test"}}
-        },
-    })
-    
-    // Navigate to page
-    session := app.NewSession()
-    session.Navigate("/projects")
-    
-    // Assert page content
-    assert.Contains(t, session.Body(), "Test")
-}
-
-func TestProtectedRoute(t *testing.T) {
-    app := vango.NewTestApp(vango.Config{})
-    
-    // Without auth
-    session := app.NewSession()
-    session.Navigate("/admin")
-    assert.Equal(t, "/login", session.CurrentPath())  // Redirected
-    
-    // With auth
-    session.SetUser(&User{Role: "admin"})
-    session.Navigate("/admin")
-    assert.Equal(t, "/admin", session.CurrentPath())  // Allowed
-}
-```
-
-### 21.5 E2E Tests (Playwright)
-
-Test critical user journeys:
-
-```typescript
-// e2e/checkout.spec.ts
-import { test, expect } from '@playwright/test';
-
-test('complete checkout flow', async ({ page }) => {
-    // Navigate and add to cart
-    await page.goto('/products');
-    await page.click('[data-product="1"] button');
-    
-    // Go to cart
-    await page.click('[data-cart-link]');
-    await expect(page.locator('.cart-item')).toHaveCount(1);
-    
-    // Checkout
-    await page.click('[data-checkout]');
-    await page.fill('[name=email]', 'test@example.com');
-    await page.fill('[name=card]', '4242424242424242');
-    await page.click('[type=submit]');
-    
-    // Verify success
-    await expect(page).toHaveURL(/\/orders\/\d+\/success/);
-    await expect(page.locator('h1')).toContainText('Order Confirmed');
-});
-```
-
-### 21.6 Testing Session Durability
-
-```go
-func TestSessionResume(t *testing.T) {
-    app := vango.NewTestApp(vango.Config{
-        Session: vango.SessionConfig{
-            ResumeWindow: 5 * time.Second,
-        },
-    })
-    
-    // Create session with state
-    session := app.NewSession()
-    session.Navigate("/counter")
-    session.Click("button")  // count = 1
-    
-    // Disconnect
-    session.Disconnect()
-    
-    // Reconnect within window
-    session.Reconnect()
-    
-    // State should be preserved
-    assert.Equal(t, "1", session.Query("[data-count]").Text())
-}
-
-func TestSessionExpiry(t *testing.T) {
-    app := vango.NewTestApp(vango.Config{
-        Session: vango.SessionConfig{
-            ResumeWindow: 100 * time.Millisecond,
-        },
-    })
-    
-    session := app.NewSession()
-    session.Navigate("/counter")
-    session.Click("button")
-    session.Disconnect()
-    
-    // Wait beyond resume window
-    time.Sleep(200 * time.Millisecond)
-    
-    // Reconnect - should get fresh session
-    session.Reconnect()
-    assert.Equal(t, "0", session.Query("[data-count]").Text())
-}
-```
-
-### 21.7 Testing Security
-
-```go
-func TestCSRF(t *testing.T) {
-    app := vango.NewTestApp(vango.Config{
-        Security: vango.SecurityConfig{CSRFSecret: []byte("0123456789abcdef0123456789abcdef")},
-    })
-    
-    // Request without CSRF token should fail
-    resp := app.PostJSON("/api/projects", `{"name":"test"}`, nil)
-    assert.Equal(t, 403, resp.StatusCode)
-    
-    // Request with proper token should succeed
-    session := app.NewSession()
-    token := session.GetCSRFToken()
-    resp = app.PostJSON("/api/projects", `{"name":"test"}`, map[string]string{
-        "X-CSRF-Token": token,
-    })
-    assert.Equal(t, 200, resp.StatusCode)
-}
-
-func TestOriginCheck(t *testing.T) {
-    app := vango.NewTestApp(vango.Config{
-        Security: vango.SecurityConfig{
-            AllowedOrigins: []string{"https://myapp.com"},
-        },
-    })
-    
-    // Wrong origin rejected
-    _, err := app.ConnectWebSocket("https://attacker.com")
-    assert.Error(t, err)
-    
-    // Allowed origin works
-    _, err = app.ConnectWebSocket("https://myapp.com")
-    assert.NoError(t, err)
-}
-```
-
-### 21.8 Testing Checklist
-
-- [ ] Unit tests for business logic
-- [ ] Component tests for interactive UI
-- [ ] Integration tests for routes and auth
-- [ ] E2E tests for critical paths
-- [ ] Session durability tests
-- [ ] Security tests (CSRF, auth)
-- [ ] Performance budget tests (optional)
+Even without deep internal instrumentation, ensuring your app-level services use the passed context is the key move.
 
 ---
 
-## 22. Deployment and Operations
+## 18. Persistence & Scaling
 
-This section covers production deployment.
+Vango apps are stateful by default (server-side per-tab sessions). Scaling and persistence therefore revolve around session storage, routing strategy, and controlling runaway work.
 
-### 22.1 Building for Production
+### 18.1 Session Stores (Redis / Persistence Across Restarts)
 
-```bash
-# Build single binary
-go build -o app ./cmd/app
+In development, an in-memory session store is fine. In production, if you want:
 
-# Or with vango CLI
-vango build
+* resilience across process restarts
+* non-sticky load balancing
+* safe rolling deploys without forcing everyone to lose state
 
-# Output structure:
-# dist/
-# ├── server            # Go binary
-# ├── public/           # Static assets (fingerprinted; name comes from vango.json static.dir)
-# │   ├── vango.<hash>.min.js
-# │   ├── styles.<hash>.css        # if tailwind.enabled = true
-# │   └── assets/...
-# └── manifest.json     # Asset manifest for ctx.Asset(...)
+…configure a store.
+
+The current guide expresses this via `vango.SessionConfig{ Store: vango.RedisStore(...) }` (and notes a “PostgresStore” option as well).
+
+```go
+import "time"
+
+app := vango.New(vango.Config{
+	Session: vango.SessionConfig{
+		ResumeWindow: 30 * time.Second,
+		Store:        vango.RedisStore(redisClient), // production durability
+		MaxDetachedSessions: 10000,
+		MaxSessionsPerIP:    100,
+	},
+})
 ```
 
-### 22.2 Environment Variables
+**Operational note:** per-IP session limits depend on correct proxy configuration. If you are behind a load balancer, configure trusted proxies so that client IP is derived correctly; otherwise all users may appear as one IP and hit the per-IP limit.
 
-```bash
-# Required
-ENVIRONMENT=production
-DATABASE_URL=postgres://user:pass@host/db
-SESSION_SECRET=<random-64-chars>
+### 18.2 Persistence Keys and Migration
 
-# Optional
-PORT=8080
-LOG_LEVEL=info
-REDIS_URL=redis://host:6379
+Once you persist sessions, **signal keys become a backwards-compatibility contract**. If keys change between deployments, existing sessions will lose their state or fail to deserialize.
 
-# For session store
-SESSION_STORE=redis
-SESSION_STORE_URL=redis://host:6379
+#### The Problem with Anonymous Keys
+
+By default, signals created without explicit keys receive auto-generated keys based on creation order:
+
+```go
+// ❌ Bad: Anonymous signal, key based on creation order
+var Cart = vango.NewSharedSignal([]CartItem{})  // Key: "signal_5"
+
+// If you reorder code or add a new signal before this one,
+// "signal_5" now refers to a DIFFERENT signal → data corruption
 ```
 
-### 22.3 Reverse Proxy Configuration
+#### Stable Keys with `WithKey()`
 
-**Nginx:**
+Always use explicit keys for signals that will be persisted:
+
+```go
+// ✅ Good: Stable key won't break existing sessions
+var Cart = vango.NewSharedSignal([]CartItem{},
+	vango.WithKey("user_cart"))
+
+var Preferences = vango.NewSharedSignal(UserPrefs{},
+	vango.WithKey("user_prefs"))
+
+var DraftPost = vango.NewSharedSignal[*Post](nil,
+	vango.WithKey("draft_post"))
+```
+
+**Key naming conventions:**
+
+- Use descriptive, domain-specific names: `"user_cart"`, `"draft_form"`, `"selected_filters"`
+- Prefix with context if needed: `"checkout_shipping_address"`, `"editor_unsaved_changes"`
+- Never use generic names like `"signal_1"` or `"temp"`
+
+#### Migration Strategies
+
+When you need to change the structure of persisted data:
+
+**1. Additive changes (safe):**
+New fields with zero values are safe—existing sessions simply have the new fields unset.
+
+```go
+// v1
+type Prefs struct {
+	Theme string
+}
+
+// v2 (safe: DarkMode defaults to false for existing sessions)
+type Prefs struct {
+	Theme    string
+	DarkMode bool  // New field, zero value is safe
+}
+```
+
+**2. Structural changes (requires migration key):**
+If you change the type incompatibly, use a new key and handle migration:
+
+```go
+// Old: single address
+var ShippingAddress = vango.NewSharedSignal(Address{},
+	vango.WithKey("shipping_address"))
+
+// New: multiple addresses (incompatible change)
+var ShippingAddresses = vango.NewSharedSignal([]Address{},
+	vango.WithKey("shipping_addresses_v2"))  // New key!
+
+// In OnSessionStart/OnSessionResume, migrate old → new if needed
+OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
+	// Check if old key exists and new doesn't
+	if old, ok := s.Get("shipping_address").(Address); ok {
+		if _, hasNew := s.Get("shipping_addresses_v2").([]Address); !hasNew {
+			s.Set("shipping_addresses_v2", []Address{old})
+			s.Delete("shipping_address")
+		}
+	}
+},
+```
+
+**3. Key rename (requires careful rollout):**
+If you must rename a key, do a two-phase rollout:
+
+1. Deploy code that reads from both old and new keys, writes to new key
+2. After all sessions have been touched, deploy code that only uses new key
+
+#### Runtime-Only Keys (Auth State)
+
+Remember that auth keys (`vango:auth:principal`, `vango:auth:expiry_unix_ms`) are **runtime-only** and excluded from persistence (see §16.8). Only application state signals need stable keys.
+
+#### Checklist for Persistent Signals
+
+- [ ] All session-scoped signals use `WithKey()` with stable, descriptive names
+- [ ] Key names are documented (consider a `keys.go` constants file)
+- [ ] Structural changes use new keys + migration logic
+- [ ] Auth state is rehydrated, not persisted
+
+### 18.3 Horizontal Scaling (Sticky Sessions vs Distributed Stores)
+
+You have three broad deployment patterns:
+
+1. **Single instance**
+   simplest; in-memory sessions
+
+2. **Multiple instances with sticky sessions**
+   keep sessions in memory, but your load balancer must route the same tab consistently to the same instance (affinity). Useful early but complicates failover.
+
+3. **Multiple instances with a distributed session store**
+   sessions can resume across instances; better for rolling deploys and failover.
+
+In all multi-instance patterns, be cautious with **global signals**: they represent shared, real-time state across users. In a multi-process deployment, global updates must be broadcast across instances (via a pub/sub layer) if you want consistent cross-instance behavior.
+
+#### Global Signal Broadcasting (Multi-Instance)
+
+When running multiple Vango instances, global signals only update sessions on the local instance by default. To broadcast global signal changes across all instances, configure a pub/sub backend:
+
+```go
+import "github.com/redis/go-redis/v9"
+
+redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+
+app := vango.New(vango.Config{
+    // Session store for persistence across instances
+    Session: vango.SessionConfig{
+        Store: vango.RedisStore(redisClient),
+    },
+
+    // Global signal broadcast for cross-instance consistency
+    GlobalSignalBroadcast: vango.RedisBroadcast(redisClient),
+})
+```
+
+**How it works:**
+
+1. When a global signal is updated on instance A, the change is published to Redis pub/sub
+2. All other instances (B, C, ...) receive the publication and update their local copy
+3. Each instance re-renders affected sessions and pushes patches to their connected clients
+
+**Available broadcast backends:**
+
+| Backend | Use Case |
+|---------|----------|
+| `vango.RedisBroadcast(client)` | Production; uses Redis pub/sub |
+| `vango.NATSBroadcast(conn)` | High-throughput; uses NATS |
+| `nil` (default) | Single instance only; no cross-instance sync |
+
+**Manual pattern (if not using built-in broadcast):**
+
+If you need custom broadcast logic or the built-in broadcast doesn't fit your infrastructure:
+
+```go
+// On the instance that updates the global signal:
+store.OnlineCount.Set(newValue)
+redisClient.Publish(ctx, "vango:global:OnlineCount", strconv.Itoa(newValue))
+
+// On all instances, subscribe and update:
+go func() {
+    pubsub := redisClient.Subscribe(ctx, "vango:global:OnlineCount")
+    for msg := range pubsub.Channel() {
+        val, _ := strconv.Atoi(msg.Payload)
+        store.OnlineCount.Set(val) // Updates local sessions
+    }
+}()
+```
+
+**When you DON'T need broadcast:**
+
+- Single instance deployment
+- Global signals that are read-only after initialization (e.g., feature flags loaded at startup)
+- Global signals that are updated by only one instance (e.g., a single background worker)
+
+### 18.4 Deployment (Docker / Reverse Proxy / WebSocket)
+
+Vango is a normal `http.Handler`, but its runtime depends on:
+
+* SSR HTTP requests
+* WebSocket upgrades to `/_vango/*` endpoints
+* long-lived WS connections
+
+#### Reverse proxy requirements
+
+WebSocket upgrades through reverse proxies are notoriously finicky. The following requirements must be met:
+
+* must pass `Upgrade` and `Connection: upgrade` headers
+* must set appropriate timeouts for long-lived WS (default timeouts will disconnect users)
+* must forward `X-Forwarded-Proto` and real client IP
+* must ensure `/_vango/*` routes reach the same upstream handler as the rest of the app
+
+If you mount Vango at a subpath (e.g., `/app`), you must still route `/_vango/*` to the app handler (or configure the client to use a different WS base while preserving `?path=`).
+
+#### Nginx Configuration (Copy-Paste Ready)
 
 ```nginx
-upstream vango {
+upstream vango_app {
     server 127.0.0.1:8080;
+    # For multiple instances with sticky sessions:
+    # ip_hash;
+    # server 127.0.0.1:8081;
+    # server 127.0.0.1:8082;
 }
 
 server {
+    listen 80;
     listen 443 ssl http2;
     server_name myapp.com;
-    
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-    
-    # WebSocket upgrade
+
+    # SSL configuration (required for CookieSecure: true)
+    ssl_certificate     /etc/ssl/certs/myapp.crt;
+    ssl_certificate_key /etc/ssl/private/myapp.key;
+
+    # Redirect HTTP to HTTPS
+    if ($scheme = http) {
+        return 301 https://$host$request_uri;
+    }
+
     location / {
-        proxy_pass http://vango;
+        proxy_pass http://vango_app;
         proxy_http_version 1.1;
+
+        # WebSocket upgrade headers (CRITICAL)
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+
+        # Standard proxy headers
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # WebSocket timeouts
+
+        # Long timeout for WebSocket connections (24 hours)
+        # Without this, Nginx closes idle connections after 60s
         proxy_read_timeout 86400s;
         proxy_send_timeout 86400s;
+
+        # Disable buffering for real-time updates
+        proxy_buffering off;
     }
-    
-    # Static assets with long cache
-    location /css/ {
-        proxy_pass http://vango;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-    }
-    
-    location /js/ {
-        proxy_pass http://vango;
-        add_header Cache-Control "public, max-age=31536000, immutable";
+
+    # Static assets with aggressive caching (optional: serve directly from Nginx)
+    location /static/ {
+        alias /var/www/myapp/public/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
     }
 }
 ```
 
-**Caddy:**
+**Key points:**
+
+* `proxy_read_timeout 86400s` — Without this, Nginx closes WebSocket connections after 60 seconds of inactivity. Vango sessions are long-lived; set this high (24 hours shown).
+* `proxy_set_header Upgrade` / `Connection "upgrade"` — These headers are **required** for WebSocket upgrade. Missing them is the #1 cause of "WebSocket won't connect" issues.
+* `X-Forwarded-For` / `X-Forwarded-Proto` — Required for `TrustedProxies` to work correctly. Without these, your app can't determine the real client IP or protocol.
+
+#### Caddy Configuration (Alternative)
+
+Caddy handles WebSocket upgrades automatically:
 
 ```caddyfile
 myapp.com {
@@ -7760,688 +4182,1369 @@ myapp.com {
 }
 ```
 
-### 22.4 Zero-Downtime Deployment
+Caddy's defaults are production-ready for Vango with no additional configuration needed.
 
-**Strategy:**
+#### Asset caching and fingerprinting
 
-1. Deploy new version alongside old
-2. New sessions go to new version
-3. Old sessions complete on old version
-4. Old version drains and stops
+In production, serve fingerprinted assets with immutable caching. Use `ctx.Asset("...")` everywhere you reference static files so the manifest-aware resolver can return hashed paths.
 
-**With Session Store:**
+### 18.5 Storm Budgets (DoS and Runaway Work Protection)
 
-```bash
-# 1. Deploy new version
-docker run -d --name app-new -p 8081:8080 myapp:v2
+Storm budgets are per-session limits on structured async work that prevent runaway effects, infinite loops, and DoS attacks from overwhelming the server.
 
-# 2. Update load balancer to route new connections to v2
-# 3. Wait for old sessions to drain (ResumeWindow + buffer)
-sleep 60
-
-# 4. Stop old version
-docker stop app-old
-```
-
-### 22.5 Health Checks
+#### Full Configuration
 
 ```go
-// Health endpoint
-mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-    w.WriteHeader(http.StatusOK)
-    w.Write([]byte("ok"))
-})
+import "time"
 
-// Readiness endpoint (checks dependencies)
-mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-    if err := db.Ping(); err != nil {
-        w.WriteHeader(http.StatusServiceUnavailable)
-        return
-    }
-    w.WriteHeader(http.StatusOK)
+app := vango.New(vango.Config{
+	Session: vango.SessionConfig{
+		StormBudget: vango.StormBudgetConfig{
+			// Per-second limits for async work starts
+			MaxResourceStartsPerSecond: 100,  // NewResource / NewResourceKeyed
+			MaxActionStartsPerSecond:   50,   // action.Run() calls
+			MaxGoLatestStartsPerSecond: 100,  // GoLatest invocations
+
+			// Per-tick limit for synchronous effect executions
+			MaxEffectRunsPerTick: 50,
+
+			// Time window for rate limiting calculations
+			WindowDuration: time.Second,
+
+			// What to do when a budget is exceeded
+			OnExceeded: vango.BudgetThrottle,
+		},
+	},
 })
 ```
 
-### 22.6 Graceful Shutdown
+#### Configuration Fields
 
-```go
-func main() {
-    // ... setup ...
-    
-    server := &http.Server{Addr: ":8080", Handler: mux}
-    
-    // Shutdown signal
-    go func() {
-        sigCh := make(chan os.Signal, 1)
-        signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-        <-sigCh
-        
-        // Give sessions time to complete
-        ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-        defer cancel()
-        
-        app.Shutdown(ctx)
-        server.Shutdown(ctx)
-    }()
-    
-    server.ListenAndServe()
-}
-```
+| Field | Default | Description |
+|-------|---------|-------------|
+| `MaxResourceStartsPerSecond` | 100 | Max `NewResource`/`NewResourceKeyed` starts per second |
+| `MaxActionStartsPerSecond` | 50 | Max `action.Run()` invocations per second |
+| `MaxGoLatestStartsPerSecond` | 100 | Max `GoLatest` work starts per second |
+| `MaxEffectRunsPerTick` | 50 | Max effect executions per reactive tick |
+| `WindowDuration` | 1s | Sliding window for rate calculations |
+| `OnExceeded` | `BudgetThrottle` | Behavior when limit is hit |
 
-### 22.7 Deployment Checklist
+#### Exceeded Behaviors
 
-- [ ] Production build created
-- [ ] Environment variables configured
-- [ ] Reverse proxy configured for WebSocket
-- [ ] SSL/TLS enabled
-- [ ] Health checks working
-- [ ] Graceful shutdown configured
-- [ ] Session store configured (if needed)
-- [ ] Logging and metrics ready
+| Mode | Behavior | When to Use |
+|------|----------|-------------|
+| `vango.BudgetThrottle` | Deny/delay new starts; surface error to caller; session continues | Most cases (default). Allows recovery. |
+| `vango.BudgetTripBreaker` | Terminate/invalidate the session entirely | Critical resources; suspected abuse; unrecoverable loops |
+
+#### Operational Guidance
+
+**Why budgets exist:**
+* A bug that creates an effect loop could spawn thousands of resources per second
+* A malicious client could trigger rapid action calls to exhaust server resources
+* Budgets reduce the blast radius of both accidental and intentional overload
+
+**When budgets trigger:**
+* `BudgetThrottle`: The specific operation fails with an error. The session remains valid. Monitor "budget exceeded" metrics to identify the problematic code path.
+* `BudgetTripBreaker`: The session is terminated. The client receives a disconnect and must reconnect (starting a fresh session). Use this for resources you cannot afford to have abused.
+
+**Design principle:**
+Budgets are a **safety net**, not a primary design mechanism. Your app should still be designed to avoid self-triggering storms. If you're hitting budgets during normal operation, fix the underlying issue rather than raising limits.
+
+**Recommended monitoring:**
+Track budget exceeded counts by type (resource/action/effect/golatest) to catch bugs before they become incidents.
 
 ---
 
-## 23. Migration and Interop
+## 19. Application Configuration
 
-This section helps teams adopt Vango incrementally.
+This section documents the complete `vango.Config` surface and all sub-configuration structs. Understanding these options is essential for production deployments.
 
-### 23.1 Strangler Fig Pattern
-
-Migrate route-by-route:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    MIGRATION STRATEGY                            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Phase 1: Mount Vango alongside existing                        │
-│           ┌─────────┐  ┌─────────────────┐                      │
-│           │  Vango  │  │  Existing SPA   │                      │
-│           │ /new/*  │  │  /old/*         │                      │
-│           └─────────┘  └─────────────────┘                      │
-│                                                                  │
-│  Phase 2: Migrate routes incrementally                          │
-│           ┌─────────────────┐  ┌─────────┐                      │
-│           │     Vango       │  │   SPA   │                      │
-│           │ /new/*, /users/ │  │  /old/* │                      │
-│           └─────────────────┘  └─────────┘                      │
-│                                                                  │
-│  Phase 3: Complete migration                                    │
-│           ┌─────────────────────────────┐                       │
-│           │          Vango              │                       │
-│           │      All routes             │                       │
-│           └─────────────────────────────┘                       │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 23.2 Mount into Existing Router
+### 19.1 Core Configuration (`vango.Config`)
 
 ```go
-// Existing Go backend with Chi
-r := chi.NewRouter()
+import (
+	"log/slog"
+	"time"
+	"github.com/vango-go/vango"
+)
 
-// Existing routes
-r.Get("/api/users", listUsers)
-r.Post("/api/users", createUser)
+app := vango.New(vango.Config{
+	// Development mode enables detailed errors, strict effect warnings,
+	// and source-location transaction names. Set to false in production.
+	DevMode: true,
 
-// Mount Vango for UI
-vangoApp := vango.New(vango.Config{})
-r.Mount("/", vangoApp.Handler())  // Vango handles UI routes
+	// Session configuration (detailed in §16.2)
+	Session: vango.SessionConfig{...},
+
+	// Static file serving (detailed in §16.3)
+	Static: vango.StaticConfig{...},
+
+	// Security settings (detailed in §16.4)
+	Security: vango.SecurityConfig{...},
+
+	// Logging and observability
+	Logger: slog.Default(),
+
+	// Asset manifest resolver for fingerprinted assets (production)
+	AssetResolver: resolver,
+
+	// Session lifecycle hooks (detailed in §13.1)
+	OnSessionStart:  func(httpCtx context.Context, s *vango.Session) { ... },
+	OnSessionResume: func(httpCtx context.Context, s *vango.Session) error { ... },
+})
 ```
 
-### 23.3 Embed Existing SPA as Island
+### 19.2 Session Configuration (`vango.SessionConfig`)
 
 ```go
-// Wrap existing React component as island
-func LegacyDashboard(props map[string]any) *vango.VNode {
-    return Div(
-        ID("legacy-dashboard"),
-        JSIsland("legacy-react", props),
-    )
+vango.SessionConfig{
+	// How long a disconnected session is kept in memory.
+	// Allows refresh/reconnect to restore state within this window.
+	ResumeWindow: 30 * time.Second,
+
+	// Maximum detached sessions kept in memory (DoS protection).
+	// When exceeded, oldest sessions are evicted per EvictionPolicy.
+	MaxDetachedSessions: 10000,
+
+	// Maximum concurrent sessions per client IP (DoS protection).
+	// See the CRITICAL warning below about proxy configuration.
+	MaxSessionsPerIP: 100,
+
+	// When true, evict the oldest detached session when MaxSessionsPerIP
+	// is reached instead of rejecting the new connection.
+	EvictOnIPLimit: true,
+
+	// Eviction policy when limits are reached.
+	EvictionPolicy: vango.EvictionLRU,
+
+	// Optional: Persist sessions for server restarts and non-sticky deploys.
+	Store: vango.RedisStore(redisClient),
+	// Or: Store: vango.PostgresStore(db),
+
+	// Storm budgets per session (detailed in §16.5)
+	StormBudget: vango.StormBudgetConfig{...},
 }
 ```
 
-```javascript
-// public/js/islands/legacy-react.js
-import ReactDOM from 'react-dom';
-import LegacyDashboard from './legacy/Dashboard';
+> **CRITICAL: Proxy Configuration and MaxSessionsPerIP**
+>
+> If `TrustedProxies` (in `SecurityConfig`) is not configured correctly when running behind a load balancer (e.g., Nginx, AWS ALB, Cloudflare, or any L7 proxy), `RemoteAddr` will be the balancer's IP address rather than the real client IP.
+>
+> **This collapses all users into a single IP bucket and will trigger `MaxSessionsPerIP` immediately, effectively DoS-ing your own application.**
+>
+> Always configure `TrustedProxies` when behind a reverse proxy:
+>
+> ```go
+> Security: vango.SecurityConfig{
+>     TrustedProxies: []string{"10.0.0.0/8", "172.16.0.0/12"},
+> },
+> ```
 
-export default {
-    mount(container, props) {
-        ReactDOM.render(<LegacyDashboard {...props} />, container);
-    },
-    update(props) {
-        // Handle prop updates if needed
-    },
-    destroy() {
-        ReactDOM.unmountComponentAtNode(container);
-    },
-};
-```
+**Session Durability Tiers:**
 
-### 23.4 Sharing Authentication
+| Tier | What Survives | Configuration |
+|------|---------------|---------------|
+| **None** | Nothing (fresh session on every connect) | `ResumeWindow: 0` |
+| **In-Memory** | Refresh/reconnect within ResumeWindow | `ResumeWindow: 30*time.Second` |
+| **Persistent** | Server restarts, non-sticky deploys | `Store: vango.RedisStore(...)` |
+
+### 19.3 Static File Configuration (`vango.StaticConfig`)
 
 ```go
-// Existing auth middleware
-func AuthMiddleware(next http.Handler) http.Handler {
+vango.StaticConfig{
+	// Directory containing static files (relative to working directory)
+	Dir: "public",
+
+	// URL prefix for static files (usually "/" for root)
+	Prefix: "/",
+
+	// Cache control strategy for production.
+	// Fingerprinted files get immutable caching; others get short cache with revalidate.
+	CacheControl: vango.CacheControlProduction,
+
+	// Enable Brotli/gzip compression for text assets
+	Compression: true,
+
+	// Custom headers added to all static file responses
+	Headers: map[string]string{
+		"X-Content-Type-Options": "nosniff",
+	},
+}
+```
+
+**Cache Strategies:**
+
+| Strategy | Behavior | When to Use |
+|----------|----------|-------------|
+| `CacheControlNone` | No caching headers | Development |
+| `CacheControlProduction` | Fingerprinted: immutable (1 year); Others: short + revalidate | Production |
+| `CacheControlCustom` | You control headers | Special requirements |
+
+### 19.4 Security Configuration (`vango.SecurityConfig`)
+
+```go
+vango.SecurityConfig{
+	// CSRF protection secret (CSRF is enabled when this is set).
+	// Must be 32 bytes for HMAC-SHA256.
+	CSRFSecret: []byte("your-32-byte-secret-key-here!!"),
+
+	// Origin checking for WebSocket connections.
+	// Explicit allowlist of permitted origins.
+	AllowedOrigins: []string{
+		"https://myapp.com",
+		"https://www.myapp.com",
+	},
+	// Or allow same-origin automatically (simpler for single-domain apps):
+	AllowSameOrigin: true,
+
+	// Trusted reverse proxies for X-Forwarded-For / X-Forwarded-Proto.
+	// CIDR notation or specific IPs. REQUIRED when behind load balancers.
+	TrustedProxies: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
+
+	// Cookie security defaults (applied to ctx.SetCookie / ctx.SetCookieStrict)
+	CookieSecure:   true,               // Requires HTTPS; cookies dropped on HTTP
+	CookieHttpOnly: true,               // No JavaScript access
+	CookieSameSite: http.SameSiteLaxMode,
+	CookieDomain:   "",                 // Empty = current domain only
+
+	// External redirect allowlist (for OAuth/OIDC flows)
+	AllowedRedirectHosts: []string{"accounts.google.com", "login.microsoftonline.com"},
+}
+```
+
+**Cookie Security Notes:**
+
+* When `CookieSecure` is `true` and a request is not over HTTPS, cookies are dropped.
+* `ctx.SetCookieStrict` returns `vango.ErrSecureCookiesRequired` in this case.
+* Use `vango.WithCookieHTTPOnly(false)` only for cookies that JS must read (rare).
+
+#### XSS Prevention: HTML Escaping Contract
+
+Vango escapes content **by default**. You don't need to manually escape user input in most cases:
+
+```go
+// ✅ SAFE: Text content is automatically escaped
+Text(userInput)  // <script>alert('xss')</script> → &lt;script&gt;alert('xss')&lt;/script&gt;
+
+// ✅ SAFE: Attributes are escaped
+Href(userProvidedURL)  // Also validates URL scheme (rejects javascript:, data:, etc.)
+Class(userClass)       // Escaped; can't break out of attribute
+
+// ✅ SAFE: Format strings escape interpolated values
+Textf("Hello, %s!", userName)
+```
+
+**Opt-in to raw HTML (dangerous):**
+
+When you need to render raw HTML (e.g., from a CMS, markdown renderer, or sanitizer), use `DangerouslySetInnerHTML`:
+
+```go
+import . "github.com/vango-go/vango/el"
+
+// ⚠️ DANGEROUS: Bypasses escaping - only use with sanitized input!
+DangerouslySetInnerHTML(sanitizedHTML)
+
+// Legacy alias (same function):
+Raw(sanitizedHTML)
+```
+
+**Always sanitize user-provided HTML:**
+
+```go
+import "github.com/microcosm-cc/bluemonday"
+
+// Create a policy once (reuse across requests)
+var policy = bluemonday.UGCPolicy()
+
+func SafeUserHTML(userHTML string) *vango.VNode {
+    sanitized := policy.Sanitize(userHTML)
+    return DangerouslySetInnerHTML(sanitized)
+}
+```
+
+**Common sanitization policies:**
+
+| Policy | Use Case |
+|--------|----------|
+| `bluemonday.StrictPolicy()` | Strip all HTML, text only |
+| `bluemonday.UGCPolicy()` | User-generated content (comments, posts) |
+| `bluemonday.NewPolicy()` | Build custom allowlist |
+
+**Security Summary:**
+
+| Content Type | Escaping | Notes |
+|--------------|----------|-------|
+| `Text(...)` | ✅ Auto-escaped | Safe for user input |
+| `Textf(...)` | ✅ Auto-escaped | Safe for user input |
+| Attributes | ✅ Auto-escaped | `Href` also validates URL scheme |
+| `DangerouslySetInnerHTML(...)` | ❌ Not escaped | Must sanitize first |
+| `Raw(...)` | ❌ Not escaped | Legacy alias; same warning |
+
+**URL Scheme Validation:**
+
+`Href()` validates URL schemes and rejects dangerous protocols:
+
+```go
+Href("javascript:alert(1)")  // Rejected - renders empty or safe fallback
+Href("data:text/html,...")   // Rejected
+Href("/safe/path")           // ✅ Allowed (relative)
+Href("https://example.com")  // ✅ Allowed
+```
+
+#### Content Security Policy (CSP)
+
+CSP is configured via HTTP middleware. Vango apps have specific requirements:
+
+```go
+func CSPMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        token := r.Header.Get("Authorization")
-        user := validateToken(token)
-        next.ServeHTTP(w, r.WithContext(vango.WithUser(r.Context(), user)))
+        // Build CSP header
+        csp := strings.Join([]string{
+            "default-src 'self'",
+            "script-src 'self'",                    // Own scripts only
+            "style-src 'self' 'unsafe-inline'",     // Tailwind needs unsafe-inline
+            "img-src 'self' data: https:",          // Images from self, data URIs, HTTPS
+            "connect-src 'self' wss:",              // REQUIRED: WebSocket connections
+            "font-src 'self'",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "frame-ancestors 'none'",
+        }, "; ")
+
+        w.Header().Set("Content-Security-Policy", csp)
+        next.ServeHTTP(w, r)
     })
 }
 
-// Vango copies user from HTTP context into session on WS upgrade
-vango.New(vango.Config{
-    OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
-        if user := vango.UserFromContext(httpCtx); user != nil {
-            s.Set(auth.SessionKey, user)
-        }
-    },
+// Usage
+mux := http.NewServeMux()
+handler := CSPMiddleware(app.Handler())
+```
+
+**Critical for Vango:** The `connect-src` directive **must** include `wss:` (or the specific WebSocket origin) or the thin client cannot establish WebSocket connections.
+
+**CSP Directive Reference for Vango:**
+
+| Directive | Recommended Value | Notes |
+|-----------|-------------------|-------|
+| `default-src` | `'self'` | Fallback for unspecified directives |
+| `script-src` | `'self'` | Only load own scripts; avoid `'unsafe-inline'` |
+| `style-src` | `'self' 'unsafe-inline'` | Tailwind/inline styles need `'unsafe-inline'` |
+| `connect-src` | `'self' wss:` | **Required** for WebSocket |
+| `img-src` | `'self' data: https:` | Allow data URIs for inline images |
+| `font-src` | `'self'` | Fonts from same origin |
+| `object-src` | `'none'` | Block plugins (Flash, Java) |
+| `frame-ancestors` | `'none'` | Prevent clickjacking (like X-Frame-Options) |
+
+**If using nonces for scripts:**
+
+```go
+func CSPWithNonce(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Generate nonce per request
+        nonce := generateSecureNonce() // crypto/rand, base64 encoded
+
+        csp := fmt.Sprintf(
+            "default-src 'self'; script-src 'self' 'nonce-%s'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:",
+            nonce,
+        )
+        w.Header().Set("Content-Security-Policy", csp)
+
+        // Pass nonce to Vango via context for use in templates
+        ctx := context.WithValue(r.Context(), "csp-nonce", nonce)
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+```
+
+**CSP Reporting (optional):**
+
+```go
+// Add report-uri or report-to for CSP violation reports
+csp += "; report-uri /csp-report"
+```
+
+### 19.5 Storm Budget Configuration (`vango.StormBudgetConfig`)
+
+Storm budgets protect against runaway effects, infinite loops, and DoS attacks by limiting the rate of async work per session.
+
+```go
+vango.StormBudgetConfig{
+	// Per-second limits for async work starts
+	MaxResourceStartsPerSecond: 100,
+	MaxActionStartsPerSecond:   50,
+	MaxGoLatestStartsPerSecond: 100,
+
+	// Per-tick limit for effect executions
+	MaxEffectRunsPerTick: 50,
+
+	// Time window for rate limiting calculations
+	WindowDuration: time.Second,
+
+	// What to do when a budget is exceeded
+	OnExceeded: vango.BudgetThrottle,
+}
+```
+
+**Exceeded Behaviors:**
+
+| Mode | Behavior | When to Use |
+|------|----------|-------------|
+| `BudgetThrottle` | Deny/delay new starts; surface error to caller | Most cases (default) |
+| `BudgetTripBreaker` | Terminate/invalidate the session entirely | Critical resources; severe abuse |
+
+**Operational Interpretation:**
+
+* Storm budgets reduce blast radius if you accidentally create an effect loop or a resource that restarts repeatedly.
+* They are a **safety net**, not a primary design mechanism. Your app should still be designed to avoid self-triggering storms.
+* Monitor "budget exceeded" metrics to catch bugs before they become incidents.
+
+### 19.6 Limits Configuration (`vango.LimitsConfig`)
+
+Request-level limits protect against oversized payloads:
+
+```go
+vango.LimitsConfig{
+	MaxEventPayloadBytes: 64 * 1024,       // 64KB per event
+	MaxFormBytes:         10 * 1024 * 1024, // 10MB for form uploads
+	MaxQueryParams:       50,
+	MaxHeaderBytes:       8 * 1024,         // 8KB headers
+}
+```
+
+### 19.7 API Configuration (`vango.APIConfig`)
+
+For typed API endpoints:
+
+```go
+vango.APIConfig{
+	MaxBodyBytes: 1 * 1024 * 1024, // 1MB default for JSON bodies
+}
+```
+
+### 19.8 Environment-Based Configuration Pattern
+
+Structure configuration around deployment environments:
+
+```go
+// internal/config/config.go
+package config
+
+import (
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/vango-go/vango"
+)
+
+type Config struct {
+	Environment   string
+	Port          string
+	DatabaseURL   string
+	RedisURL      string
+	SessionSecret string
+	IsDevelopment bool
+	IsProduction  bool
+}
+
+func Load() Config {
+	env := getEnv("ENVIRONMENT", "development")
+	return Config{
+		Environment:   env,
+		Port:          getEnv("PORT", "8080"),
+		DatabaseURL:   mustGetEnv("DATABASE_URL"),
+		RedisURL:      getEnv("REDIS_URL", ""),
+		SessionSecret: mustGetEnv("SESSION_SECRET"),
+		IsDevelopment: env == "development",
+		IsProduction:  env == "production",
+	}
+}
+
+func (c Config) VangoConfig(redisClient *redis.Client) vango.Config {
+	cfg := vango.Config{
+		DevMode: c.IsDevelopment,
+		Session: vango.SessionConfig{
+			ResumeWindow:        30 * time.Second,
+			MaxDetachedSessions: 10000,
+			MaxSessionsPerIP:    100,
+		},
+		Static: vango.StaticConfig{
+			Dir:    "public",
+			Prefix: "/",
+		},
+	}
+
+	if c.IsProduction {
+		cfg.Session.Store = vango.RedisStore(redisClient)
+		cfg.Security = vango.SecurityConfig{
+			CSRFSecret:     []byte(c.SessionSecret),
+			AllowedOrigins: []string{"https://myapp.com"},
+			TrustedProxies: []string{"10.0.0.0/8"},
+			CookieSecure:   true,
+			CookieHttpOnly: true,
+			CookieSameSite: http.SameSiteLaxMode,
+		}
+		cfg.Static.CacheControl = vango.CacheControlProduction
+		cfg.Static.Compression = true
+	}
+
+	return cfg
+}
+```
+
+### 19.9 Configuration Categories (Quick Reference)
+
+This table summarizes which configuration settings affect correctness, performance, and security:
+
+| Category | Settings | Correctness | Performance | Security |
+|----------|----------|:-----------:|:-----------:|:--------:|
+| **Session** | `ResumeWindow`, `Store` | ✓ | ✓ | |
+| **Limits** | `MaxDetachedSessions`, `MaxSessionsPerIP` | | ✓ | ✓ |
+| **Storm Budgets** | `MaxResource/Action/Effect*` limits | | ✓ | ✓ |
+| **CSRF** | `CSRFSecret`, Cookie flags | | | ✓ |
+| **Origins** | `AllowedOrigins`, `AllowSameOrigin` | | | ✓ |
+| **Cookies** | `Secure`, `HttpOnly`, `SameSite` | | | ✓ |
+| **Static** | `CacheControl`, `Compression` | | ✓ | |
+| **DevMode** | Error detail, effect warnings | ✓ | | |
+
+**Reading the table:**
+- **Correctness:** Misconfiguration can cause functional bugs or unexpected behavior
+- **Performance:** Affects latency, memory usage, or bandwidth
+- **Security:** Affects protection against attacks or data exposure
+
+### 19.10 Integrating with Existing Routers
+
+Vango is a standard `http.Handler`, so it integrates with any Go router:
+
+**With Chi:**
+
+```go
+import "github.com/go-chi/chi/v5"
+import "github.com/go-chi/chi/v5/middleware"
+
+r := chi.NewRouter()
+r.Use(middleware.Logger)
+r.Use(middleware.Recoverer)
+
+// Mount Vango at root
+r.Mount("/", app)
+
+// Add non-Vango routes
+r.Get("/api/external", externalAPIHandler)
+```
+
+**With Gorilla Mux:**
+
+```go
+import "github.com/gorilla/mux"
+
+r := mux.NewRouter()
+r.PathPrefix("/").Handler(app)
+```
+
+**With standard library:**
+
+```go
+mux := http.NewServeMux()
+mux.Handle("/", app)
+```
+
+> **CRITICAL: Sub-path Mounting and WebSocket Endpoints**
+>
+> Vango's WebSocket endpoint lives at `/_vango/*`. If you mount the app at a sub-path (e.g., `/app`), you **MUST** also route `/_vango/*` to the same handler:
+>
+> ```go
+> // Mounting Vango at a sub-path requires dual mount
+> r.Mount("/app", app)
+> r.Mount("/_vango", app)  // Required for WebSocket connectivity
+> ```
+>
+> Alternatively, configure the thin client to use a different WebSocket base URL (advanced; not recommended for most cases).
+
+---
+
+## Production Readiness Checklist (Integrated)
+
+Before shipping a Vango app to production, verify each item with the concrete configuration shown.
+
+### Security / Auth
+
+```go
+Security: vango.SecurityConfig{
+	// ✅ CSRF protection (32-byte secret)
+	CSRFSecret: []byte("your-32-byte-secret-key-here!!"),
+
+	// ✅ Explicit WebSocket origin allowlist
+	AllowedOrigins: []string{"https://myapp.com", "https://www.myapp.com"},
+
+	// ✅ Secure cookie defaults
+	CookieSecure:   true,
+	CookieHttpOnly: true,
+	CookieSameSite: http.SameSiteLaxMode,
+
+	// ✅ Trusted proxies (REQUIRED if behind load balancer)
+	TrustedProxies: []string{"10.0.0.0/8"},
+},
+
+// ✅ Revalidate identity on session resume
+OnSessionResume: func(httpCtx context.Context, s *vango.Session) error {
+	user, err := auth.ValidateFromRequest(httpCtx)
+	if err != nil {
+		return err // Rejects resume, forces new session
+	}
+	s.Set("user", user)
+	return nil
+},
+```
+
+- [ ] CSRF protection enabled (`CSRFSecret` set, 32 bytes)
+- [ ] WebSocket origins explicitly allowlisted (`AllowedOrigins` or `AllowSameOrigin`)
+- [ ] Cookie settings: `Secure=true`, `HttpOnly=true`, `SameSite=Lax`
+- [ ] `TrustedProxies` configured if behind any reverse proxy/load balancer
+- [ ] `OnSessionResume` revalidates credentials for authenticated apps
+- [ ] Route guards protect sensitive routes; actions enforce authorization server-side
+
+### Operational Limits
+
+```go
+Session: vango.SessionConfig{
+	// ✅ Resume window for refresh/reconnect
+	ResumeWindow: 30 * time.Second,
+
+	// ✅ Memory protection
+	MaxDetachedSessions: 10000,
+	MaxSessionsPerIP:    100,
+	EvictOnIPLimit:      true,
+
+	// ✅ Session persistence for restarts/scaling
+	Store: vango.RedisStore(redisClient),
+
+	// ✅ Storm budgets
+	StormBudget: vango.StormBudgetConfig{
+		MaxResourceStartsPerSecond: 100,
+		MaxActionStartsPerSecond:   50,
+		MaxGoLatestStartsPerSecond: 100,
+		MaxEffectRunsPerTick:       50,
+		WindowDuration:             time.Second,
+		OnExceeded:                 vango.BudgetThrottle,
+	},
+},
+```
+
+- [ ] `ResumeWindow` set (typically 30s; 0 to disable resume)
+- [ ] `MaxDetachedSessions` set (10000 is a reasonable default)
+- [ ] `MaxSessionsPerIP` set (100 is reasonable; adjust for multi-tenant)
+- [ ] **`TrustedProxies` configured** (otherwise `MaxSessionsPerIP` will DoS your own users)
+- [ ] Storm budgets configured with appropriate limits
+- [ ] Session store configured for production (Redis/Postgres) if you need restart resilience
+
+### Static Assets & Caching
+
+```go
+Static: vango.StaticConfig{
+	Dir:          "public",
+	Prefix:       "/",
+	CacheControl: vango.CacheControlProduction,
+	Compression:  true,
+},
+
+// Use ctx.Asset() in layouts for fingerprinted paths
+LinkEl(Rel("stylesheet"), Href(ctx.Asset("styles.css")))
+```
+
+- [ ] `CacheControl: vango.CacheControlProduction` for immutable caching
+- [ ] `Compression: true` for Brotli/gzip
+- [ ] All asset references use `ctx.Asset(...)` for manifest-aware paths
+- [ ] Asset manifest generated during build (`vango build`)
+
+### Deployment & Infrastructure
+
+- [ ] Reverse proxy passes `Upgrade` and `Connection: upgrade` headers for WebSocket
+- [ ] `/_vango/*` routes reach the Vango handler (critical for WS)
+- [ ] WebSocket idle timeouts set high enough (sessions are long-lived)
+- [ ] `X-Forwarded-For` and `X-Forwarded-Proto` headers forwarded
+- [ ] HTTP server timeouts configured (`ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`)
+
+Example Nginx configuration:
+
+```nginx
+location / {
+    proxy_pass http://app:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 86400s;  # Long timeout for WebSocket
+}
+```
+
+### Observability
+
+```go
+vango.Config{
+	Logger: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})),
+}
+```
+
+- [ ] Structured logging enabled (`slog` with JSON handler for production)
+- [ ] Metrics exported for: active sessions, detached sessions, event rate, patch sizes, budget exceeded counts
+- [ ] Trace propagation via `ctx.StdContext()` through all service/database calls
+
+### Complete Production Configuration Example
+
+```go
+import (
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/vango-go/vango"
+)
+
+func ProductionConfig(redisClient *redis.Client, csrfSecret []byte) vango.Config {
+	return vango.Config{
+		DevMode: false,
+
+		Logger: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})),
+
+		Session: vango.SessionConfig{
+			ResumeWindow:        30 * time.Second,
+			MaxDetachedSessions: 10000,
+			MaxSessionsPerIP:    100,
+			EvictOnIPLimit:      true,
+			Store:               vango.RedisStore(redisClient),
+			StormBudget: vango.StormBudgetConfig{
+				MaxResourceStartsPerSecond: 100,
+				MaxActionStartsPerSecond:   50,
+				MaxGoLatestStartsPerSecond: 100,
+				MaxEffectRunsPerTick:       50,
+				WindowDuration:             time.Second,
+				OnExceeded:                 vango.BudgetThrottle,
+			},
+		},
+
+		Security: vango.SecurityConfig{
+			CSRFSecret:     csrfSecret,
+			AllowedOrigins: []string{"https://myapp.com"},
+			TrustedProxies: []string{"10.0.0.0/8", "172.16.0.0/12"},
+			CookieSecure:   true,
+			CookieHttpOnly: true,
+			CookieSameSite: http.SameSiteLaxMode,
+		},
+
+		Static: vango.StaticConfig{
+			Dir:          "public",
+			Prefix:       "/",
+			CacheControl: vango.CacheControlProduction,
+			Compression:  true,
+		},
+
+		OnSessionStart: func(httpCtx context.Context, s *vango.Session) {
+			if user, ok := vango.UserFromContext(httpCtx).(*User); ok && user != nil {
+				s.Set("user", user)
+			}
+		},
+
+		OnSessionResume: func(httpCtx context.Context, s *vango.Session) error {
+			user, err := auth.ValidateFromRequest(httpCtx)
+			if err != nil {
+				return err
+			}
+			s.Set("user", user)
+			return nil
+		},
+	}
+}
+```
+
+---
+# Appendices
+
+These appendices provide (A) a practical API cheatsheet aligned to the current guide, (B) common pitfalls with concrete fixes, and (C) a migration guide for teams coming from SPAs.
+
+All examples assume:
+
+```go
+import "github.com/vango-go/vango"
+import . "github.com/vango-go/vango/el"
+```
+
+(Plus standard library imports as needed.)
+
+---
+
+## A. API Cheatsheet
+
+This is a “working set” of the APIs and patterns a developer/LLM uses most when building apps.
+
+### A.1 Core Rendering and Context
+
+**Reactive component wrapper**
+
+```go
+func MyComponent() vango.Component {
+	return vango.Func(func() *vango.VNode {
+		ctx := vango.UseCtx()
+		_ = ctx
+		return Div(Text("hi"))
+	})
+}
+```
+
+**Context**
+
+* `vango.UseCtx()` returns the current `vango.Ctx` within a render function.
+* Use `ctx.StdContext()` for I/O cancellation in Resource/Action work.
+* Do not depend on `ctx.Request()` during WebSocket renders for headers/cookies; use the auth context bridge into session state.
+
+### A.2 Signals
+
+```go
+s := vango.NewSignal(initial) // component-scoped
+s.Get()   // tracked read
+s.Set(v)  // write (must be on session loop)
+s.Peek()  // untracked read
+```
+
+**Session-scoped and global-scoped**
+
+```go
+var Shared = vango.NewSharedSignal(initial) // per browser tab/session
+var Global = vango.NewGlobalSignal(initial) // shared across users
+```
+
+**Common helpers shown in the current guide**
+
+Slice helpers (copy-on-write):
+
+```go
+items.RemoveAt(i)
+items.RemoveWhere(func(x T) bool { ... })
+items.UpdateAt(i, func(x T) T { ... })
+items.Filter(func(x T) bool { ... })
+```
+
+Map helpers (copy-on-write):
+
+```go
+m.SetEntry(k, v)
+m.DeleteEntry(k)
+m.UpdateEntry(k, func(v V) V { ... })
+```
+
+### A.3 Memos
+
+```go
+m := vango.NewMemo(func() T {
+	return computeFromSignals()
+})
+m.Get()
+```
+
+Session-scoped derived values (pattern used in current guide):
+
+```go
+var IsAuthed = vango.NewSharedMemo(func() bool { ... })
+```
+
+### A.4 Effects and Cleanup
+
+Effects must return `vango.Cleanup` (or `nil`):
+
+```go
+vango.Effect(func() vango.Cleanup {
+	// setup...
+	return nil
 })
 ```
 
-### 23.5 API Routes for Non-Browser Clients
+Structured helpers used inside effects (return Cleanup):
 
 ```go
-// routes/api/users/route.go
-func GET(w http.ResponseWriter, r *http.Request) {
-    users := services.Users.List(r.Context())
-    json.NewEncoder(w).Encode(users)
-}
-
-func POST(w http.ResponseWriter, r *http.Request) {
-    var input UserInput
-    json.NewDecoder(r.Body).Decode(&input)
-    user := services.Users.Create(r.Context(), input)
-    json.NewEncoder(w).Encode(user)
-}
+vango.Interval(d, fn, opts...)     // periodic work tied to component lifetime
+vango.Subscribe(stream, fn, opts...) // subscription tied to lifetime
+vango.GoLatest(key, work, apply, opts...) // cancel stale work by key
 ```
 
-### 23.6 Migration Checklist
+### A.5 Transactions
 
-- [ ] Choose migration strategy (strangler fig, big bang)
-- [ ] Set up routing to handle both old and new
-- [ ] Share authentication between systems
-- [ ] Wrap legacy widgets as islands if needed
-- [ ] Migrate route by route
-- [ ] API routes for mobile/external clients
-
----
-
-## 24. Recipes and Reference Apps
-
-This section provides complete, copy-paste patterns.
-
-### 24.1 CRUD with Pagination and Search
+Batch multiple writes into one commit:
 
 ```go
-// Use a struct for resource keys—type-safe and no string parsing
-type ListKey struct {
-    Search string
-    Page   int
-}
+vango.Tx(func() {
+	a.Set(1)
+	b.Set(2)
+})
 
-func UsersPage() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        stdCtx := ctx.StdContext()
-
-        // URL-driven state (shareable, bookmarkable)
-        search := vango.URLParam("search", "")
-        page := vango.URLParam[int]("page", 1)
-
-        // Derive key as a struct (comparable type)
-        key := vango.NewMemo(func() ListKey {
-            return ListKey{Search: search.Get(), Page: page.Get()}
-        })
-
-        // Load data—key changes trigger refetch
-        users := vango.NewResourceKeyed(key, func(k ListKey) (*PaginatedUsers, error) {
-            return services.Users.List(stdCtx, ListParams{
-                Search: k.Search,
-                Page:   k.Page,
-            })
-        })
-
-        return Div(Class("users-page"),
-            // Search input—updates URL on change
-            Input(
-                Type("search"),
-                Placeholder("Search users..."),
-                Value(search.Get()),
-                OnChange(func(value string) {
-                    search.Set(value)
-                    page.Set(1) // Reset to first page
-                }),
-            ),
-
-            // Table
-            users.Match(
-                vango.OnLoading(TableSkeleton),
-                vango.OnReady(func(data *PaginatedUsers) *vango.VNode {
-                    if len(data.Items) == 0 {
-                        return EmptyState("No users found")
-                    }
-                    return Div(
-                        Table(
-                            Thead(Tr(Th(Text("Name")), Th(Text("Email")), Th(Text("Actions")))),
-                            Tbody(
-                                vango.ForEach(data.Items, func(u User, i int) *vango.VNode {
-                                    return Tr(Key(u.ID),
-                                        Td(Text(u.Name)),
-                                        Td(Text(u.Email)),
-                                        Td(
-                                            Link(fmt.Sprintf("/users/%d", u.ID), Text("Edit")),
-                                        ),
-                                    )
-                                }),
-                            ),
-                        ),
-                        Pagination(page, data.TotalPages),
-                    )
-                }),
-            ),
-        )
-    })
-}
-```
-
-> **Note**: This example uses `OnChange` (fires on blur/enter) for simplicity. For search-as-you-type with debouncing, use `OnInput` combined with `GoLatest`—see **Section 10.5** for the complete pattern with cancellation and loading states.
-
-### 24.2 Master/Detail with Optimistic Updates
-
-```go
-func TasksPage() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        selectedID := vango.URLParam[int]("id", 0)
-        
-        return Div(Class("master-detail"),
-            Div(Class("master"),
-                TaskList(selectedID),
-            ),
-            Div(Class("detail"),
-                selectedID.Get() > 0 && TaskDetail(selectedID.Get()),
-                selectedID.Get() == 0 && Placeholder("Select a task"),
-            ),
-        )
-    })
-}
-
-func TaskList(selected *vango.URLParam[int]) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        tasks := vango.NewResource(func() ([]Task, error) {
-            return services.Tasks.List(vango.UseCtx().StdContext())
-        })
-        
-        return tasks.Match(
-            vango.OnLoading(ListSkeleton),
-            vango.OnReady(func(items []Task) *vango.VNode {
-                return Ul(
-                    vango.ForEach(items, func(t Task, i int) *vango.VNode {
-                        return Li(Key(t.ID),
-                            Class(selected.Get() == t.ID && "selected"),
-                            OnClick(func() { selected.Set(t.ID) }),
-                            Text(t.Title),
-                        )
-                    }),
-                )
-            }),
-        )
-    })
-}
-```
-
-### 24.3 Real-Time Presence
-
-```go
-// store/presence.go
-var OnlineUsers = vango.NewGlobalSignal(map[int]PresenceInfo{})
-
-func TrackPresence(userID int, name string) func() {
-    OnlineUsers.SetEntry(userID, PresenceInfo{
-        ID:       userID,
-        Name:     name,
-        LastSeen: time.Now(),
-    })
-    
-    // Update periodically
-    ticker := time.NewTicker(30 * time.Second)
-    go func() {
-        for range ticker.C {
-            vango.UseCtx().Dispatch(func() {
-                OnlineUsers.UpdateEntry(userID, func(p PresenceInfo) PresenceInfo {
-                    p.LastSeen = time.Now()
-                    return p
-                })
-            })
-        }
-    }()
-    
-    // Return cleanup function
-    return func() {
-        ticker.Stop()
-        OnlineUsers.DeleteEntry(userID)
-    }
-}
-
-// In layout
-func PresenceBar() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        users := store.OnlineUsers.Get()
-        return Div(Class("presence-bar"),
-            Text(fmt.Sprintf("%d online", len(users))),
-            vango.ForEach(maps.Values(users), func(u PresenceInfo, i int) *vango.VNode {
-                return Span(Key(u.ID), Class("avatar"), Text(u.Name[:1]))
-            }),
-        )
-    })
-}
-```
-
-### 24.4 Background Job Progress
-
-```go
-func ExportPage() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        ctx := vango.UseCtx()
-        jobID := vango.NewSignal("")
-        
-        startExport := vango.NewAction(func() error {
-            id, err := jobs.Enqueue("export", ExportParams{...})
-            if err != nil {
-                return err
-            }
-            jobID.Set(id)
-            return nil
-        })
-        
-        return Div(
-            jobID.Get() == "" && Button(
-                OnClick(startExport.Run),
-                Disabled(startExport.State() == vango.ActionRunning),
-                Text("Start Export"),
-            ),
-            jobID.Get() != "" && JobProgress(jobID.Get()),
-        )
-    })
-}
-
-func JobProgress(id string) vango.Component {
-    return vango.Func(func() *vango.VNode {
-        status := vango.NewResource(func() (*JobStatus, error) {
-            return jobs.GetStatus(vango.UseCtx().StdContext(), id)
-        })
-        
-        vango.Effect(func() vango.Cleanup {
-            if status.State() == vango.Ready && status.Data().Status == "pending" {
-                return vango.Interval(2*time.Second, func() {
-                    status.Refetch()
-                })
-            }
-            return nil
-        })
-        
-        return status.Match(
-            vango.OnLoading(Spinner),
-            vango.OnReady(func(s *JobStatus) *vango.VNode {
-                switch s.Status {
-                case "pending":
-                    return Progress(s.Progress)
-                case "complete":
-                    return A(Href(s.ResultURL), Text("Download"))
-                case "failed":
-                    return ErrorMessage(s.Error)
-                }
-                return nil
-            }),
-        )
-    })
-}
-```
-
-### 24.5 Reference Apps
-
-| App | Location | Demonstrates |
-|-----|----------|--------------|
-| `test-vango-app` | `/examples/test-app` | All framework features |
-| `trello-clone` | `/examples/trello` | Real-time collaboration |
-| `dashboard` | `/examples/dashboard` | Charts, data viz |
-
----
-
-## 25. Troubleshooting and FAQ
-
-This section addresses common problems and questions.
-
-### 25.1 Hook Order Errors
-
-**Symptom:** `panic: hook call order changed`
-
-**Cause:** Hooks called conditionally or in different order.
-
-```go
-// ❌ Wrong: Conditional hook
-func Component() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        if someCondition {
-            count := vango.NewSignal(0)  // Not always called!
-        }
-        return Div()
-    })
-}
-
-// ✅ Fix: Always call hooks in same order
-func Component() vango.Component {
-    return vango.Func(func() *vango.VNode {
-        count := vango.NewSignal(0)  // Always called
-        if someCondition {
-            // Use count here
-        }
-        return Div()
-    })
-}
-```
-
-### 25.2 Signal Write from Wrong Goroutine
-
-**Symptom:** `panic: signal write outside session loop`
-
-**Cause:** Updating signal from goroutine without Dispatch.
-
-```go
-// ❌ Wrong
-go func() {
-    data := fetchData()
-    dataSignal.Set(data)  // Wrong thread!
-}()
-
-// ✅ Fix
-go func() {
-    data := fetchData()
-    ctx.Dispatch(func() {
-        dataSignal.Set(data)  // On session loop
-    })
-}()
-```
-
-### 25.3 Patch Mismatch Reloads
-
-**Symptom:** Page unexpectedly reloads, console shows "patch mismatch"
-
-**Causes:**
-1. **Unstable keys** - Using index as key, not stable ID
-2. **Direct DOM manipulation** - JS modifying Vango-managed DOM
-3. **Island boundary issues** - Island not properly isolated
-
-**Debug:**
-1. Check list keys are from data, not index
-2. Ensure islands use proper boundaries
-3. Check for third-party scripts modifying DOM
-
-### 25.4 Routing Surprises
-
-**Catch-all not matching:**
-
-```
-// Routes:
-// /users/[id]         →  /users/123 ✓
-// /users/[...path]    →  /users/123/settings ✓
-// BUT: /users matches neither!
-
-// Fix: Add explicit /users route
-// /users/index.go     →  /users ✓
-```
-
-**Parameter type coercion:**
-
-```go
-// /users/[id:int]
-// /users/abc → 404 (not an int)
-// /users/123 → id = 123 ✓
-```
-
-### 25.5 Performance Regressions
-
-**Effect storms:**
-
-```go
-// ❌ Creates infinite loop
-vango.Effect(func() {
-    count.Set(count.Get() + 1)  // Triggers itself!
+vango.TxNamed("domain:action", func() {
+	// same, but labeled for observability
 })
 ```
 
-**Resource repeatedly starting:**
+### A.6 Resources (Async reads)
+
+Create:
 
 ```go
-// ❌ No key = refetches on every render
-resource := vango.NewResource(fetchData)
-
-// ✅ Key prevents refetch if same
-resource := vango.NewResourceKeyed(id, fetchData)
+r := vango.NewResource(func() (T, error) { ... })
 ```
 
-### 25.6 Diagnostic Workflow
+Keyed:
 
-1. **Reproduce**: Get minimal reproduction steps
-2. **Isolate**: Remove unrelated code
-3. **Instrument**: Enable DevTools, add logging
-4. **Fix**: Apply fix, verify in isolation
-5. **Test**: Add test to prevent regression
-
-### 25.7 Bug Report Template
-
-```markdown
-**Environment:**
-- Vango version: 
-- Go version: 
-- Browser: 
-
-**Steps to reproduce:**
-1. 
-2. 
-3. 
-
-**Expected behavior:**
-
-**Actual behavior:**
-
-**Console output:**
-
-**DevTools state:**
-- Transaction name: 
-- Signal values: 
-- Patch size: 
-
-**Code snippet:**
+```go
+r := vango.NewResourceKeyed(key, func(k K) (T, error) { ... })
+// key can be a signal-like (signal, URLParam, memo) or a function returning K
 ```
 
-### 25.8 FAQ
+States:
 
-**Q: Can I use React/Vue components?**
+```go
+r.State() == vango.Pending
+r.State() == vango.Loading
+r.State() == vango.Ready
+r.State() == vango.Error
 
-A: Yes, via JavaScript islands. Wrap them in an island definition.
+r.Data()  // valid when Ready
+r.Error() // valid when Error
+```
 
-**Q: Is SEO supported?**
+Matchers (recommended):
 
-A: Yes. SSR provides full HTML for crawlers.
+```go
+return r.Match(
+	vango.OnPending(func() *vango.VNode { ... }),
+	vango.OnLoading(func() *vango.VNode { ... }),
+	vango.OnReady(func(data T) *vango.VNode { ... }),
+	vango.OnError(func(err error) *vango.VNode { ... }),
+)
+```
 
-**Q: How many concurrent users can I handle?**
+### A.7 Actions (Async mutations)
 
-A: Depends on session memory (~100-500KB) and server resources. 10,000 sessions ≈ 1-5GB RAM.
+Create:
 
-**Q: Does it work offline?**
+```go
+a := vango.NewAction(
+	func(ctx context.Context, arg A) (R, error) { ... },
+	vango.CancelLatest(), // default
+)
+accepted := a.Run(arg) // bool
+```
 
-A: Partially. SSR HTML displays, but interactivity requires WebSocket.
+States:
 
-**Q: Can I use with existing database/ORM?**
+```go
+a.State() == vango.ActionIdle
+a.State() == vango.ActionRunning
+a.State() == vango.ActionSuccess
+a.State() == vango.ActionError
 
-A: Yes. Vango doesn't mandate any database layer.
+res, ok := a.Result()
+err := a.Error()
+a.Reset()
+```
 
-**Q: How do I debug?**
+Concurrency policies (as described in the current guide):
 
-A: DevTools in development, structured logging in production.
+```go
+vango.CancelLatest()
+vango.DropWhileRunning()
+vango.Queue(n)
+```
+
+### A.8 Navigation and URL State
+
+Link helpers (intercepted when WS healthy; normal navigation otherwise):
+
+```go
+Link("/path", Text("Label"))
+LinkPrefetch("/path", Text("Label"))
+NavLink(ctx, "/path", Text("Label"))
+NavLinkPrefix(ctx, "/admin", Text("Admin"))
+```
+
+Programmatic navigation:
+
+```go
+ctx := vango.UseCtx()
+ctx.Navigate("/path")
+ctx.Navigate("/path", vango.WithReplace()) // replace vs push
+```
+
+**Canonical API:** Navigation options use the `vango.With*` prefix (e.g., `vango.WithReplace()`, `vango.WithState(data)`). All navigation helpers are in the `vango` package, not a separate `server` package.
+
+URL params (query-string state):
+
+```go
+p := vango.URLParam("status", "all")
+q := vango.URLParam("q", "", vango.Replace) // update mode per current guide patterns
+debounced := vango.URLParam("q", "", vango.Replace, vango.URLDebounce(300*time.Millisecond))
+```
+
+### A.9 Assets and Thin Client
+
+Manifest-aware asset resolution:
+
+```go
+Href(ctx.Asset("styles.css"))
+Img(Src(ctx.Asset("images/logo.svg")))
+```
+
+Thin client injection:
+
+```go
+Body(children, VangoScripts())
+```
+
+WebSocket URL contract (operationally critical):
+
+* thin client connects to `/_vango/live?path=<current-path-and-query>`
+* custom WS URL overrides must preserve `?path=` or you risk SSR/WS tree mismatch (“handler not found”)
 
 ---
 
-## 26. Appendices
+## B. Common Pitfalls
 
-### 26.1 CLI Reference
+This section lists the failure modes you’ll actually see in development and production, with the most likely causes and the correct fix.
 
-**`vango create [name]`**
+### B.1 “Hook order changed” panic
 
-Creates a new Vango project.
+**Symptom:** runtime panic indicating hook order changed.
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--minimal` | `false` | Create minimal scaffold (home page, health API only) |
-| `--with-tailwind` | `false` | Include Tailwind CSS (uses standalone binary, no Node.js) |
-| `--with-db` | `""` | Include database setup: `sqlite` or `postgres` |
-| `--with-auth` | `false` | Include admin routes with auth middleware |
-| `--full` | `false` | All features: Tailwind, database (sqlite), auth |
-| `-d, --description` | `""` | Project description |
-| `-y, --yes` | `false` | Skip prompts, use defaults |
+**Cause:** conditional or variable-count hook creation (`NewSignal`, `NewMemo`, `Effect`, `NewResource`, `NewAction`, etc.) inside a render function.
 
-**`vango dev`**
+**Fix:** always call hooks in the same order/count; conditionally *use* results, not create them.
 
-Runs development server with hot reload.
+Bad:
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--port` | `3000` | Port to listen on |
-| `--host` | `localhost` | Host to bind to |
+```go
+if show {
+	_ = vango.NewSignal(0)
+}
+```
 
-**`vango build`**
+Good:
 
-Builds production binary and assets.
+```go
+s := vango.NewSignal(0)
+if show {
+	_ = s
+}
+```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--out` | `dist` | Output directory |
-| `--fingerprint` | `true` | Hash asset filenames |
+Bad (hooks in a loop where length changes):
 
-**`vango gen routes`**
+```go
+for range items.Get() {
+	_ = vango.NewSignal(0)
+}
+```
 
-Regenerates route registration code.
+Good: store collection in a single signal and render with `Range(...)` + `Key(...)`.
 
-**`vango gen component <name>`**
+### B.2 “Signal write outside session loop”
 
-Scaffolds a new component.
+**Symptom:** panic or undefined behavior when writing a signal.
 
-**`vango gen route <path>`**
+**Cause:** writing signals from a goroutine (or any context not running on the session loop).
 
-Scaffolds a new page at the given route.
+**Fix:** marshal back via `ctx.Dispatch(func(){ ... })`, or use `Resource`/`Action`/structured helpers which apply results on the loop.
 
-### 26.2 `vango.json` Reference
+Bad:
+
+```go
+go func() { s.Set(1) }()
+```
+
+Good:
+
+```go
+ctx := vango.UseCtx()
+go func() {
+	ctx.Dispatch(func() { s.Set(1) })
+}()
+```
+
+### B.3 Blocking I/O inside render (stalls session / bad latency)
+
+**Symptom:** slow UI, “everything freezes,” sessions back up.
+
+**Cause:** database/HTTP calls executed directly inside page handlers or `vango.Func` render bodies.
+
+**Fix:** move I/O into `Resource` or `Action`. Page handlers are reactive and must remain pure.
+
+### B.4 “Events received, patches = 0” (UI doesn’t update)
+
+**Most common causes in this guide’s model:**
+
+1. signals are being created or read outside the tracked render context
+2. VNodes that close over signals are cached and reused (so reactivity doesn’t “see” the reads)
+
+**Fixes:**
+
+* create signals inside `vango.Func` (or reactive page handlers) and read them via `.Get()` during render
+* do not cache reactive VNodes at module scope
+
+Bad:
+
+```go
+var node = Div(Text(count.Get())) // cached VNode closes over reactive state
+```
+
+Good:
+
+```go
+return Div(Textf("%d", count.Get()))
+```
+
+### B.5 “Handler not found” / SSR vs WS mismatch
+
+**Symptom:** server logs or client console indicate handler missing; may self-heal reload.
+
+**Primary cause:** SSR-rendered tree and WS-mounted tree differ, causing hydration ID (HID) drift.
+
+**Key operational requirement:** the thin client must connect with `?path=<current-path>` so the server mounts the same route on WS init.
+
+**Fix direction:**
+
+* ensure `/_vango/live?path=...` is preserved
+* ensure route rendering is deterministic for the same inputs (avoid nondeterminism in render)
+* ensure nested components are expanded consistently before HID assignment (handled by framework, but avoid patterns that change tree shape between SSR and WS)
+
+### B.6 Patch mismatch reloads
+
+**Symptom:** page reloads unexpectedly; “patch mismatch” observed.
+
+**Likely causes:**
+
+* unstable list keys (index keys; keys change on reorder)
+* third-party scripts mutating Vango-managed DOM
+* mis-specified island/hook boundaries
+
+**Fix:**
+
+* use stable `Key(domainID)` for dynamic lists
+* confine DOM-owning libraries to islands
+* do not mutate structure of Vango-managed DOM from custom JS except via hook protocols intended for that purpose
+
+### B.7 Route param surprises
+
+**Symptom:** unexpected handler invoked; “abc” reaches an int handler.
+
+**Fix:** use typed params in filenames (e.g., `[id:int]`) so invalid URLs 404 at routing.
+
+### B.8 Mounting under a subpath breaks WS
+
+**Symptom:** app works for SSR but interactivity fails.
+
+**Cause:** Vango WebSocket endpoints live under `/_vango/*`. If you mount the app under `/app`, you must still route `/_vango/*` to the same handler (or override WS URL while preserving `?path=` semantics).
+
+### B.9 Incident Runbooks (When It's On Fire)
+
+Quick action checklists for production incidents:
+
+#### Sessions Spiking
+
+**Symptoms:** `sessions_active` metric climbing fast, memory pressure, degraded response times.
+
+**Triage:**
+1. Check if it's real traffic (bot attack vs viral feature)
+2. Verify `MaxSessionsPerIP` is configured and `TrustedProxies` is set correctly
+3. Check for session leaks (sessions not cleaning up after tab close)
+4. Check detached session count—if high, `EvictOnIPLimit` may not be enabled
+
+**Mitigation:**
+- Scale horizontally if legitimate load
+- Lower `ResumeWindow` temporarily to reduce detached session accumulation
+- Enable `EvictOnIPLimit: true` if not already set
+- If attack: block IPs at load balancer, tighten `MaxSessionsPerIP`
+
+#### Patch Mismatch Storms
+
+**Symptoms:** clients repeatedly reload, "patch mismatch" in logs, high SSR load.
+
+**Triage:**
+1. Check recent deploys—did render logic change?
+2. Look for unstable keys in list rendering (index keys, keys that change on reorder)
+3. Check for third-party scripts mutating Vango-managed DOM
+4. Verify island boundaries are correct (libraries owning DOM outside islands)
+
+**Mitigation:**
+- Rollback recent deploy if it introduced the issue
+- Add stable `Key(domainID)` to list items
+- Move DOM-mutating libraries into islands
+- Check browser extensions aren't interfering (hard to fix, but good to know)
+
+#### CPU Spikes on Effects / Effect Storms
+
+**Symptoms:** CPU pegged, storm budget exceeded logs, degraded latency.
+
+**Triage:**
+1. Check storm budget metrics—which type is spiking? (resource/action/effect/golatest)
+2. Look for infinite effect loops (effect writes signal it depends on without guard)
+3. Profile with `pprof` to identify hot paths
+4. Review recent effect changes
+
+**Mitigation:**
+- Storm budgets should already be limiting blast radius (verify they're configured)
+- If a specific component is the culprit, disable it or add guards
+- Consider `vango.BudgetTripBreaker` for sessions that hit budgets repeatedly (terminates session)
+
+#### "Handler not found" Epidemic
+
+**Symptoms:** many clients showing "handler not found" errors, interactivity broken.
+
+**Triage:**
+1. Check if SSR and WS are running same code version (rolling deploy mismatch)
+2. Verify `?path=` is preserved on WebSocket URL
+3. Check for nondeterministic render (random IDs, time-based conditionals)
+
+**Mitigation:**
+- Ensure atomic deploys (SSR and WS updated together)
+- Force page refresh for affected users (they'll get fresh SSR + matching WS)
+- Fix nondeterministic render if identified
+
+#### Memory Leak (Gradual)
+
+**Symptoms:** memory grows over hours/days, eventually OOM.
+
+**Triage:**
+1. Check session count growth vs request rate
+2. Look for Resource/Action instances not being cleaned up
+3. Profile heap with `pprof`
+4. Check for goroutine leaks (effects not returning cleanup, subscriptions not cancelled)
+
+**Mitigation:**
+- Ensure all `Effect` functions return cleanup when needed
+- Use structured helpers (`GoLatest`, `Subscribe`, `Interval`) which handle cleanup
+- Configure session eviction limits
+- Restart pods as temporary mitigation while debugging
+
+#### Observability Checklist for Incidents
+
+When investigating any incident, gather:
+
+```
+□ sessions_active / sessions_detached metrics
+□ events_total by type (especially error rate)
+□ patch_size_bytes p99 (large patches = slow updates)
+□ storm_budget_exceeded_total by type
+□ resource_duration / action_duration p99
+□ Recent deploy history
+□ Sample of error logs (grep for "mismatch", "handler not found", "budget exceeded")
+```
+
+---
+
+## C. Migration Guide (React/Next.js → Vango)
+
+This section is written for teams migrating from a client-side SPA mental model to Vango’s server-driven model.
+
+### C.1 Mental Model Translation
+
+**React SPA:**
+
+* client owns state
+* server is data API
+* mutations require API + client cache invalidation
+
+**Vango:**
+
+* server owns state
+* browser is event/patch terminal
+* “cache invalidation” becomes updating signals; UI follows automatically
+
+Mapping:
+
+| SPA Concept                | Vango Equivalent                          |
+| -------------------------- | ----------------------------------------- |
+| React component with hooks | `vango.Func` component                    |
+| `useState`                 | `vango.NewSignal`                         |
+| derived selectors          | `vango.NewMemo`                           |
+| `useEffect`                | `vango.Effect` (returns cleanup)          |
+| React Query / SWR          | `vango.NewResource` / `NewResourceKeyed`  |
+| mutation hooks             | `vango.NewAction` with concurrency policy |
+| client router navigation   | `Link` helpers / `ctx.Navigate`           |
+| URL query state            | `vango.URLParam`                          |
+
+### C.2 Data Fetching Migration
+
+In React, you fetch via API calls in the browser. In Vango, you usually call services/DB directly server-side and wrap with `Resource`.
+
+React:
+
+```js
+const { data, isLoading } = useQuery(['project', id], () => fetch(`/api/projects/${id}`))
+```
+
+Vango:
+
+```go
+project := vango.NewResource(func() (*Project, error) {
+	return services.Projects.GetByID(ctx.StdContext(), id)
+})
+```
+
+### C.3 Mutation Migration
+
+React typically does:
+
+* optimistic UI
+* POST to API
+* reconcile cache
+
+Vango does:
+
+* optimistic signal update (optional)
+* `Action` for I/O
+* update signals (or navigate) on success
+
+Choose concurrency policy deliberately:
+
+* save button: `DropWhileRunning()`
+* search: `CancelLatest()`
+* queued operations: `Queue(n)`
+
+### C.4 Routing Migration
+
+In Next.js, you have file-based routing with client navigation. In Vango you also have file-based routing, but execution is server-side and reactive:
+
+* page handlers must remain render-pure
+* layouts replace the typical SPA “app shell”
+* navigation is progressively enhanced: Link works without JS, becomes SPA when WS is healthy
+
+### C.5 Incremental Adoption Patterns
+
+If you have an existing Go backend or SPA:
+
+* mount Vango as a subtree (e.g., `/new/*`) while keeping old routes
+* embed legacy React widgets as islands temporarily
+* share auth by attaching identity in HTTP middleware and bridging it into session start/resume
+
+---
+
+## D. `vango.json` Reference
+
+The `vango.json` file is the contract between your project and the Vango CLI. It controls route generation, static file handling, build output, Tailwind integration, and development tooling.
+
+### D.1 Complete Schema
 
 ```json
 {
     "module": "myapp",
     "routes": {
         "dir": "app/routes",
-        "output": "app/routes/routes_gen.go"
+        "output": "app/routes/routes_gen.go",
+        "package": "routes"
     },
     "static": {
         "dir": "public",
@@ -8449,13 +5552,14 @@ Scaffolds a new page at the given route.
     },
     "build": {
         "output": "dist",
-        "fingerprint": true
+        "fingerprint": true,
+        "manifest": "manifest.json"
     },
     "tailwind": {
         "enabled": true,
         "config": "tailwind.config.js",
-        "input": "app/styles/app.css",
-        "output": "public/css/app.css"
+        "input": "app/styles/input.css",
+        "output": "public/styles.css"
     },
     "devtools": {
         "enabled": true
@@ -8463,58 +5567,239 @@ Scaffolds a new page at the given route.
 }
 ```
 
-### 26.3 App Checklists
+### D.2 Field Reference
 
-**Pre-Launch Checklist:**
+#### `module` (required)
 
-- [ ] HTTPS configured
-- [ ] CSRF protection enabled
-- [ ] Allowed origins configured
-- [ ] Session secret is random and secure
-- [ ] Rate limiting in place
-- [ ] Logging configured
-- [ ] Metrics exposed
-- [ ] Health checks working
-- [ ] Error tracking configured
-- [ ] Backups configured
+```json
+"module": "myapp"
+```
 
-**Accessibility Checklist:**
+Your Go module path (must match `go.mod`). Used by the route generator to produce correct import paths in `routes_gen.go`.
 
-- [ ] All form elements have labels
-- [ ] Focus visible on interactive elements
-- [ ] Sufficient color contrast
-- [ ] Skip links present
-- [ ] ARIA attributes where needed
-- [ ] Keyboard navigation works
-- [ ] Screen reader tested
+#### `routes` (required)
 
-**Deployment Checklist:**
+```json
+"routes": {
+    "dir": "app/routes",
+    "output": "app/routes/routes_gen.go",
+    "package": "routes"
+}
+```
 
-- [ ] Environment variables set
-- [ ] Database migrations run
-- [ ] Static assets built
-- [ ] Reverse proxy configured
-- [ ] WebSocket upgrade working
-- [ ] Health checks passing
-- [ ] Rollback plan ready
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dir` | string | `"app/routes"` | Directory containing route files (page handlers, layouts, middleware) |
+| `output` | string | `"app/routes/routes_gen.go"` | Path for generated route registration code |
+| `package` | string | `"routes"` | Go package name for the generated file |
 
-### 26.4 Glossary
+**Behavior:**
+- `vango gen routes` scans `dir` for `*.go` files matching route conventions
+- Generates `output` with `RegisterRoutes(app *vango.App)` function
+- The generated file should be committed to version control
 
-| Term | Definition |
-|------|------------|
-| **Session** | Per-tab server-side state; persists across navigation |
-| **Session Loop** | Single-threaded event processor for a session |
-| **HID** | Hydration ID; links DOM elements to server-side VDOM |
-| **Patch** | Binary-encoded DOM update sent over WebSocket |
-| **Signal** | Reactive state container |
-| **Memo** | Cached derived state |
-| **Effect** | Side effect triggered by state changes |
-| **Resource** | Async data loader with loading/error/ready states |
-| **Action** | Async mutation with pending state and concurrency control |
-| **Hook** | Client-side JavaScript for a DOM element |
-| **Island** | Self-contained client-side widget, isolated from Vango |
-| **Resume Window** | Time window within which a disconnected session can reconnect |
-| **Storm Budget** | Limits on resource/action/effect rates per session |
-| **Thin Client** | Minimal JavaScript runtime that applies patches |
-| **Context Bridge** | Mechanism to pass HTTP request data into Vango session |
-| **Progressive Enhancement** | Strategy where features work without JS, enhanced with it |
+#### `static` (required)
+
+```json
+"static": {
+    "dir": "public",
+    "prefix": "/"
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dir` | string | `"public"` | Directory containing static assets |
+| `prefix` | string | `"/"` | URL prefix for static file serving |
+
+**Behavior:**
+- Files in `dir` are served at `prefix + filename`
+- Example: `public/images/logo.png` → `/images/logo.png`
+- In production with fingerprinting, use `ctx.Asset(...)` to resolve hashed paths
+
+#### `build` (required for production)
+
+```json
+"build": {
+    "output": "dist",
+    "fingerprint": true,
+    "manifest": "manifest.json"
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `output` | string | `"dist"` | Directory for build artifacts |
+| `fingerprint` | boolean | `true` | Whether to hash static assets for cache busting |
+| `manifest` | string | `"manifest.json"` | Filename for asset manifest (maps original → fingerprinted names) |
+
+**Build output structure:**
+
+```
+dist/
+├── server                  # Compiled Go binary
+├── public/                 # Static assets (fingerprinted if enabled)
+│   ├── styles.a1b2c3d4.css
+│   ├── images/
+│   │   └── logo.e5f6g7h8.png
+│   └── ...
+└── manifest.json           # {"styles.css": "styles.a1b2c3d4.css", ...}
+```
+
+#### `tailwind` (optional)
+
+```json
+"tailwind": {
+    "enabled": true,
+    "config": "tailwind.config.js",
+    "input": "app/styles/input.css",
+    "output": "public/styles.css"
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Whether to run Tailwind CSS pipeline |
+| `config` | string | `"tailwind.config.js"` | Path to Tailwind config (optional in Tailwind v4) |
+| `input` | string | `"app/styles/input.css"` | Tailwind source file (contains `@import "tailwindcss"`) |
+| `output` | string | `"public/styles.css"` | Compiled CSS output path |
+
+**Behavior:**
+- When `enabled: true`, `vango dev` starts Tailwind watcher alongside the Go compiler
+- Tailwind scans `*.go` files for `Class(...)` calls to extract class names
+- Uses standalone Tailwind binary (no Node.js required)
+- Set `enabled: false` if using pure CSS or a different CSS pipeline
+
+**Disabling Tailwind:**
+
+```json
+"tailwind": {
+    "enabled": false
+}
+```
+
+#### `devtools` (optional)
+
+```json
+"devtools": {
+    "enabled": true
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` in dev, `false` in prod | Enable browser devtools integration |
+
+**Behavior:**
+- When enabled, the thin client exposes debugging hooks for browser extensions
+- Transaction names include source file:line references
+- Automatically disabled when `DevMode: false` in `vango.Config`
+
+### D.3 CLI ↔ Config Resolution Order
+
+The CLI resolves configuration in this order (later sources override earlier):
+
+1. **Built-in defaults** (hardcoded in CLI)
+2. **`vango.json`** in project root
+3. **Environment variables** (prefixed with `VANGO_`)
+4. **Command-line flags** (highest priority)
+
+**Environment variable mapping:**
+
+| Config Field | Environment Variable |
+|--------------|---------------------|
+| `routes.dir` | `VANGO_ROUTES_DIR` |
+| `static.dir` | `VANGO_STATIC_DIR` |
+| `build.output` | `VANGO_BUILD_OUTPUT` |
+| `tailwind.enabled` | `VANGO_TAILWIND_ENABLED` |
+
+**Example: Override for CI:**
+
+```bash
+# Use different build output in CI
+VANGO_BUILD_OUTPUT=./artifacts vango build
+```
+
+### D.4 Minimal vs Full Examples
+
+**Minimal `vango.json` (using all defaults):**
+
+```json
+{
+    "module": "myapp"
+}
+```
+
+This works because the CLI applies sensible defaults for all other fields.
+
+**Full `vango.json` (explicit everything):**
+
+```json
+{
+    "module": "github.com/myorg/myapp",
+    "routes": {
+        "dir": "app/routes",
+        "output": "app/routes/routes_gen.go",
+        "package": "routes"
+    },
+    "static": {
+        "dir": "public",
+        "prefix": "/"
+    },
+    "build": {
+        "output": "dist",
+        "fingerprint": true,
+        "manifest": "manifest.json"
+    },
+    "tailwind": {
+        "enabled": true,
+        "config": "tailwind.config.js",
+        "input": "app/styles/input.css",
+        "output": "public/styles.css"
+    },
+    "devtools": {
+        "enabled": true
+    }
+}
+```
+
+**No Tailwind (pure CSS):**
+
+```json
+{
+    "module": "myapp",
+    "tailwind": {
+        "enabled": false
+    }
+}
+```
+
+**Custom directory structure:**
+
+```json
+{
+    "module": "myapp",
+    "routes": {
+        "dir": "src/pages",
+        "output": "src/pages/generated.go",
+        "package": "pages"
+    },
+    "static": {
+        "dir": "assets",
+        "prefix": "/static/"
+    }
+}
+```
+
+### D.5 Validation and Errors
+
+The CLI validates `vango.json` on startup. Common errors:
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `module is required` | Missing `module` field | Add `"module": "yourmodule"` matching `go.mod` |
+| `routes.dir does not exist` | Invalid routes directory | Create the directory or fix the path |
+| `tailwind.input not found` | Missing Tailwind source file | Create the file or set `tailwind.enabled: false` |
+| `module mismatch with go.mod` | `module` doesn't match `go.mod` | Ensure they match exactly |
+
+**Tip:** Run `vango validate` to check your configuration without starting the server.

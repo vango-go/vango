@@ -258,10 +258,10 @@ type simpleRouteMatch struct {
 	params      map[string]string
 }
 
-func (m *simpleRouteMatch) GetParams() map[string]string        { return m.params }
-func (m *simpleRouteMatch) GetPageHandler() PageHandler         { return m.pageHandler }
-func (m *simpleRouteMatch) GetLayoutHandlers() []LayoutHandler  { return nil }
-func (m *simpleRouteMatch) GetMiddleware() []RouteMiddleware    { return nil }
+func (m *simpleRouteMatch) GetParams() map[string]string       { return m.params }
+func (m *simpleRouteMatch) GetPageHandler() PageHandler        { return m.pageHandler }
+func (m *simpleRouteMatch) GetLayoutHandlers() []LayoutHandler { return nil }
+func (m *simpleRouteMatch) GetMiddleware() []RouteMiddleware   { return nil }
 
 // renderRoute renders a matched route and returns DOM patches.
 func (rn *RouteNavigator) renderRoute(match RouteMatch) ([]vdom.Patch, error) {

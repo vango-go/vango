@@ -1,165 +1,266 @@
-# Vango V2
+<p align="center">
+  <img src="assets/vango-logo.svg" alt="Vango" width="120" />
+</p>
 
-**A server-driven web framework for Go** — Build interactive web applications without writing JavaScript.
+<h1 align="center">Vango</h1>
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://go.dev)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <strong>Server-driven UI for Go.</strong><br>
+  Build modern web apps with a single language, a single binary, and no client/server state synchronization.
+</p>
+
+<p align="center">
+  <a href="https://pkg.go.dev/github.com/vango-go/vango"><img src="https://pkg.go.dev/badge/github.com/vango-go/vango.svg" alt="Go Reference"></a>
+  <a href="https://goreportcard.com/report/github.com/vango-go/vango"><img src="https://goreportcard.com/badge/github.com/vango-go/vango" alt="Go Report Card"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="https://discord.gg/vango"><img src="https://img.shields.io/discord/xxxxx?color=7389D8&label=discord" alt="Discord"></a>
+</p>
+
+<p align="center">
+  <a href="https://vango.dev/docs">Documentation</a> •
+  <a href="https://vango.dev/examples">Examples</a> •
+  <a href="https://vango.cloud">Managed Hosting</a> •
+  <a href="https://discord.gg/vango">Discord</a>
+</p>
 
 ---
+#WIP / NOT LAUNCHED
 
-## What is Vango?
+## Why Vango?
 
-Vango is a **server-driven UI framework** inspired by Phoenix LiveView. Components run on the server, and the browser receives binary patches over WebSocket — no JavaScript required.
+Modern web development is complicated. You write your logic twice—once on the server, once in the browser. You manage state in two places and pray they stay in sync. You debug hydration mismatches, cache invalidation, and client/server waterfalls.
+
+**Vango takes a different approach.** Your UI is a projection of server state. The browser runs a thin client (~12KB) that captures events, sends them to the server, and applies binary patches to the DOM. No hydration. No client-side state management. No synchronization bugs.
 
 ```go
-func Counter() vango.Component {
+func Counter(initial int) vango.Component {
     return vango.Func(func() *vango.VNode {
-        count := vango.Signal(0)
-        
+        count := vango.NewSignal(initial)
+
         return Div(
-            H1(Textf("Count: %d", count())),
-            Button(OnClick(count.Inc), Text("+")),
             Button(OnClick(count.Dec), Text("-")),
+            Span(Textf("%d", count.Get())),
+            Button(OnClick(count.Inc), Text("+")),
         )
     })
 }
 ```
 
-### Key Features
+That's a fully interactive counter. No JavaScript. No build step. Just Go.
 
-- **🚀 One Language** — Go from database to DOM
-- **📦 Tiny Client** — 9.56 KB gzipped (no React, no Vue)
-- **⚡ Sub-millisecond Updates** — Binary protocol + efficient diffing
-- **🔒 Secure by Default** — State lives on the server
-- **🔄 Real-time** — WebSocket patches, not full page reloads
+## Features
 
-> **Note**: WASM client-side mode is planned but **not yet implemented**. All components currently run on the server.
-
----
+- **Single Language** — Write your entire app in Go. Database queries, business logic, and UI in one place.
+- **Single Binary** — Deploy a single executable. No Node.js, no npm, no webpack.
+- **Reactive Signals** — Fine-grained reactivity with automatic dependency tracking.
+- **Server-Side State** — No client/server sync. Server is the source of truth.
+- **Instant Interactivity** — SSR for initial load, WebSocket for updates. SPA feel without SPA complexity.
+- **Type-Safe Routing** — File-based routing with typed parameters.
+- **Built-in Tailwind** — Zero-config CSS pipeline. No Node.js required.
+- **Escape Hatches** — Hooks for client-side behavior, islands for third-party widgets, WASM when you need it.
 
 ## Quick Start
 
 ```bash
-# Install CLI
-go install vango.dev/cli/vango@latest
+# Install the CLI
+go install github.com/vango-go/vango/cmd/vango@latest
 
-# Create project
-vango create my-app
-cd my-app
+# Create a new project
+vango create myapp
+cd myapp
 
-# Run dev server
+# Start developing
 vango dev
 ```
 
-Open http://localhost:3000
+Open [http://localhost:8080](http://localhost:8080) and start building.
 
-### Project Structure
+## Examples
+
+### Reactive State
+
+Signals are mutable values that trigger UI updates when they change.
+
+```go
+func TodoApp() vango.Component {
+    return vango.Func(func() *vango.VNode {
+        todos := vango.NewSignal([]Todo{})
+        input := vango.NewSignal("")
+
+        return Div(
+            Form(
+                OnSubmit(vango.PreventDefault(func() {
+                    if v := input.Get(); v != "" {
+                        todos.Set(append(todos.Get(), Todo{Text: v}))
+                        input.Set("")
+                    }
+                })),
+                Input(Value(input.Get()), OnInput(input.Set)),
+                Button(Type("submit"), Text("Add")),
+            ),
+            Ul(Range(todos.Get(), func(t Todo, i int) *vango.VNode {
+                return Li(Key(i), Text(t.Text))
+            })),
+        )
+    })
+}
+```
+
+### Data Loading
+
+Resources handle async data fetching with built-in loading and error states.
+
+```go
+func UserProfile(userID int) vango.Component {
+    return vango.Func(func() *vango.VNode {
+        ctx := vango.UseCtx()
+
+        user := vango.NewResource(func() (*User, error) {
+            return db.Users.FindByID(ctx.StdContext(), userID)
+        })
+
+        return user.Match(
+            vango.OnLoading(func() *vango.VNode {
+                return Div(Text("Loading..."))
+            }),
+            vango.OnError(func(err error) *vango.VNode {
+                return Div(Class("text-red-600"), Text(err.Error()))
+            }),
+            vango.OnReady(func(u *User) *vango.VNode {
+                return Div(
+                    H1(Text(u.Name)),
+                    P(Text(u.Email)),
+                )
+            }),
+        )
+    })
+}
+```
+
+### Mutations
+
+Actions handle async mutations with explicit state and concurrency control.
+
+```go
+func SaveButton(data FormData) vango.Component {
+    return vango.Func(func() *vango.VNode {
+        save := vango.NewAction(
+            func(ctx context.Context, d FormData) (*Result, error) {
+                return api.Save(ctx, d)
+            },
+            vango.DropWhileRunning(), // Prevent double-submit
+        )
+
+        return Button(
+            Disabled(save.State() == vango.ActionRunning),
+            OnClick(func() { save.Run(data) }),
+            Text(save.State() == vango.ActionRunning ? "Saving..." : "Save"),
+        )
+    })
+}
+```
+
+### File-Based Routing
 
 ```
-my-app/
-├── app/
-│   ├── routes/       # File-based routing
-│   │   └── index.go  # → /
-│   └── components/   # Shared components
-├── public/           # Static assets
-└── vango.json        # Config
+app/routes/
+├── layout.go              # Root layout
+├── index.go               # /
+├── about.go               # /about
+└── projects/
+    ├── layout.go          # Nested layout
+    ├── index.go           # /projects
+    └── [id:int]/
+        ├── index.go       # /projects/:id
+        └── edit.go        # /projects/:id/edit
 ```
 
----
+```go
+// app/routes/projects/[id:int]/index.go
+type Params struct {
+    ID int `param:"id"`
+}
 
-## Performance
+func ProjectPage(ctx vango.Ctx, p Params) *vango.VNode {
+    return ProjectView(p.ID)
+}
+```
 
-Vango V2 exceeds performance targets by **10-50x** in most categories.
+## When to Use Vango
 
-### Bundle Size
+**Vango excels at:**
+- Dashboards and admin panels
+- Internal tools and B2B applications
+- CRUD-heavy applications
+- Real-time collaborative features
+- Teams that want a single-language stack
 
-| Framework | JS Bundle (gzip) |
-|-----------|------------------|
-| **Vango V2** | **9.56 KB** |
-| htmx | ~14 KB |
-| React + ReactDOM | ~45 KB |
-| Next.js runtime | ~80+ KB |
+**Consider alternatives for:**
+- Offline-first applications
+- Latency-critical interactions (<50ms required)
+- Heavy client-side computation (use Vango's WASM escape hatch)
 
-### Server Performance
+## Ecosystem
 
-| Metric | Result |
-|--------|--------|
-| Memory per session | **24.76 KB** (target: <50 KB) |
-| 10K concurrent sessions | ~247 MB |
-| Event encode | ~50 ns |
-| Diff 1000 nodes | ~25 µs |
-| SSR 1000 list items | 241 µs |
+| Package | Description |
+|---------|-------------|
+| [vango-ui](https://github.com/vango-go/vango-ui) | ShadCN-style component library |
+| [vango-clerk](https://github.com/vango-go/vango-clerk) | Clerk authentication adapter |
+| [vango-auth0](https://github.com/vango-go/vango-auth0) | Auth0 authentication adapter |
 
-### End-to-End Latency
+## Deployment
 
-| Metric | Target | Actual |
-|--------|--------|--------|
-| P50 RTT | <50 ms | **1.2 ms** |
-| P95 RTT | <75 ms | **5.1 ms** |
-| P99 RTT | <100 ms | **8.2 ms** |
+### Managed Hosting
 
-*Measured on localhost. Real-world adds network latency (~30ms).*
+[Vango Cloud](https://vango.cloud) handles WebSocket infrastructure, session persistence, and scaling automatically.
 
-### Comparison
+```bash
+vango deploy
+```
 
-| Feature | Vango | Next.js | Phoenix LiveView |
-|---------|-------|---------|------------------|
-| Server-rendered | ✅ | ✅ | ✅ |
-| Server-driven updates | ✅ | ❌ | ✅ |
-| Binary protocol | ✅ | ❌ | ❌ (JSON) |
-| Client JS required | ~10 KB | ~80+ KB | ~30 KB |
-| Direct DB access | ✅ | API layer | ✅ |
-| Language | Go | JavaScript | Elixir |
+### Self-Hosted
 
----
+Deploy anywhere that runs Go. We provide guides for:
+- [Fly.io](https://vango.dev/docs/deploy/fly)
+- [Railway](https://vango.dev/docs/deploy/railway)
+- [Docker](https://vango.dev/docs/deploy/docker)
+- [Kubernetes](https://vango.dev/docs/deploy/kubernetes)
+
+```bash
+vango build
+./dist/server
+```
 
 ## Documentation
 
-- [Getting Started](docs/getting-started/01-introduction.md)
-- [Concepts](docs/concepts/01-philosophy.md)
-- [API Reference](docs/reference/)
-- [Full Benchmark Report](build_docs/BENCHMARK_REPORT.md)
+- [Getting Started](https://vango.dev/docs/getting-started)
+- [Core Concepts](https://vango.dev/docs/concepts)
+- [API Reference](https://vango.dev/docs/api)
+- [Examples](https://vango.dev/examples)
+- [Deployment Guide](https://vango.dev/docs/deploy)
 
----
+## Community
 
-## Architecture
+- [Discord](https://discord.gg/vango) — Chat with the community
+- [GitHub Discussions](https://github.com/vango-go/vango/discussions) — Ask questions, share ideas
+- [Twitter](https://twitter.com/vaborgo) — Updates and announcements
 
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+```bash
+git clone https://github.com/vango-go/vango
+cd vango
+go test ./...
 ```
-┌─────────────────────────────────────┐
-│           BROWSER                   │
-│  ┌───────────────────────────────┐  │
-│  │  Thin Client (9.56 KB)        │  │
-│  │  Event Capture → Patch Apply  │  │
-│  └───────────────┬───────────────┘  │
-│                  │ WebSocket        │
-└──────────────────┼──────────────────┘
-                   ▼
-┌──────────────────────────────────────┐
-│           SERVER                     │
-│  Session → Signals → Diff → Patches  │
-│              ↓                       │
-│  Direct: Database, Cache, Services   │
-└──────────────────────────────────────┘
-```
-
----
-
-## Status
-
-| Feature | Status |
-|---------|--------|
-| Server-driven mode | ✅ Production-ready |
-| Binary protocol | ✅ Complete |
-| SSR + Hydration | ✅ Complete |
-| Routing | ✅ Complete |
-| State (Signals) | ✅ Complete |
-| Forms & Validation | ✅ Complete |
-| Client Hooks | ✅ Complete |
-| VangoUI Components | ✅ Available |
-| **WASM client mode** | ⏳ **Not implemented** |
-
----
 
 ## License
 
-MIT
+MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  Built with care by the Vango team.
+</p>

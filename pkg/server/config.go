@@ -306,6 +306,9 @@ type ServerConfig struct {
 	// SessionConfig is the configuration for individual sessions.
 	// Default: DefaultSessionConfig().
 	SessionConfig *SessionConfig
+	// SessionLimits overrides the default session limits when non-nil.
+	// Use this to set MaxSessions, MaxMemoryPerSession, or MaxTotalMemory explicitly.
+	SessionLimits *SessionLimits
 
 	// Server lifecycle
 

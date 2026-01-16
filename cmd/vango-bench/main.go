@@ -43,24 +43,33 @@ type profile struct {
 	PayloadBytes  int
 	MaxProcs      int
 	MemLimitBytes int64
+	MaxSessions   int
+	MaxMemSession int64
+	MaxMemTotal   int64
 }
 
 var profiles = map[string]profile{
 	"fast": {
-		Name:         "fast",
-		Clients:      50,
-		Duration:     10 * time.Second,
-		RPS:          2,
-		ListSize:     20,
-		PayloadBytes: 24,
+		Name:          "fast",
+		Clients:       50,
+		Duration:      10 * time.Second,
+		RPS:           2,
+		ListSize:      20,
+		PayloadBytes:  24,
+		MaxSessions:   -1,
+		MaxMemSession: -1,
+		MaxMemTotal:   -1,
 	},
 	"standard": {
-		Name:         "standard",
-		Clients:      200,
-		Duration:     30 * time.Second,
-		RPS:          5,
-		ListSize:     50,
-		PayloadBytes: 24,
+		Name:          "standard",
+		Clients:       200,
+		Duration:      30 * time.Second,
+		RPS:           5,
+		ListSize:      50,
+		PayloadBytes:  24,
+		MaxSessions:   -1,
+		MaxMemSession: -1,
+		MaxMemTotal:   -1,
 	},
 	"stress": {
 		Name:          "stress",
@@ -71,6 +80,33 @@ var profiles = map[string]profile{
 		PayloadBytes:  24,
 		MaxProcs:      4,
 		MemLimitBytes: 2 * gib,
+		MaxSessions:   -1,
+		MaxMemSession: -1,
+		MaxMemTotal:   -1,
+	},
+	"stress-highlimit": {
+		Name:          "stress-highlimit",
+		Clients:       500,
+		Duration:      60 * time.Second,
+		RPS:           10,
+		ListSize:      100,
+		PayloadBytes:  24,
+		MaxProcs:      4,
+		MemLimitBytes: 2 * gib,
+		MaxSessions:   0,
+		MaxMemSession: 0,
+		MaxMemTotal:   0,
+	},
+	"density": {
+		Name:          "density",
+		Clients:       2000,
+		Duration:      30 * time.Second,
+		RPS:           0,
+		ListSize:      10,
+		PayloadBytes:  24,
+		MaxSessions:   0,
+		MaxMemSession: 0,
+		MaxMemTotal:   0,
 	},
 }
 
@@ -83,11 +119,15 @@ type benchConfig struct {
 	PayloadBytes  int
 	MaxProcs      int
 	MemLimitBytes int64
+	MaxSessions   int
+	MaxMemSession int64
+	MaxMemTotal   int64
 	JSONOutput    string
 	EventTimeout  time.Duration
 }
 
 type benchCounters struct {
+	handshakesOK   atomic.Uint64
 	eventsSent     atomic.Uint64
 	eventsComplete atomic.Uint64
 	eventBytes     atomic.Uint64
@@ -147,8 +187,21 @@ func main() {
 
 	debug.SetGCPercent(100)
 
+	sessionCfg := server.DefaultSessionConfig()
+	if cfg.RPS <= 0 && cfg.Duration >= sessionCfg.ReadTimeout {
+		sessionCfg.ReadTimeout = cfg.Duration + 5*time.Second
+	}
+	limits := buildSessionLimits(cfg)
+	limitsInfo := serverLimitsInfo{
+		MaxSessions:              limits.MaxSessions,
+		MaxMemoryPerSessionBytes: limits.MaxMemoryPerSession,
+		MaxTotalMemoryBytes:      limits.MaxTotalMemory,
+	}
+
 	srv := server.New(&server.ServerConfig{
-		Address: "127.0.0.1:0",
+		Address:       "127.0.0.1:0",
+		SessionConfig: sessionCfg,
+		SessionLimits: limits,
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
@@ -211,6 +264,11 @@ func main() {
 		}()
 	}
 
+	waitCtx, cancelWait := context.WithTimeout(ctx, handshakeWaitDuration(cfg))
+	waitForHandshakes(waitCtx, cfg.Clients, &counters, &errCounts)
+	cancelWait()
+	sessionMemory := snapshotSessionMemory(srv)
+
 	wg.Wait()
 	close(samplesCh)
 	<-collectorDone
@@ -227,7 +285,7 @@ func main() {
 	samplesMu.Unlock()
 	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
 
-	report := buildReport(cfg, elapsed, latencies, &counters, &errCounts, &patchOps, before, after, beforeMetrics, afterMetrics)
+	report := buildReport(cfg, elapsed, latencies, &counters, &errCounts, &patchOps, limitsInfo, sessionMemory, before, after, beforeMetrics, afterMetrics)
 
 	writeSummary(os.Stderr, report)
 	if err := writeJSON(cfg.JSONOutput, report); err != nil {
@@ -247,7 +305,7 @@ func sampleBuffer(clients int) int {
 }
 
 func parseConfig() (benchConfig, error) {
-	profileFlag := flag.String("profile", "standard", "profile: fast|standard|stress")
+	profileFlag := flag.String("profile", "standard", "profile: fast|standard|stress|stress-highlimit|density")
 	clientsFlag := flag.Int("clients", -1, "number of concurrent websocket clients")
 	durationFlag := flag.String("duration", "", "benchmark duration, e.g. 30s")
 	rpsFlag := flag.Float64("rps", -1, "target events/sec per client")
@@ -255,6 +313,9 @@ func parseConfig() (benchConfig, error) {
 	payloadFlag := flag.Int("payload-bytes", -1, "bytes of token payload per event")
 	maxProcsFlag := flag.Int("max-procs", -1, "GOMAXPROCS cap (0 to leave unchanged)")
 	memLimitFlag := flag.String("mem-limit", "", "GOMEMLIMIT (e.g. 2GiB)")
+	maxSessionsFlag := flag.Int("server-max-sessions", -1, "server max sessions (0 disables limit)")
+	maxMemSessionFlag := flag.String("server-max-mem-per-session", "", "server max memory per session (e.g. 200KB, 0 disables)")
+	maxMemTotalFlag := flag.String("server-max-total-mem", "", "server max total memory (e.g. 1GiB, 0 disables)")
 	jsonFlag := flag.String("json", "-", "JSON output path ('-' for stdout)")
 	flag.Parse()
 
@@ -277,6 +338,9 @@ func parseConfig() (benchConfig, error) {
 		PayloadBytes:  base.PayloadBytes,
 		MaxProcs:      base.MaxProcs,
 		MemLimitBytes: base.MemLimitBytes,
+		MaxSessions:   base.MaxSessions,
+		MaxMemSession: base.MaxMemSession,
+		MaxMemTotal:   base.MaxMemTotal,
 		JSONOutput:    strings.TrimSpace(*jsonFlag),
 	}
 
@@ -309,6 +373,23 @@ func parseConfig() (benchConfig, error) {
 		}
 		cfg.MemLimitBytes = limit
 	}
+	if *maxSessionsFlag != -1 {
+		cfg.MaxSessions = *maxSessionsFlag
+	}
+	if *maxMemSessionFlag != "" {
+		limit, err := parseBytes(*maxMemSessionFlag)
+		if err != nil {
+			return benchConfig{}, fmt.Errorf("invalid -server-max-mem-per-session: %w", err)
+		}
+		cfg.MaxMemSession = limit
+	}
+	if *maxMemTotalFlag != "" {
+		limit, err := parseBytes(*maxMemTotalFlag)
+		if err != nil {
+			return benchConfig{}, fmt.Errorf("invalid -server-max-total-mem: %w", err)
+		}
+		cfg.MaxMemTotal = limit
+	}
 	if cfg.JSONOutput == "" {
 		cfg.JSONOutput = "-"
 	}
@@ -320,7 +401,9 @@ func parseConfig() (benchConfig, error) {
 		return benchConfig{}, errors.New("-duration must be > 0")
 	}
 	if cfg.RPS <= 0 {
-		return benchConfig{}, errors.New("-rps must be > 0")
+		if cfg.RPS < 0 {
+			return benchConfig{}, errors.New("-rps must be >= 0")
+		}
 	}
 	if cfg.ListSize < 0 {
 		return benchConfig{}, errors.New("-list must be >= 0")
@@ -333,6 +416,15 @@ func parseConfig() (benchConfig, error) {
 	}
 	if cfg.MemLimitBytes < 0 {
 		return benchConfig{}, errors.New("-mem-limit must be >= 0")
+	}
+	if cfg.MaxSessions < -1 {
+		return benchConfig{}, errors.New("-server-max-sessions must be >= -1")
+	}
+	if cfg.MaxMemSession < -1 {
+		return benchConfig{}, errors.New("-server-max-mem-per-session must be >= -1")
+	}
+	if cfg.MaxMemTotal < -1 {
+		return benchConfig{}, errors.New("-server-max-total-mem must be >= -1")
 	}
 
 	cfg.EventTimeout = eventTimeout(cfg.RPS)
@@ -410,6 +502,74 @@ func parseBytes(input string) (int64, error) {
 	return int64(bytes + 0.5), nil
 }
 
+func buildSessionLimits(cfg benchConfig) *server.SessionLimits {
+	limits := server.DefaultSessionLimits()
+	if cfg.MaxSessions >= 0 {
+		limits.MaxSessions = cfg.MaxSessions
+	}
+	if cfg.MaxMemSession >= 0 {
+		limits.MaxMemoryPerSession = cfg.MaxMemSession
+	}
+	if cfg.MaxMemTotal >= 0 {
+		limits.MaxTotalMemory = cfg.MaxMemTotal
+	}
+	return limits
+}
+
+func handshakeWaitDuration(cfg benchConfig) time.Duration {
+	if cfg.Duration <= 0 {
+		return 0
+	}
+	wait := 10 * time.Second
+	if cfg.Duration < wait {
+		wait = cfg.Duration / 2
+		if wait < 2*time.Second {
+			wait = cfg.Duration
+		}
+	}
+	if wait <= 0 {
+		wait = cfg.Duration
+	}
+	return wait
+}
+
+func waitForHandshakes(ctx context.Context, target int, counters *benchCounters, errCounts *benchErrors) {
+	if target <= 0 {
+		return
+	}
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		done := counters.handshakesOK.Load() + errCounts.handshakeFailures.Load()
+		if done >= uint64(target) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func snapshotSessionMemory(srv *server.Server) sessionMemoryInfo {
+	if srv == nil {
+		return sessionMemoryInfo{}
+	}
+	active := srv.Sessions().Count()
+	total := srv.Sessions().TotalMemoryUsage()
+	perSession := 0.0
+	if active > 0 {
+		perSession = float64(total) / float64(active)
+	}
+	return sessionMemoryInfo{
+		ActiveSessions:  active,
+		TotalBytes:      total,
+		PerSessionBytes: perSession,
+	}
+}
+
 func runClient(
 	ctx context.Context,
 	wsURL string,
@@ -460,6 +620,12 @@ func runClient(
 	if sh.Status != protocol.HandshakeOK {
 		errCounts.handshakeFailures.Add(1)
 		return fmt.Errorf("handshake failed: %s", sh.Status.String())
+	}
+	counters.handshakesOK.Add(1)
+
+	if cfg.RPS <= 0 {
+		<-ctx.Done()
+		return nil
 	}
 
 	const inputHID = "h2"
@@ -683,15 +849,36 @@ func ms(d time.Duration) float64 {
 	return float64(d) / float64(time.Millisecond)
 }
 
+func mbBytes(bytes int64) float64 {
+	return float64(bytes) / (1024 * 1024)
+}
+
+func formatLimitBytes(bytes int64) string {
+	if bytes <= 0 {
+		return "unlimited"
+	}
+	return fmt.Sprintf("%.2f MiB", mbBytes(bytes))
+}
+
+func formatLimitCount(count int) string {
+	if count <= 0 {
+		return "unlimited"
+	}
+	return fmt.Sprintf("%d", count)
+}
+
 type benchReport struct {
-	Version    string         `json:"version"`
-	Run        runInfo        `json:"run"`
-	Workload   workloadInfo   `json:"workload"`
-	LatencyMS  latencyInfo    `json:"latency_ms"`
-	Throughput throughputInfo `json:"throughput"`
-	GC         gcInfo         `json:"gc"`
-	Protocol   protocolInfo   `json:"protocol"`
-	Errors     errorInfo      `json:"errors"`
+	Version       string            `json:"version"`
+	Run           runInfo           `json:"run"`
+	Workload      workloadInfo      `json:"workload"`
+	Connections   connectionsInfo   `json:"connections"`
+	ServerLimits  serverLimitsInfo  `json:"server_limits"`
+	SessionMemory sessionMemoryInfo `json:"session_memory"`
+	LatencyMS     latencyInfo       `json:"latency_ms"`
+	Throughput    throughputInfo    `json:"throughput"`
+	GC            gcInfo            `json:"gc"`
+	Protocol      protocolInfo      `json:"protocol"`
+	Errors        errorInfo         `json:"errors"`
 }
 
 type runInfo struct {
@@ -713,6 +900,24 @@ type workloadInfo struct {
 	MaxProcs       int     `json:"max_procs"`
 	MemLimitBytes  int64   `json:"mem_limit_bytes"`
 	EventTimeoutMS int64   `json:"event_timeout_ms"`
+}
+
+type connectionsInfo struct {
+	Attempted         int    `json:"attempted"`
+	HandshakeOK       uint64 `json:"handshake_ok"`
+	HandshakeFailures uint64 `json:"handshake_failures"`
+}
+
+type serverLimitsInfo struct {
+	MaxSessions              int   `json:"max_sessions"`
+	MaxMemoryPerSessionBytes int64 `json:"max_memory_per_session_bytes"`
+	MaxTotalMemoryBytes      int64 `json:"max_total_memory_bytes"`
+}
+
+type sessionMemoryInfo struct {
+	ActiveSessions  int     `json:"active_sessions"`
+	TotalBytes      int64   `json:"total_bytes"`
+	PerSessionBytes float64 `json:"per_session_bytes"`
 }
 
 type latencyInfo struct {
@@ -767,6 +972,8 @@ func buildReport(
 	counters *benchCounters,
 	errors *benchErrors,
 	patchOps *patchOpCounts,
+	limits serverLimitsInfo,
+	sessionMemory sessionMemoryInfo,
 	before runtime.MemStats,
 	after runtime.MemStats,
 	beforeMetrics runtimeMetricsSnapshot,
@@ -831,7 +1038,14 @@ func buildReport(
 			MemLimitBytes:  cfg.MemLimitBytes,
 			EventTimeoutMS: cfg.EventTimeout.Milliseconds(),
 		},
-		LatencyMS: latency,
+		Connections: connectionsInfo{
+			Attempted:         cfg.Clients,
+			HandshakeOK:       counters.handshakesOK.Load(),
+			HandshakeFailures: errors.handshakeFailures.Load(),
+		},
+		ServerLimits:  limits,
+		SessionMemory: sessionMemory,
+		LatencyMS:     latency,
 		Throughput: throughputInfo{
 			EventsTotal:        eventsTotal,
 			EventsPerSec:       eventsPerSec,
@@ -878,6 +1092,10 @@ func writeSummary(w io.Writer, report benchReport) {
 	fmt.Fprintf(w, "Target per-client rate: %.2f events/s\n", report.Workload.RPSPerClient)
 	fmt.Fprintf(w, "List size: %d\n", report.Workload.ListSize)
 	fmt.Fprintf(w, "Payload bytes: %d\n", report.Workload.PayloadBytes)
+	fmt.Fprintf(w, "Server limits: sessions=%s, mem/session=%s, total=%s\n",
+		formatLimitCount(report.ServerLimits.MaxSessions),
+		formatLimitBytes(report.ServerLimits.MaxMemoryPerSessionBytes),
+		formatLimitBytes(report.ServerLimits.MaxTotalMemoryBytes))
 	if report.Workload.MaxProcs > 0 {
 		fmt.Fprintf(w, "GOMAXPROCS cap: %d\n", report.Workload.MaxProcs)
 	}
@@ -886,6 +1104,16 @@ func writeSummary(w io.Writer, report benchReport) {
 	}
 	fmt.Fprintln(w)
 
+	fmt.Fprintf(w, "Connections: %d/%d ok (handshake failures: %d)\n",
+		report.Connections.HandshakeOK,
+		report.Connections.Attempted,
+		report.Connections.HandshakeFailures)
+	if report.SessionMemory.ActiveSessions > 0 {
+		fmt.Fprintf(w, "Session memory: total %.2f MB, per session %.2f KB (active %d)\n",
+			mbBytes(report.SessionMemory.TotalBytes),
+			report.SessionMemory.PerSessionBytes/1024,
+			report.SessionMemory.ActiveSessions)
+	}
 	fmt.Fprintf(w, "Total events: %d\n", report.Throughput.EventsTotal)
 	fmt.Fprintf(w, "Throughput: %.1f events/s (%.2f per client)\n", report.Throughput.EventsPerSec, report.Throughput.EventsPerSecClient)
 	fmt.Fprintf(w, "Errors: %d\n", report.Errors.TotalErrors)

@@ -124,11 +124,19 @@ func New(config *ServerConfig) *Server {
 
 	// Build session limits from config (use defaults for unset values)
 	limits := DefaultSessionLimits()
-	if config.MaxSessions > 0 {
-		limits.MaxSessions = config.MaxSessions
-	}
-	if config.MaxMemoryPerSession > 0 {
-		limits.MaxMemoryPerSession = config.MaxMemoryPerSession
+	if config.SessionLimits != nil {
+		limits = &SessionLimits{
+			MaxSessions:         config.SessionLimits.MaxSessions,
+			MaxMemoryPerSession: config.SessionLimits.MaxMemoryPerSession,
+			MaxTotalMemory:      config.SessionLimits.MaxTotalMemory,
+		}
+	} else {
+		if config.MaxSessions > 0 {
+			limits.MaxSessions = config.MaxSessions
+		}
+		if config.MaxMemoryPerSession > 0 {
+			limits.MaxMemoryPerSession = config.MaxMemoryPerSession
+		}
 	}
 
 	// Phase 12: Build persistence options
@@ -154,9 +162,9 @@ func New(config *ServerConfig) *Server {
 			WriteBufferSize: config.WriteBufferSize,
 			CheckOrigin:     config.CheckOrigin,
 		},
-		csrfSecret: config.CSRFSecret,
+		csrfSecret:   config.CSRFSecret,
 		cookiePolicy: newCookiePolicy(config, trustedProxies, logger),
-		logger:     logger,
+		logger:       logger,
 	}
 
 	return s

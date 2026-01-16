@@ -35,6 +35,31 @@ absolute performance claims.
 - GC: alloc 16634.17 MB, heap live 3.36 MB, total pause 13.74 ms, GC CPU 4.39%
 - Note: server evicted all sessions due to MaxMemoryPerSession=200KB (errors reflect evictions).
 
+## stress-highlimit profile
+
+- Clients: 500
+- Duration: 60s
+- Target rps/client: 10
+- Server limits: unlimited (sessions/mem)
+- Connections: 500/500 ok
+- Session memory: total 782.77 MB, per session 1603.12 KB
+- Throughput: ~4724.9 events/sec (9.45 per client), total events 283533, errors 0
+- Latency (ms): min 0.21, p50 4.15, p95 94.28, p99 226.67, max 599.79
+- Protocol: avg event bytes 34.8, avg patch bytes 65.8, patches/event 1.00
+- GC: alloc 31814.16 MB, heap live 83.15 MB, total pause 27.71 ms, GC CPU 4.35%
+
+## density profile
+
+- Clients: 2000
+- Duration: 30s
+- Target rps/client: 0 (idle)
+- Server limits: unlimited (sessions/mem)
+- Connections: 2000/2000 ok
+- Session memory: total 124.76 MB, per session 63.88 KB
+- Throughput: 0 events/sec (idle), total events 0, errors 0
+- Latency: none recorded (idle)
+- GC: alloc 125.40 MB, heap live 58.12 MB, total pause 2.38 ms, GC CPU 0.10%
+
 For usage, profiles, and JSON output schema, see `BENCHMARKS.md` in the repo root.
 
 ## stress attempt #1
