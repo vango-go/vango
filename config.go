@@ -359,6 +359,7 @@ func buildServerConfig(cfg Config) *server.ServerConfig {
 		serverCfg.TrustedProxies = append([]string(nil), cfg.Security.TrustedProxies...)
 	}
 	serverCfg.SecureCookies = cfg.Security.CookieSecure
+	serverCfg.CookieHTTPOnly = cfg.Security.CookieHttpOnly
 	if cfg.Security.CookieSameSite != 0 {
 		serverCfg.SameSiteMode = cfg.Security.CookieSameSite
 	}

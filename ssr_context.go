@@ -2,6 +2,7 @@ package vango
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -21,6 +22,7 @@ type ssrContext struct {
 	config  Config
 	logger  *slog.Logger
 	values  map[any]any
+	policy  *server.CookiePolicy
 
 	user any
 
@@ -32,7 +34,7 @@ type ssrContext struct {
 	redirected   bool
 }
 
-func newSSRContext(w http.ResponseWriter, r *http.Request, params map[string]string, cfg Config, logger *slog.Logger) *ssrContext {
+func newSSRContext(w http.ResponseWriter, r *http.Request, params map[string]string, cfg Config, logger *slog.Logger, policy *server.CookiePolicy) *ssrContext {
 	if params == nil {
 		params = make(map[string]string)
 	}
@@ -44,6 +46,7 @@ func newSSRContext(w http.ResponseWriter, r *http.Request, params map[string]str
 		config:  cfg,
 		logger:  logger,
 		values:  make(map[any]any),
+		policy:  policy,
 		user:    user,
 		status:  http.StatusOK,
 		headers: make(http.Header),
@@ -98,10 +101,26 @@ func (c *ssrContext) SetHeader(key, value string) {
 }
 
 func (c *ssrContext) SetCookie(cookie *http.Cookie) {
-	if cookie == nil {
-		return
+	if err := c.SetCookieStrict(cookie); err != nil {
+		if c.config.DevMode && c.Logger() != nil {
+			c.Logger().Warn("cookie dropped", "error", err)
+		}
 	}
-	c.cookies = append(c.cookies, cookie)
+}
+
+func (c *ssrContext) SetCookieStrict(cookie *http.Cookie, opts ...server.CookieOption) error {
+	if cookie == nil {
+		return nil
+	}
+	if c.policy == nil {
+		return errors.New("server: cookie policy unavailable")
+	}
+	updated, err := c.policy.Apply(c.request, cookie, opts...)
+	if err != nil {
+		return err
+	}
+	c.cookies = append(c.cookies, updated)
+	return nil
 }
 
 // Session (nil for SSR - no WebSocket session)

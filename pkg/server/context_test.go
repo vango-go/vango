@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -247,7 +248,8 @@ func TestCtxSetHeader(t *testing.T) {
 }
 
 func TestCtxSetCookie(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "https://example.com/", nil)
+	req.TLS = &tls.ConnectionState{}
 	w := httptest.NewRecorder()
 	c := newCtx(w, req, slog.Default())
 

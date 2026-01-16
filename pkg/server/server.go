@@ -43,6 +43,9 @@ type Server struct {
 	// Trusted proxy matcher for forwarded headers
 	trustedProxies *proxyMatcher
 
+	// Cookie policy helper
+	cookiePolicy *CookiePolicy
+
 	// WebSocket upgrader
 	upgrader websocket.Upgrader
 
@@ -141,16 +144,18 @@ func New(config *ServerConfig) *Server {
 		}
 	}
 
+	trustedProxies := newProxyMatcher(config.TrustedProxies, logger)
 	s := &Server{
 		sessions:       NewSessionManagerWithOptions(config.SessionConfig, limits, logger, persistOpts),
 		config:         config,
-		trustedProxies: newProxyMatcher(config.TrustedProxies, logger),
+		trustedProxies: trustedProxies,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  config.ReadBufferSize,
 			WriteBufferSize: config.WriteBufferSize,
 			CheckOrigin:     config.CheckOrigin,
 		},
 		csrfSecret: config.CSRFSecret,
+		cookiePolicy: newCookiePolicy(config, trustedProxies, logger),
 		logger:     logger,
 	}
 
@@ -818,6 +823,11 @@ func (s *Server) Sessions() *SessionManager {
 // Config returns the server configuration.
 func (s *Server) Config() *ServerConfig {
 	return s.config
+}
+
+// CookiePolicy returns the server cookie policy helper.
+func (s *Server) CookiePolicy() *CookiePolicy {
+	return s.cookiePolicy
 }
 
 // Logger returns the server logger.

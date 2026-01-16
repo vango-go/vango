@@ -175,7 +175,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // renderPage renders a page for SSR (HTTP GET requests).
 func (a *App) renderPage(w http.ResponseWriter, r *http.Request, match *router.MatchResult) {
 	// Create SSR context
-	ctx := newSSRContext(w, r, match.Params, a.config, a.logger)
+	ctx := newSSRContext(w, r, match.Params, a.config, a.logger, a.server.CookiePolicy())
 
 	var result *vdom.VNode
 	ranFinal, mwErr := server.RunRouteMiddleware(ctx, match.GetMiddleware(), func() error {
@@ -294,7 +294,7 @@ func (a *App) renderPage(w http.ResponseWriter, r *http.Request, match *router.M
 
 // handleAPI handles API routes, returning JSON responses.
 func (a *App) handleAPI(w http.ResponseWriter, r *http.Request, match *router.MatchResult) {
-	ctx := newSSRContext(w, r, match.Params, a.config, a.logger)
+	ctx := newSSRContext(w, r, match.Params, a.config, a.logger, a.server.CookiePolicy())
 
 	body := apiRawBody{
 		ContentType:           r.Header.Get("Content-Type"),

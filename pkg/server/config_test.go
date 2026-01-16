@@ -228,6 +228,12 @@ func TestDefaultServerConfigSecureDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("CookieHTTPOnly is true by default", func(t *testing.T) {
+		if !config.CookieHTTPOnly {
+			t.Error("CookieHTTPOnly should be true by default")
+		}
+	})
+
 	t.Run("SameSiteMode is Lax by default", func(t *testing.T) {
 		if config.SameSiteMode != http.SameSiteLaxMode {
 			t.Errorf("SameSiteMode = %v, want %v", config.SameSiteMode, http.SameSiteLaxMode)
@@ -331,6 +337,23 @@ func TestConfigValidation(t *testing.T) {
 			t.Error("should warn about disabled SecureCookies")
 		}
 	})
+
+	t.Run("disabled CookieHTTPOnly warns", func(t *testing.T) {
+		config := DefaultServerConfig()
+		config.CookieHTTPOnly = false
+
+		warnings := config.GetConfigWarnings()
+		found := false
+		for _, w := range warnings {
+			if containsString(w, "CookieHTTPOnly") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("should warn about disabled CookieHTTPOnly")
+		}
+	})
 }
 
 func TestIsSecure(t *testing.T) {
@@ -371,6 +394,18 @@ func TestConfigHelpers(t *testing.T) {
 		config = config.WithSecureCookies(true)
 		if !config.SecureCookies {
 			t.Error("SecureCookies should be true")
+		}
+	})
+
+	t.Run("WithCookieHTTPOnly", func(t *testing.T) {
+		config := DefaultServerConfig().WithCookieHTTPOnly(false)
+		if config.CookieHTTPOnly {
+			t.Error("CookieHTTPOnly should be false")
+		}
+
+		config = config.WithCookieHTTPOnly(true)
+		if !config.CookieHTTPOnly {
+			t.Error("CookieHTTPOnly should be true")
 		}
 	})
 

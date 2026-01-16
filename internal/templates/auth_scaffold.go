@@ -62,6 +62,8 @@ func main() {
 		},
 	})
 
+	provider.SetCookiePolicy(app.Server().CookiePolicy())
+
 	routes.Register(app)
 
 	appHandler := provider.Middleware()(app)

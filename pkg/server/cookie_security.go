@@ -7,45 +7,92 @@ import (
 	"strings"
 )
 
-func (s *Server) csrfCookie(r *http.Request, token string) (*http.Cookie, error) {
-	secure, err := s.cookieSecureFlag(r)
-	if err != nil {
-		return nil, err
+// CookiePolicy enforces cookie defaults and security requirements.
+type CookiePolicy struct {
+	config         *ServerConfig
+	trustedProxies *proxyMatcher
+	logger         *slog.Logger
+}
+
+// CookiePolicyOptions configures optional overrides for cookie policy.
+type CookiePolicyOptions struct {
+	httpOnly *bool
+}
+
+// CookieOption configures cookie policy application.
+type CookieOption func(*CookiePolicyOptions)
+
+// WithCookieHTTPOnly overrides the default HttpOnly behavior for a cookie.
+func WithCookieHTTPOnly(enabled bool) CookieOption {
+	return func(opts *CookiePolicyOptions) {
+		opts.httpOnly = &enabled
+	}
+}
+
+func newCookiePolicy(config *ServerConfig, trustedProxies *proxyMatcher, logger *slog.Logger) *CookiePolicy {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &CookiePolicy{
+		config:         config,
+		trustedProxies: trustedProxies,
+		logger:         logger,
+	}
+}
+
+// Apply applies cookie defaults and enforces SecureCookies requirements.
+// Returns ErrSecureCookiesRequired if secure cookies are enabled but the request is not secure.
+func (p *CookiePolicy) Apply(r *http.Request, cookie *http.Cookie, opts ...CookieOption) (*http.Cookie, error) {
+	if p == nil || cookie == nil {
+		return cookie, nil
+	}
+	if p.config == nil {
+		return cookie, nil
 	}
 
-	cookie := &http.Cookie{
-		Name:     CSRFCookieName,
-		Value:    token,
-		Path:     "/",
-		HttpOnly: false, // Must be readable by JS for Double Submit
-		SameSite: s.config.SameSiteMode,
-		Secure:   secure,
+	var options CookiePolicyOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
 	}
-	if s.config.CookieDomain != "" {
-		cookie.Domain = s.config.CookieDomain
+
+	if p.config.SecureCookies {
+		if !p.isRequestSecure(r) {
+			return nil, ErrSecureCookiesRequired
+		}
+		cookie.Secure = true
+	}
+
+	if cookie.SameSite == 0 || cookie.SameSite == http.SameSiteDefaultMode {
+		cookie.SameSite = p.config.SameSiteMode
+	}
+	if cookie.Domain == "" && p.config.CookieDomain != "" {
+		cookie.Domain = p.config.CookieDomain
+	}
+	if options.httpOnly != nil {
+		cookie.HttpOnly = *options.httpOnly
+	} else if p.config.CookieHTTPOnly && !cookie.HttpOnly {
+		cookie.HttpOnly = true
 	}
 
 	return cookie, nil
 }
 
-func (s *Server) cookieSecureFlag(r *http.Request) (bool, error) {
-	if !s.config.SecureCookies {
-		return false, nil
-	}
-	if s.isRequestSecure(r) {
-		return true, nil
-	}
-	return false, ErrSecureCookiesRequired
+// ApplyCookiePolicy applies defaults without overrides. This is a compatibility hook for
+// external packages that accept a generic cookie policy interface.
+func (p *CookiePolicy) ApplyCookiePolicy(r *http.Request, cookie *http.Cookie) (*http.Cookie, error) {
+	return p.Apply(r, cookie)
 }
 
-func (s *Server) isRequestSecure(r *http.Request) bool {
+func (p *CookiePolicy) isRequestSecure(r *http.Request) bool {
 	if r == nil {
 		return false
 	}
 	if r.TLS != nil {
 		return true
 	}
-	if !s.isTrustedProxy(r) {
+	if !p.isTrustedProxy(r) {
 		return false
 	}
 
@@ -59,11 +106,24 @@ func (s *Server) isRequestSecure(r *http.Request) bool {
 	return false
 }
 
-func (s *Server) isTrustedProxy(r *http.Request) bool {
-	if s.trustedProxies == nil {
+func (p *CookiePolicy) isTrustedProxy(r *http.Request) bool {
+	if p.trustedProxies == nil {
 		return false
 	}
-	return s.trustedProxies.IsTrusted(remoteIPFromRequest(r))
+	return p.trustedProxies.IsTrusted(remoteIPFromRequest(r))
+}
+
+func (s *Server) csrfCookie(r *http.Request, token string) (*http.Cookie, error) {
+	cookie := &http.Cookie{
+		Name:     CSRFCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: false, // Must be readable by JS for Double Submit
+	}
+	if s.cookiePolicy == nil {
+		return cookie, nil
+	}
+	return s.cookiePolicy.Apply(r, cookie, WithCookieHTTPOnly(false))
 }
 
 func forwardedProto(header string) string {

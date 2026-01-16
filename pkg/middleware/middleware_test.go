@@ -55,6 +55,9 @@ func (m *mockCtx) Redirect(url string, code int)            {}
 func (m *mockCtx) RedirectExternal(url string, code int)    {}
 func (m *mockCtx) SetHeader(key, value string)              {}
 func (m *mockCtx) SetCookie(cookie *http.Cookie)            {}
+func (m *mockCtx) SetCookieStrict(cookie *http.Cookie, opts ...server.CookieOption) error {
+	return nil
+}
 func (m *mockCtx) Session() *server.Session                 { return m.session }
 func (m *mockCtx) AuthSession() auth.Session {
 	if m.session == nil {

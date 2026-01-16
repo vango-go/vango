@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -147,6 +148,10 @@ type Ctx interface {
 
 	// SetCookie sets a response cookie.
 	SetCookie(cookie *http.Cookie)
+
+	// SetCookieStrict sets a response cookie with enforced security defaults.
+	// Returns ErrSecureCookiesRequired if secure cookies are enabled and the request is not secure.
+	SetCookieStrict(cookie *http.Cookie, opts ...CookieOption) error
 
 	// Session
 
@@ -364,6 +369,9 @@ type ctx struct {
 	// Asset resolver for fingerprinted asset paths (DX Improvements)
 	assetResolver assets.Resolver
 
+	// Cookie policy helper (HTTP contexts only)
+	cookiePolicy *CookiePolicy
+
 	// pendingNavigation is set by ctx.Navigate() and processed by flush().
 	// Per Section 4.4 (Programmatic Navigation), navigation is processed
 	// at flush time so NAV_* + DOM patches are sent in ONE transaction.
@@ -386,6 +394,7 @@ func newCtx(w http.ResponseWriter, r *http.Request, logger *slog.Logger) *ctx {
 		writer:  w,
 		params:  make(map[string]string),
 		logger:  logger,
+		cookiePolicy: newCookiePolicy(DefaultServerConfig(), nil, logger),
 		status:  http.StatusOK,
 	}
 }
@@ -496,7 +505,30 @@ func (c *ctx) SetHeader(key, value string) {
 
 // SetCookie sets a response cookie.
 func (c *ctx) SetCookie(cookie *http.Cookie) {
-	http.SetCookie(c.writer, cookie)
+	if err := c.SetCookieStrict(cookie); err != nil {
+		if c.cookiePolicy != nil && c.cookiePolicy.config != nil && c.cookiePolicy.config.DevMode && c.logger != nil {
+			c.logger.Warn("cookie dropped", "error", err)
+		}
+	}
+}
+
+// SetCookieStrict sets a response cookie with enforced defaults.
+func (c *ctx) SetCookieStrict(cookie *http.Cookie, opts ...CookieOption) error {
+	if c == nil || cookie == nil {
+		return nil
+	}
+	if c.writer == nil {
+		return errors.New("server: response writer unavailable")
+	}
+	if c.cookiePolicy == nil {
+		return errors.New("server: cookie policy unavailable")
+	}
+	updated, err := c.cookiePolicy.Apply(c.request, cookie, opts...)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(c.writer, updated)
+	return nil
 }
 
 // Session returns the WebSocket session.

@@ -30,6 +30,7 @@ type SessionStore interface {
 type Provider struct {
 	store      SessionStore
 	cookieName string
+	cookiePolicy CookiePolicy
 }
 
 // Option configures a Provider.
@@ -42,6 +43,23 @@ func WithCookieName(name string) Option {
 			p.cookieName = name
 		}
 	}
+}
+
+// CookiePolicy applies security defaults to cookies set by the provider.
+type CookiePolicy interface {
+	ApplyCookiePolicy(r *http.Request, cookie *http.Cookie) (*http.Cookie, error)
+}
+
+// WithCookiePolicy applies a cookie policy for provider-managed cookies.
+func WithCookiePolicy(policy CookiePolicy) Option {
+	return func(p *Provider) {
+		p.cookiePolicy = policy
+	}
+}
+
+// SetCookiePolicy updates the cookie policy after provider creation.
+func (p *Provider) SetCookiePolicy(policy CookiePolicy) {
+	p.cookiePolicy = policy
 }
 
 // New creates a session-first auth provider.
@@ -125,6 +143,13 @@ func (p *Provider) clearCookie(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		Secure:   r != nil && r.TLS != nil,
 		SameSite: http.SameSiteLaxMode,
+	}
+	if p.cookiePolicy != nil {
+		updated, err := p.cookiePolicy.ApplyCookiePolicy(r, cookie)
+		if err != nil {
+			return
+		}
+		cookie = updated
 	}
 	http.SetCookie(w, cookie)
 }

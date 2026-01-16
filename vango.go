@@ -78,6 +78,14 @@ func UseCtx() Ctx {
 // NavigateOption configures programmatic navigation.
 type NavigateOption = server.NavigateOption
 
+// CookieOption configures cookie policy application.
+type CookieOption = server.CookieOption
+
+// WithCookieHTTPOnly overrides the default HttpOnly behavior for a cookie.
+func WithCookieHTTPOnly(enabled bool) CookieOption {
+	return server.WithCookieHTTPOnly(enabled)
+}
+
 // WithReplace replaces the current history entry instead of pushing.
 var WithReplace = server.WithReplace
 

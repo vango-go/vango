@@ -425,6 +425,11 @@ type ServerConfig struct {
 	// Default: true
 	SecureCookies bool
 
+	// CookieHTTPOnly sets the HttpOnly flag on cookies set by the server.
+	// Prevents JavaScript access to cookies that should not be read by JS.
+	// Default: true (except for cookies that explicitly opt out like CSRF).
+	CookieHTTPOnly bool
+
 	// SameSiteMode sets the SameSite attribute for cookies.
 	// Lax is safe for most use cases and allows OAuth flows.
 	// Default: http.SameSiteLaxMode
@@ -557,10 +562,11 @@ func DefaultServerConfig() *ServerConfig {
 		CSRFSecret:          nil,        // Warning logged on startup if nil
 		CleanupInterval:     30 * time.Second,
 		// Phase 13: Secure defaults
-		DevMode:       false,                // SECURE DEFAULT: security enabled
-		SecureCookies: true,                 // SECURE DEFAULT: HTTPS cookies
-		SameSiteMode:  http.SameSiteLaxMode, // SECURE DEFAULT: Lax mode
-		CookieDomain:  "",                   // SECURE DEFAULT: current domain only
+		DevMode:        false,                // SECURE DEFAULT: security enabled
+		SecureCookies:  true,                 // SECURE DEFAULT: HTTPS cookies
+		CookieHTTPOnly: true,                 // SECURE DEFAULT: HttpOnly cookies
+		SameSiteMode:   http.SameSiteLaxMode, // SECURE DEFAULT: Lax mode
+		CookieDomain:   "",                   // SECURE DEFAULT: current domain only
 		// Phase 12 defaults
 		SessionStore:        nil, // In-memory only by default
 		ResumeWindow:        5 * time.Minute,
@@ -745,6 +751,12 @@ func (c *ServerConfig) WithSecureCookies(secure bool) *ServerConfig {
 	return c
 }
 
+// WithCookieHTTPOnly sets whether cookies should be HttpOnly by default.
+func (c *ServerConfig) WithCookieHTTPOnly(httpOnly bool) *ServerConfig {
+	c.CookieHTTPOnly = httpOnly
+	return c
+}
+
 // WithSameSiteMode sets the SameSite attribute for cookies.
 func (c *ServerConfig) WithSameSiteMode(mode http.SameSite) *ServerConfig {
 	c.SameSiteMode = mode
@@ -785,6 +797,9 @@ func (c *ServerConfig) configWarnings() []string {
 	if !c.SecureCookies && !c.DevMode {
 		warnings = append(warnings, "SecureCookies disabled - cookies won't have Secure flag")
 	}
+	if !c.CookieHTTPOnly && !c.DevMode {
+		warnings = append(warnings, "CookieHTTPOnly disabled - cookies readable by JS")
+	}
 
 	if c.MaxSessionsPerIP == 0 {
 		warnings = append(warnings, "MaxSessionsPerIP unlimited - DoS risk")
@@ -803,6 +818,7 @@ func (c *ServerConfig) IsSecure() bool {
 	return !c.DevMode &&
 		c.CSRFSecret != nil &&
 		c.SecureCookies &&
+		c.CookieHTTPOnly &&
 		c.CheckOrigin != nil &&
 		c.MaxSessionsPerIP > 0 &&
 		c.MaxDetachedSessions > 0
