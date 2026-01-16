@@ -1,5 +1,48 @@
 # Full Developer Guide
 
+## Table of Contents
+
+- [Preface](#preface)
+  - [Version & Status](#version--status)
+  - [Audience](#audience)
+  - [Imports Policy (Normalized)](#imports-policy-normalized)
+  - [The “Pit of Success” Philosophy](#the-pit-of-success-philosophy)
+- [Getting Started](#getting-started)
+  - [System Requirements](#system-requirements)
+  - [Installing the Vango CLI](#installing-the-vango-cli)
+  - [Creating Your First App](#creating-your-first-app)
+  - [Editor Setup](#editor-setup)
+- [Part I: The Core](#part-i-the-core)
+  - [1. Mental Model & Architecture](#1-mental-model--architecture)
+  - [2. Component Syntax & Composition](#2-component-syntax--composition)
+  - [3. Styling & Design Systems](#3-styling--design-systems)
+- [Part II: Reactivity](#part-ii-reactivity)
+  - [4. Signals](#4-signals)
+  - [5. Memos (Derived State)](#5-memos-derived-state)
+  - [6. Effects & Transactions](#6-effects--transactions)
+- [Part III: Data Flow](#part-iii-data-flow)
+  - [7. Resources (Reading Data)](#7-resources-reading-data)
+  - [8. Actions (Mutating Data)](#8-actions-mutating-data)
+  - [9. Operational Correctness for Data Flow](#9-operational-correctness-for-data-flow)
+  - [10. Practical Patterns (Resource + Action Together)](#10-practical-patterns-resource--action-together)
+- [Part IV: Application Architecture](#part-iv-application-architecture)
+  - [11. Project Layout and Code Organization](#11-project-layout-and-code-organization)
+  - [12. Routing & Pages](#12-routing--pages)
+  - [13. Forms & Validation](#13-forms--validation)
+  - [14. The Client Boundary (Escape Hatches)](#14-the-client-boundary-escape-hatches)
+  - [15. CLI & Tooling](#15-cli--tooling)
+- [Part V: Production & Operations](#part-v-production--operations)
+  - [16. Auth & Middleware](#16-auth--middleware)
+  - [17. Observability](#17-observability)
+  - [18. Scaling & Performance](#18-scaling--performance)
+  - [19. Application Configuration](#19-application-configuration)
+- [Production Readiness Checklist (Integrated)](#production-readiness-checklist-integrated)
+- [Appendices](#appendices)
+  - [A. API Cheatsheet](#a-api-cheatsheet)
+  - [B. Common Pitfalls](#b-common-pitfalls)
+  - [C. Migration Guide (React/Next.js → Vango)](#c-migration-guide-reactnextjs--vango)
+  - [D. `vango.json` Reference](#d-vangojson-reference)
+
 ## Preface
 
 ### Version & Status
