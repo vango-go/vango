@@ -28,7 +28,7 @@
 
 ## Why Vango?
 
-Modern web development is complicated. You write your logic twice—once on the server, once in the browser. You manage state in two places and pray they stay in sync. You debug hydration mismatches, cache invalidation, and client/server waterfalls.
+Solid's reactivity meets LiveView's architecture—in Go.
 
 **Vango takes a different approach.** Your UI is a projection of server state. The browser runs a thin client (~12KB) that captures events, sends them to the server, and applies binary patches to the DOM. No hydration. No client-side state management. No synchronization bugs.
 
